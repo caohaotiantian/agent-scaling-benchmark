@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local/aibench/case.schema.json",
+  "title": "AICodingAssistCase",
+  "type": "object",
+  "required": [
+    "case_id",
+    "schema_version",
+    "task_type",
+    "language",
+    "prompt",
+    "context",
+    "grader"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "case_id": { "type": "string", "minLength": 1 },
+    "schema_version": { "type": "string" },
+    "task_type": {
+      "type": "string",
+      "enum": [
+        "bugfix",
+        "feature",
+        "refactor",
+        "explain_to_edit",
+        "test_gen",
+        "pairwise"
+      ]
+    },
+    "language": { "type": "string" },
+    "prompt": { "type": "string", "minLength": 1 },
+    "context": {
+      "type": "object",
+      "required": ["files"],
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "content"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "content": { "type": "string" }
+            }
+          }
+        },
+        "notes": { "type": ["string", "null"] },
+        "workspace": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["inline", "snapshot", "git", "mixed"],
+              "default": "inline"
+            },
+            "snapshot": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Directory, .tar/.tar.gz/.zip relative to case-set or absolute"
+                }
+              }
+            },
+            "git": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "url": { "type": "string" },
+                "ref": {
+                  "type": "string",
+                  "description": "commit SHA / tag / branch"
+                },
+                "subdir": { "type": "string" },
+                "sparse_paths": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            },
+            "setup_commands": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Shell commands run after files are laid down (cwd=workspace)"
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "strict": {
+              "type": "boolean",
+              "default": true,
+              "description": "Fail case if snapshot/git materialization fails"
+            }
+          }
+        }
+      }
+    },
+    "grader": {
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["script", "gold", "llm_judge", "composite"]
+        },
+        "command": { "type": ["string", "null"] },
+        "gold_files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "content"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "content": { "type": "string" }
+            }
+          }
+        },
+        "match": {
+          "type": "string",
+          "enum": ["exact", "normalized", "contains_key_lines"],
+          "default": "normalized"
+        },
+        "key_lines": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "judge_rubric": { "type": ["string", "null"] },
+        "judge_threshold": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "source": { "type": "string" },
+        "source_session_id": { "type": ["string", "null"] },
+        "difficulty": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "split": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agentic Scaling Benchmark 结果表设计报告</title>
+    <style>
+      :root {
+        --ink: #18212f;
+        --muted: #667085;
+        --line: #d6dee8;
+        --navy: #18324d;
+        --blue: #27628f;
+        --pale-blue: #e4f0f8;
+        --pale-green: #e5f4ed;
+        --pale-yellow: #fff4d6;
+        --pale-purple: #ece7f7;
+        --pale-gray: #f5f7fa;
+        --white: #ffffff;
+        --good: #166534;
+        --warn: #8a5a00;
+        --bad: #b42318;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f4f7fb;
+        color: var(--ink);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", Arial, sans-serif;
+        line-height: 1.62;
+      }
+      .page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 32px 28px 56px;
+      }
+      header {
+        background: linear-gradient(135deg, #18324d 0%, #244b70 100%);
+        color: var(--white);
+        border-radius: 14px;
+        padding: 34px 38px;
+        box-shadow: 0 16px 40px rgba(24, 50, 77, 0.18);
+      }
+      header h1 {
+        margin: 0 0 12px;
+        font-size: 32px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+      header p {
+        max-width: 920px;
+        margin: 0;
+        color: #dce8f4;
+        font-size: 16px;
+      }
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      .pill {
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.09);
+        border-radius: 999px;
+        padding: 6px 12px;
+        color: #eef6ff;
+        font-size: 13px;
+      }
+      main {
+        margin-top: 26px;
+        display: grid;
+        gap: 22px;
+      }
+      section {
+        background: var(--white);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 26px 28px;
+        box-shadow: 0 8px 24px rgba(24, 50, 77, 0.06);
+      }
+      h2 {
+        margin: 0 0 16px;
+        font-size: 23px;
+        color: var(--navy);
+        line-height: 1.35;
+      }
+      h3 {
+        margin: 24px 0 10px;
+        color: #23445f;
+        font-size: 18px;
+      }
+      p {
+        margin: 9px 0;
+      }
+      a {
+        color: #175cd3;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .lead {
+        font-size: 17px;
+        color: #344054;
+      }
+      .callout {
+        border-left: 4px solid var(--blue);
+        background: #f1f7fc;
+        padding: 14px 16px;
+        margin: 18px 0;
+        border-radius: 8px;
+      }
+      .callout strong {
+        color: var(--navy);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .card {
+        border: 1px solid var(--line);
+        background: #fbfcfe;
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .card h3 {
+        margin-top: 0;
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin: 16px 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--white);
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        min-width: 760px;
+        font-size: 14px;
+      }
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        border-right: 1px solid var(--line);
+        padding: 9px 10px;
+        vertical-align: top;
+      }
+      th:last-child,
+      td:last-child {
+        border-right: 0;
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      thead th {
+        background: var(--blue);
+        color: var(--white);
+        font-weight: 700;
+        text-align: left;
+        white-space: nowrap;
+      }
+      tbody th {
+        background: var(--pale-gray);
+        text-align: left;
+        color: var(--navy);
+        font-weight: 700;
+      }
+      .narrow {
+        min-width: 0;
+      }
+      .narrow td,
+      .narrow th {
+        white-space: normal;
+      }
+      .tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        border: 1px solid var(--line);
+        background: var(--pale-gray);
+        color: #344054;
+        margin: 2px 4px 2px 0;
+      }
+      .tag.good {
+        background: #e8f5ee;
+        color: var(--good);
+        border-color: #b7dfc8;
+      }
+      .tag.warn {
+        background: #fff5db;
+        color: var(--warn);
+        border-color: #f2d184;
+      }
+      .tag.bad {
+        background: #fde8e7;
+        color: var(--bad);
+        border-color: #f0b8b4;
+      }
+      code {
+        background: #eef2f6;
+        color: #263445;
+        border-radius: 5px;
+        padding: 1px 5px;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 0.92em;
+      }
+      pre {
+        background: #111827;
+        color: #e5e7eb;
+        border-radius: 10px;
+        padding: 16px;
+        overflow-x: auto;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      ul {
+        margin: 10px 0 0 20px;
+        padding: 0;
+      }
+      li {
+        margin: 6px 0;
+      }
+      details {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px 14px;
+        background: #fbfcfe;
+        margin-top: 14px;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--navy);
+        font-weight: 700;
+      }
+      footer {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 22px;
+        text-align: center;
+      }
+      @media (max-width: 780px) {
+        .page {
+          padding: 18px 14px 34px;
+        }
+        header {
+          padding: 24px 22px;
+        }
+        header h1 {
+          font-size: 25px;
+        }
+        section {
+          padding: 20px 16px;
+        }
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <h1>Agentic Scaling Benchmark 结果表设计报告</h1>
+        <p>
+          本报告沉淀当前 Agentic Scaling 项目的 Benchmark
+          结果呈现方案，用于统一比较 SWE-Bench、算子生成、 漏洞挖掘、AI
+          辅助编程、Arena-style 编程评测等任务上的不同算法策略。
+        </p>
+        <div class="meta">
+          <span class="pill">主表：同一 Benchmark 下横向比较算法</span>
+          <span class="pill">综述表：不超过 10 列，面向汇报</span>
+          <span class="pill">通用表：一级列 + 细分列，面向实验归档</span>
+          <span class="pill">支持确定性与偏好型评测</span>
+        </div>
+      </header>
+      <main>
+        <section>
+          <h2>一、设计结论</h2>
+          <p class="lead">
+            Benchmark
+            应当作为统一评测协议存在，不应被算法拆散。不同算法只是在同一个
+            Benchmark、同一个 case set、 同一套资源与预算口径下生成不同实验行。
+          </p>
+          <div class="callout">
+            <strong>核心设计：</strong>
+            一行结果代表“同一 Benchmark + 同一 case set + 一个算法配置 +
+            一个预算档位 + 一次实验或一组 seed 聚合结果”。
+            Baseline、投机执行、多模型组合、Best-of-N、Verifier rerank
+            都进入同一张通用结果表。
+          </div>
+          <div class="grid">
+            <div class="card">
+              <h3>面向汇报</h3>
+              <p>
+                使用“项目效果综述表”，保留算法名称、Agent与模型、Benchmark、Case数、主指标、耗时、Token
+                和相对基线收益。 列数控制在 10 列以内，适合放进周报、PPT
+                或项目总览页。
+              </p>
+            </div>
+            <div class="card">
+              <h3>面向实验</h3>
+              <p>
+                使用“通用结果总表”，保留完整一级列和细分列。该表适合自动从
+                <code>summary.json</code>、 <code>results.jsonl</code>、trace 和
+                sandbox 事件中聚合生成。
+              </p>
+            </div>
+          </div>
+        </section>
+        <section>
+          <h2>二、背景与目标</h2>
+          <p>
+            当前项目希望使用 SWE-Bench 通用软件工程修复、Cann-Bench
+            算子生成、漏洞挖掘等任务作为 Agentic Scaling 的核心 Benchmark。
+            这些任务具备明确的成功或失败标准，适合用 resolved rate、pass
+            rate、compile/correct/perf pass 等确定性指标。
+          </p>
+          <p>
+            但 Agentic Scaling
+            项目的算法目标不只是提高通过率，还包括验证投机、多模型组合、并行采样、Verifier/Selector、
+            Retry
+            策略等是否真正带来质量提升、成本下降、耗时下降或资源效率提升。因此结果表必须覆盖质量、时间、Token、模型调用、
+            工具调用、沙箱资源、Retry、错误归因和分支选择质量。
+          </p>
+          <p>
+            此外，AI
+            辅助编程类任务可能没有完全量化的“正确答案”。这类任务仍然可以进入同一套
+            Benchmark 表，只是主指标从
+            <code>成功率</code> 转为
+            <code>win_rate</code
+            >、<code>Elo</code>、<code>human_accept_rate</code>、
+            <code>mean_rating</code> 或其他偏好型指标。
+          </p>
+          <p>
+            本报告参考了 PR39 中已有的 Fusion API timing、trace
+            viewer、SWE-Bench 聚合字段与 usage accounting 思路，
+            并将其扩展为项目级统一报告设计。参考链接：
+            <a href="https://gitcode.com/mindspore/mindspore-factory/pull/39"
+              >https://gitcode.com/mindspore/mindspore-factory/pull/39</a
+            >
+          </p>
+        </section>
+        <section>
+          <h2>三、统一数据粒度</h2>
+          <p>
+            人看的报告不需要展开每个
+            step，但机器落盘必须保留足够细的事件粒度。推荐数据层级如下。
+          </p>
+          <div class="table-wrap">
+            <table class="narrow">
+              <thead>
+                <tr>
+                  <th>层级</th>
+                  <th>标识</th>
+                  <th>用途</th>
+                  <th>典型字段</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>Run</th>
+                  <td><code>run_id</code></td>
+                  <td>一次完整实验或一组 seed 聚合结果</td>
+                  <td>算法、Agent、模型、预算、并发、总耗时、总成本</td>
+                </tr>
+                <tr>
+                  <th>Case</th>
+                  <td><code>case_id</code></td>
+                  <td>一个 Benchmark 样本的最终结果</td>
+                  <td>
+                    resolved/pass、steps、tokens、wall time、failure category
+                  </td>
+                </tr>
+                <tr>
+                  <th>Attempt/Branch</th>
+                  <td><code>attempt_id</code> / <code>branch_id</code></td>
+                  <td>支撑 best-of-N、投机、多模型组合与 selector 分析</td>
+                  <td>
+                    parent、model combo、selected、oracle pass、wasted token
+                  </td>
+                </tr>
+                <tr>
+                  <th>Step</th>
+                  <td><code>step_index</code></td>
+                  <td>Agent 交互过程分析</td>
+                  <td>
+                    action type、LLM latency、tool command、tool
+                    exit、observation bytes
+                  </td>
+                </tr>
+                <tr>
+                  <th>Model Call</th>
+                  <td><code>model_call_id</code></td>
+                  <td>成本、延迟、角色用量与失败归因</td>
+                  <td>
+                    role、model、prompt/completion tokens、latency、status
+                  </td>
+                </tr>
+                <tr>
+                  <th>Tool/Sandbox Event</th>
+                  <td><code>event_id</code></td>
+                  <td>工具执行、容器启动、资源队列与超时分析</td>
+                  <td>
+                    tool type、exit code、duration、sandbox start、image pull
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section>
+          <h2>四、项目效果综述表</h2>
+          <p>
+            综述表用于最终展示 Agentic Scaling 项目效果，不超过 10
+            列。推荐将“准确率”抽象为“主指标”，这样确定性任务和 Arena-style
+            任务都能进入同一个展示表。
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>算法名称</th>
+                  <th>Agent与模型</th>
+                  <th>基础/主模型</th>
+                  <th>Benchmark</th>
+                  <th>Case数</th>
+                  <th>主指标名称</th>
+                  <th>主指标值</th>
+                  <th>总体耗时(h)</th>
+                  <th>总体Token消耗</th>
+                  <th>相对基线收益</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>单模型基线</td>
+                  <td>mini-swe-agent｜main=DeepSeek-Pro</td>
+                  <td>DeepSeek-Pro</td>
+                  <td>SWE-Bench Lite</td>
+                  <td>300</td>
+                  <td>resolved_rate</td>
+                  <td>42.0%</td>
+                  <td>12.0</td>
+                  <td>114,000,000</td>
+                  <td>基线</td>
+                </tr>
+                <tr>
+                  <td>投机执行 k=2</td>
+                  <td>mini-swe-agent｜draft=Flash, main=Pro</td>
+                  <td>DeepSeek-Pro + Flash</td>
+                  <td>SWE-Bench Lite</td>
+                  <td>300</td>
+                  <td>resolved_rate</td>
+                  <td>45.3%</td>
+                  <td>9.0</td>
+                  <td>129,000,000</td>
+                  <td>+3.3pp；耗时-25%</td>
+                </tr>
+                <tr>
+                  <td>Coding Arena 基线</td>
+                  <td>IDE-Agent｜main=Pro</td>
+                  <td>DeepSeek-Pro</td>
+                  <td>AI Coding Arena</td>
+                  <td>500</td>
+                  <td>win_rate vs baseline</td>
+                  <td>50.0%</td>
+                  <td>8.5</td>
+                  <td>90,000,000</td>
+                  <td>基线</td>
+                </tr>
+                <tr>
+                  <td>多模型组合</td>
+                  <td>IDE-Agent｜panel=Flash/Pro/Qwen, agg=Pro</td>
+                  <td>DeepSeek-Pro</td>
+                  <td>AI Coding Arena</td>
+                  <td>500</td>
+                  <td>win_rate vs baseline</td>
+                  <td>57.2%</td>
+                  <td>10.1</td>
+                  <td>138,000,000</td>
+                  <td>+7.2pp；Token+53%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            这张表只回答“项目效果大概怎么样”。深入解释为什么提升、成本是否划算、资源是否可承受，则进入通用结果总表。
+          </p>
+        </section>
+        <section>
+          <h2>五、通用结果总表</h2>
+          <p>
+            通用结果总表采用“一级列 + 细分列”的多级表头。它是统一 Benchmark
+            结果的主数据表，适合沉淀到 Excel、HTML、 前端 dashboard 或机器可读
+            CSV 中。
+          </p>
+          <div class="table-wrap">
+            <table class="narrow">
+              <thead>
+                <tr>
+                  <th>一级列</th>
+                  <th>推荐细分列</th>
+                  <th>设计目的</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>实验标识</th>
+                  <td>运行ID、实验名称、实验时间、代码版本</td>
+                  <td>保证可复现，避免不同代码版本的结果被混合比较。</td>
+                </tr>
+                <tr>
+                  <th>Benchmark口径</th>
+                  <td>
+                    Benchmark名称、Case集合、Case数量、有效Case数、分组口径
+                  </td>
+                  <td>
+                    固定评测协议和样本集合，确保不同算法在同一口径下比较。
+                  </td>
+                </tr>
+                <tr>
+                  <th>算法配置</th>
+                  <td>
+                    算法名称、算法版本、预算轴、预算值、分支数、最大Attempt数、最大Step数、选择策略
+                  </td>
+                  <td>
+                    描述被测 scaling 算法本身，包括投机、并行采样、多模型组合和
+                    verifier 策略。
+                  </td>
+                </tr>
+                <tr>
+                  <th>Agent与模型</th>
+                  <td>
+                    Agent名称、Agent版本、主模型、草稿模型、Panel模型、聚合模型、验证模型、Fallback模型、模型组合摘要、采样参数
+                  </td>
+                  <td>把算法收益和模型/Agent 差异分开记录，防止混淆。</td>
+                </tr>
+                <tr>
+                  <th>主质量指标</th>
+                  <td>
+                    评判类型、主指标名称、主指标值、成功数、成功率、相对基线胜率、平均评分、置信区间、评判一致性
+                  </td>
+                  <td>兼容确定性任务和 Arena-style 偏好型任务。</td>
+                </tr>
+                <tr>
+                  <th>Scaling收益</th>
+                  <td>
+                    相对基线成功率提升、Oracle成功率、选择命中率、唯一新增成功数、退化失败数、净收益、边际收益/百万Token
+                  </td>
+                  <td>判断算法是否真正带来增量，而不是简单堆预算。</td>
+                </tr>
+                <tr>
+                  <th>成本效率</th>
+                  <td>
+                    总Token、平均Token/Case、平均Token/成功Case、总成本、平均成本/成功Case、Token放大率、成本放大率
+                  </td>
+                  <td>回答“提升是否值得”。</td>
+                </tr>
+                <tr>
+                  <th>时间效率</th>
+                  <td>
+                    总墙钟、吞吐、平均耗时/Case、p50耗时/Case、p95耗时/Case、最大耗时/Case、相对基线加速比
+                  </td>
+                  <td>评估端到端效率和长尾耗时。</td>
+                </tr>
+                <tr>
+                  <th>时间拆解</th>
+                  <td>
+                    Agent LLM端到端耗时、Server排队/网络耗时、Server
+                    Wall耗时、Engine耗时、Fusion内部模型耗时总和、Fusion内部关键路径耗时、工具执行耗时、沙箱启动耗时、判分耗时、未归因耗时
+                  </td>
+                  <td>
+                    定位耗时来源，尤其区分客户端 HTTP
+                    时间、服务端时间和内部模型调用时间。
+                  </td>
+                </tr>
+                <tr>
+                  <th>模型调用</th>
+                  <td>
+                    总模型调用次数、平均模型调用/Case、失败模型调用次数、取消模型调用次数、浪费Token、浪费Token占比、模型调用p50/p95延迟
+                  </td>
+                  <td>衡量投机、多模型组合和 retry 对调用成本的影响。</td>
+                </tr>
+                <tr>
+                  <th>角色用量</th>
+                  <td>
+                    Panel调用次数、Panel Token、Aggregator调用次数、Aggregator
+                    Token、Verifier调用次数、Verifier
+                    Token、Draft调用次数、Draft Token、Main调用次数、Main Token
+                  </td>
+                  <td>看清成本花在哪个角色上。</td>
+                </tr>
+                <tr>
+                  <th>Agent行为</th>
+                  <td>
+                    总Step数、平均Step/Case、p95
+                    Step/Case、工具调用总数、平均工具调用/Case、工具失败率、格式错误次数、Submit次数
+                  </td>
+                  <td>衡量 Agent 交互过程是否更稳、更短、更少犯协议错误。</td>
+                </tr>
+                <tr>
+                  <th>Retry与恢复</th>
+                  <td>
+                    总Retry次数、平均Retry/Case、LLM
+                    Retry次数、工具Retry次数、沙箱Retry次数、Agent
+                    Retry次数、Retry恢复成功数、Retry未恢复数
+                  </td>
+                  <td>区分 retry 带来的恢复收益和额外浪费。</td>
+                </tr>
+                <tr>
+                  <th>错误归因</th>
+                  <td>
+                    主要失败类别、模型推理失败数、Agent协议失败数、工具执行失败数、沙箱基础设施失败数、LLM服务失败数、Verifier选择失败数、预算耗尽失败数
+                  </td>
+                  <td>给后续优化提供方向，而不是只看最终失败。</td>
+                </tr>
+                <tr>
+                  <th>沙箱与资源</th>
+                  <td>
+                    沙箱启动次数、平均沙箱/Case、沙箱复用率、镜像拉取次数、沙箱超时次数
+                  </td>
+                  <td>衡量执行环境开销。</td>
+                </tr>
+                <tr>
+                  <th>并发与资源</th>
+                  <td>
+                    Case并发数、分支并发数、Workflow并发数、队列p50、队列p95、CPU峰值、内存峰值、GPU/NPU利用率、资源错误数
+                  </td>
+                  <td>判断 scaling 策略是否对资源系统造成压力。</td>
+                </tr>
+                <tr>
+                  <th>投机指标</th>
+                  <td>
+                    Draft接受率、Draft错误接受率、取消调用占比、投机节省墙钟
+                  </td>
+                  <td>专门评估投机算法是否真正省时，而不是制造额外成本。</td>
+                </tr>
+                <tr>
+                  <th>多模型指标</th>
+                  <td>
+                    模型互补成功数、最佳模型贡献、Winner模型分布、Panel分歧率
+                  </td>
+                  <td>判断多模型组合的收益是否来自模型互补性。</td>
+                </tr>
+                <tr>
+                  <th>产物</th>
+                  <td>报告路径、结果目录、Trace路径、原始结果路径</td>
+                  <td>支持复盘、debug 和审计。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section>
+          <h2>六、关键指标口径</h2>
+          <h3>1. 主指标</h3>
+          <p>
+            所有 Benchmark 都必须提供 <code>主指标名称</code> 和
+            <code>主指标值</code>。确定性任务通常使用
+            <code>resolved_rate</code> 或
+            <code>pass_rate</code>，偏好型任务可以使用 <code>win_rate</code>、
+            <code>Elo</code>、<code>accept_rate</code> 或
+            <code>mean_rating</code>。
+          </p>
+          <h3>2. Oracle 与选择命中</h3>
+          <p>
+            对 best-of-N、投机、多模型组合这类多分支算法，必须区分
+            <code>Oracle成功率</code> 和 <code>最终成功率</code>。
+            如果某个分支成功但 selector
+            没有选中，说明生成能力足够但选择策略失败。
+          </p>
+          <h3>3. 时间拆解</h3>
+          <p>
+            <code>Agent LLM端到端耗时</code> 是客户端 HTTP 视角；<code
+              >Server Wall</code
+            >
+            是服务端收到请求到响应 ready；
+            <code>Fusion内部模型耗时总和</code> 是 provider call latency
+            求和；<code>Fusion内部关键路径耗时</code> 才更接近并发下的墙钟解释。
+          </p>
+          <h3>4. Token 与成本</h3>
+          <p>
+            Token 必须区分总量、平均每 case、平均每成功 case。多模型组合还要按
+            role 拆成 panel、aggregator、verifier、draft、main，
+            否则无法判断成本主要来自哪里。
+          </p>
+          <h3>5. Retry 与错误归因</h3>
+          <p>
+            Retry
+            需要同时统计次数和恢复效果。错误归因建议固定为模型推理失败、Agent协议失败、工具执行失败、沙箱基础设施失败、
+            LLM服务失败、Verifier选择失败、预算耗尽失败等类别。
+          </p>
+        </section>
+        <section>
+          <h2>七、确定性任务与 Arena-style 任务如何共用表</h2>
+          <p>
+            SWE-Bench、算子生成、漏洞挖掘具备明确正确性标准，适合二元成功指标。AI
+            辅助编程、代码助手体验、IDE Agent 等任务
+            可能没有唯一标准答案，但仍然可以通过偏好判分或人工接受率进入同一张表。
+          </p>
+          <div class="table-wrap">
+            <table class="narrow">
+              <thead>
+                <tr>
+                  <th>任务类型</th>
+                  <th>典型任务</th>
+                  <th>评判类型</th>
+                  <th>推荐主指标</th>
+                  <th>是否填写成功率</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>确定性正确性任务</th>
+                  <td>SWE-Bench、算子生成、漏洞挖掘</td>
+                  <td>确定性判分</td>
+                  <td>
+                    <code>resolved_rate</code>、<code>pass_rate</code>、<code
+                      >full_pass_rate</code
+                    >
+                  </td>
+                  <td><span class="tag good">填写</span></td>
+                </tr>
+                <tr>
+                  <th>半确定性生成任务</th>
+                  <td>代码补全、测试生成、修复建议</td>
+                  <td>自动判分 + 人工采纳</td>
+                  <td>
+                    <code>execution_pass_rate</code>、<code
+                      >human_accept_rate</code
+                    >
+                  </td>
+                  <td><span class="tag warn">按阈值定义后填写</span></td>
+                </tr>
+                <tr>
+                  <th>偏好型助手任务</th>
+                  <td>AI 辅助编程、IDE Agent、复杂开发协作</td>
+                  <td>偏好判分 / Arena</td>
+                  <td>
+                    <code>win_rate</code>、<code>Elo</code>、<code
+                      >mean_rating</code
+                    >
+                  </td>
+                  <td><span class="tag warn">可为空或映射为胜率</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <h3>Arena-style 映射</h3>
+          <p>
+            Arena-style
+            评测可以填入当前表，只是主指标不是准确率，而是相对偏好。推荐映射如下。
+          </p>
+          <div class="table-wrap">
+            <table class="narrow">
+              <thead>
+                <tr>
+                  <th>通用字段</th>
+                  <th>Arena-style 填法</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>Benchmark名称</th>
+                  <td><code>AI Coding Arena</code> 或内部 Arena 名称</td>
+                </tr>
+                <tr>
+                  <th>Case数量</th>
+                  <td>prompt/task 数，或 pairwise battle 的 unique task 数</td>
+                </tr>
+                <tr>
+                  <th>评判类型</th>
+                  <td>
+                    <code>偏好判分</code>、<code>人工评审</code> 或
+                    <code>人工+模型混合评判</code>
+                  </td>
+                </tr>
+                <tr>
+                  <th>主指标名称</th>
+                  <td>
+                    <code>win_rate</code>、<code>Elo</code>、<code
+                      >arena_score</code
+                    >
+                  </td>
+                </tr>
+                <tr>
+                  <th>主指标值</th>
+                  <td>
+                    例如 <code>57.2% win_rate</code> 或 <code>Elo 1124</code>
+                  </td>
+                </tr>
+                <tr>
+                  <th>相对基线胜率</th>
+                  <td>当前系统相对 baseline 的 pairwise win rate</td>
+                </tr>
+                <tr>
+                  <th>置信区间</th>
+                  <td>bootstrap CI 或多轮评审方差</td>
+                </tr>
+                <tr>
+                  <th>评判一致性</th>
+                  <td>多人评审一致率、模型 judge 一致率、Kappa 等</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section>
+          <h2>八、推荐落盘结构</h2>
+          <p>
+            报告表建议由机器可读事件文件自动生成，避免人工填表造成口径漂移。
+          </p>
+          <pre><code>runs/&lt;benchmark&gt;__&lt;timestamp&gt;/
+├── run_manifest.json
+├── summary.json
+├── report.md
+├── report.html
+├── results.jsonl
+├── attempts.jsonl
+├── steps.jsonl
+├── model_calls.jsonl
+├── tool_calls.jsonl
+├── sandbox_events.jsonl
+└── cases/&lt;case_id&gt;/
+    ├── result.json
+    ├── attempts/&lt;attempt_id&gt;.json
+    ├── trajectory.json
+    ├── patch.diff
+    ├── grader_report.json
+    └── logs/</code></pre>
+          <p>
+            <code>summary.json</code> 聚合出综述表和通用结果总表，明细文件则用于
+            Trace Viewer、失败归因和后续统计检验。
+          </p>
+        </section>
+        <section>
+          <h2>九、落地建议</h2>
+          <ul>
+            <li>
+              第一阶段：固化
+              <code>run_manifest.json</code
+              >、<code>summary.json</code>、<code>results.jsonl</code>，生成综述表和通用结果总表。
+            </li>
+            <li>
+              第二阶段：补齐 <code>attempts.jsonl</code>，支持
+              best-of-N、投机和多模型组合的 Oracle 与选择命中分析。
+            </li>
+            <li>
+              第三阶段：补齐
+              <code>model_calls.jsonl</code
+              >、<code>tool_calls.jsonl</code>、<code>sandbox_events.jsonl</code>，支撑成本、时间和资源归因。
+            </li>
+            <li>
+              第四阶段：对 AI 辅助编程和 Arena-style 任务增加
+              <code>评判类型</code
+              >、<code>主指标名称</code>、<code>主指标值</code>、<code
+                >评判一致性</code
+              >
+              字段。
+            </li>
+            <li>
+              第五阶段：把 Excel、HTML、Markdown 和前端 Dashboard
+              都从同一份机器数据生成，避免口径分叉。
+            </li>
+          </ul>
+          <div class="callout">
+            <strong>最终判断：</strong>
+            当前表设计适用于 SWE-Bench、算子生成、漏洞挖掘这类确定性
+            Benchmark，也适用于 AI 辅助编程和 Arena-style 评测。
+            关键是把“准确率”升级为“主指标”，并在表里显式记录评判类型和主指标名称。
+          </div>
+        </section>
+        <section>
+          <h2>十、附录：Excel 模板</h2>
+          <p>
+            已生成配套 Excel 模板，包含 <code>项目效果综述</code>、<code
+              >通用结果总表</code
+            >
+            和 <code>字段说明</code> 三个工作表。
+          </p>
+          <p>
+            文件路径：
+            <code
+              >/Users/lishanni/code/agent-study/outputs/agentic_scaling_benchmark_tables/agentic_scaling_benchmark_tables.xlsx</code
+            >
+          </p>
+        </section>
+      </main>
+      <footer>
+        Agentic Scaling Benchmark Design Report · Generated for project
+        discussion and implementation alignment
+      </footer>
+    </div>
+  </body>
+</html>

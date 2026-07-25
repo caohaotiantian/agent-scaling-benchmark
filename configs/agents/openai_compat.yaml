@@ -1,0 +1,11 @@
+name: openai_compat
+version: "0.1.0"
+adapter: openai_compat
+description: Single-shot OpenAI-compatible chat agent that rewrites workspace files from model output.
+options:
+  system_prompt: |
+    You are a coding assistant. Given a user task and existing files, output a complete
+    solution. Respond with a JSON object only:
+    {"files": [{"path": "...", "content": "..."}], "message": "brief summary"}
+    Include every file you change. Do not wrap JSON in markdown fences.
+  max_tokens: 4096

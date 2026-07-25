@@ -1,0 +1,31 @@
+{
+  "case_id": "seed-v0-002-fix-avg",
+  "schema_version": "0.1",
+  "task_type": "bugfix",
+  "language": "python",
+  "prompt": "stats.py 里 average 函数有 bug：空列表会 ZeroDivisionError，且当前对整数列表返回了错误结果。请修复 average(nums) 使空列表返回 0.0，非空返回正确算术平均。",
+  "context": {
+    "files": [
+      {
+        "path": "stats.py",
+        "content": "def average(nums: list[float]) -> float:\n    # BUG: missing empty guard; wrong formula\n    return sum(nums) / (len(nums) - 1)\n"
+      },
+      {
+        "path": "test_stats.py",
+        "content": "from stats import average\n\n\ndef test_empty():\n    assert average([]) == 0.0\n\n\ndef test_simple():\n    assert average([1, 2, 3]) == 2.0\n\n\ndef test_float():\n    assert abs(average([1.0, 2.0]) - 1.5) < 1e-9\n"
+      }
+    ],
+    "notes": "Seed case: bugfix with failing tests."
+  },
+  "grader": {
+    "mode": "script",
+    "command": "python -m pytest -q test_stats.py"
+  },
+  "metadata": {
+    "source": "seed",
+    "source_session_id": null,
+    "difficulty": "easy",
+    "tags": ["python", "bugfix"],
+    "split": "dev"
+  }
+}

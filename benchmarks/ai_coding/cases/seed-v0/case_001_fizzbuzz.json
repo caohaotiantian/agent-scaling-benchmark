@@ -1,0 +1,31 @@
+{
+  "case_id": "seed-v0-001-fizzbuzz",
+  "schema_version": "0.1",
+  "task_type": "feature",
+  "language": "python",
+  "prompt": "实现函数 fizzbuzz(n: int) -> list[str]：对 1..n 每个整数，若能被3整除返回 'Fizz'，被5整除返回 'Buzz'，同时被3和5整除返回 'FizzBuzz'，否则返回数字字符串。写在 fizzbuzz.py。",
+  "context": {
+    "files": [
+      {
+        "path": "fizzbuzz.py",
+        "content": "def fizzbuzz(n: int) -> list[str]:\n    raise NotImplementedError\n"
+      },
+      {
+        "path": "test_fizzbuzz.py",
+        "content": "from fizzbuzz import fizzbuzz\n\n\ndef test_basic():\n    assert fizzbuzz(5) == [\"1\", \"2\", \"Fizz\", \"4\", \"Buzz\"]\n\n\ndef test_fifteen():\n    assert fizzbuzz(15)[-1] == \"FizzBuzz\"\n"
+      }
+    ],
+    "notes": "Seed case: classic feature implementation with pytest grader."
+  },
+  "grader": {
+    "mode": "script",
+    "command": "python -m pytest -q test_fizzbuzz.py"
+  },
+  "metadata": {
+    "source": "seed",
+    "source_session_id": null,
+    "difficulty": "easy",
+    "tags": ["python", "feature", "unit-test"],
+    "split": "dev"
+  }
+}
