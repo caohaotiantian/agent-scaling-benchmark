@@ -1,0 +1,7 @@
+name: mock
+version: "0.1.0"
+adapter: mock
+description: Deterministic reference agent for harness validation (no LLM).
+options:
+  # When true, write correct solutions for known seed cases.
+  solve_seed: true
