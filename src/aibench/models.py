@@ -135,6 +135,7 @@ class RunConfig:
     grouping: str
     agent_config_path: str
     model_config_path: str
+    case_workers: int = 1
 
     @classmethod
     def from_dict(cls, d: dict[str, Any], base_dir: Path | None = None) -> RunConfig:
@@ -149,11 +150,12 @@ class RunConfig:
             max_steps=int(d.get("max_steps", 40)),
             max_wall_time_s=float(d.get("max_wall_time_s", 300)),
             selection_strategy=d.get("selection_strategy", "first-submit"),
-            case_set=d.get("case_set", "seed-v0"),
+            case_set=d.get("case_set", "auto-v0"),
             benchmark_name=d.get("benchmark_name", "AI-Coding-Assist"),
             grouping=d.get("grouping", "task_type"),
             agent_config_path=d.get("agent_config", "configs/agents/mock.yaml"),
             model_config_path=d.get("model_config", "configs/models/mock-model.yaml"),
+            case_workers=int(d.get("case_workers", 1)),
         )
 
 
