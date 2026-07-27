@@ -1,0 +1,28 @@
+{
+  "sessions": [
+    {
+      "session_id": "s-coding-1",
+      "messages": [
+        {"role": "user", "content": "请实现函数 add(a,b) 返回两数之和，写在 add.py"},
+        {"role": "assistant", "content": "```python\ndef add(a, b):\n    return a + b\n```"}
+      ],
+      "artifacts": [
+        {"type": "file", "path": "add.py", "content": "def add(a, b):\n    pass\n"},
+        {
+          "type": "accepted_file",
+          "path": "add.py",
+          "content": "def add(a, b):\n    return a + b\n",
+          "accepted": true
+        }
+      ],
+      "outcome": {"user_accepted": true}
+    },
+    {
+      "session_id": "s-noise-ops",
+      "messages": [
+        {"role": "user", "content": "帮我巡检服务器磁盘健康状态并分析硬盘运行状况"}
+      ],
+      "artifacts": []
+    }
+  ]
+}

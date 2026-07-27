@@ -12,11 +12,31 @@
 
 ```bash
 # 依赖（推荐 uv）
-uv sync --extra dev
+uv sync
 
-# 一键：mock agent + seed-v0 case set
+# 单次：mock agent + seed-v0
 ./scripts/run_benchmark.sh
+
+# 端到端 dry-run（fixture 筛选/生成 + mock 消融出表，不访问 DB/LLM）
+./scripts/e2e_pipeline.sh --dry-run
 ```
+
+### 全流程（会话 → 候选 case → 消融）
+
+```bash
+set -a && source .env && set +a   # AIBENCH_DB_URL / OPENAI_*
+
+# 真链路：DB 抽取 → 规则筛选 → 生成候选集 auto-v0 → 消融
+./scripts/e2e_pipeline.sh --limit 80 --max-cases 8 --heuristic-only
+
+# 或分步：
+uv run python -m aibench extract-from-db --output-dir benchmarks/ai_coding/cases/drafts-from-db --limit 80 --require-gold
+uv run python -m aibench filter-drafts --input-dir benchmarks/ai_coding/cases/drafts-from-db --output-dir benchmarks/ai_coding/cases/drafts-kept
+uv run python -m aibench generate-cases --input-dir benchmarks/ai_coding/cases/drafts-kept --output-dir benchmarks/ai_coding/cases/auto-v0 --heuristic-only
+uv run python -m aibench ablation --matrix configs/runs/ablation-matrix.mock.yaml --case-set seed-v0
+```
+
+`auto-v0` 是**自动候选集**（`needs_review`），不是 published 正式集。消融对比 Agent/模型请改矩阵 YAML。
 
 成功后在 `runs/AI-Coding-Assist__*/` 下生成：
 
