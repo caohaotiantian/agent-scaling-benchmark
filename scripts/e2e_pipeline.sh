@@ -90,6 +90,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     --matrix "$MATRIX" \
     --case-set seed-v0 \
     --output-root "$OUT_ROOT/e2e-dry-run"
+  # seed-v0 resolves from tests/fixtures/case_sets when not under benchmarks/
 
   echo "OK dry-run complete. Ablation under $OUT_ROOT/e2e-dry-run"
   ls -la "$OUT_ROOT/e2e-dry-run" | head -20
@@ -126,10 +127,20 @@ fi
 echo "==> validate auto-v0"
 "${UV[@]}" python -m aibench validate-cases --case-set auto-v0
 
-echo "==> ablation"
+echo "==> ablation on auto-v0"
+MATRIX_SESS="${MATRIX_SESS:-$ROOT/configs/runs/ablation-matrix.session.yaml}"
+if [[ -f "$MATRIX_SESS" && "$MATRIX" == "$ROOT/configs/runs/ablation-matrix.mock.yaml" ]]; then
+  MATRIX="$MATRIX_SESS"
+fi
 "${UV[@]}" python -m aibench ablation \
   --matrix "$MATRIX" \
   --case-set auto-v0 \
   --output-root "$OUT_ROOT"
 
 echo "OK e2e complete"
+ABL=$(ls -td "$OUT_ROOT"/ablation_* 2>/dev/null | head -1 || true)
+if [[ -n "$ABL" ]]; then
+  echo "ablation_dir=$ABL"
+  echo "---- ablation_report.md (head) ----"
+  head -40 "$ABL/ablation_report.md" || true
+fi

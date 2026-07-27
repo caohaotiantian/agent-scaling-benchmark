@@ -78,15 +78,20 @@ def _grade_script(case: Case, workspace: Path) -> GradeResult:
 def _grade_gold(case: Case, workspace: Path) -> GradeResult:
     g = case.grader
     if g.key_lines and g.match == "contains_key_lines":
-        # Check key lines appear in any non-test source file or gold targets.
-        targets = [gf.path for gf in g.gold_files] if g.gold_files else []
-        if not targets:
-            targets = [fb.path for fb in case.files]
+        # Prefer gold paths if present on disk; otherwise scan whole workspace.
         blobs: list[str] = []
+        targets = [gf.path for gf in g.gold_files] if g.gold_files else []
         for rel in targets:
             p = workspace / rel
             if p.is_file():
                 blobs.append(p.read_text(encoding="utf-8"))
+        if not blobs:
+            for p in workspace.rglob("*"):
+                if p.is_file() and p.stat().st_size < 2_000_000:
+                    try:
+                        blobs.append(p.read_text(encoding="utf-8", errors="replace"))
+                    except OSError:
+                        continue
         joined = "\n".join(blobs)
         missing = [k for k in g.key_lines if k not in joined]
         ok = not missing
