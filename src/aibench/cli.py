@@ -5,7 +5,11 @@ import json
 import sys
 from pathlib import Path
 
-from aibench.cases import validate_case_set
+from aibench.ablation import run_ablation
+from aibench.cases import load_schema_validator, validate_case_set
+from aibench.env_config import load_dotenv
+from aibench.extract.filter_rules import rule_filter_draft
+from aibench.extract.generate_case import generate_case_with_llm, heuristic_case_from_draft
 from aibench.extract.llm_chat_records import (
     extract_case_drafts_from_db,
     resolve_db_url,
@@ -20,6 +24,7 @@ from aibench.runner import run_benchmark
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(prog="aibench", description="AI Coding Assist Benchmark")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -49,35 +54,39 @@ def main(argv: list[str] | None = None) -> int:
         "extract-from-db",
         help="Extract case drafts from MySQL llm_chat_records (URL via AIBENCH_DB_URL)",
     )
-    p_db.add_argument(
-        "--db-url",
-        type=str,
-        default=None,
-        help="SQLAlchemy URL; default env AIBENCH_DB_URL (do not commit secrets)",
-    )
+    p_db.add_argument("--db-url", type=str, default=None)
     p_db.add_argument("--output-dir", type=Path, required=True)
-    p_db.add_argument("--limit", type=int, default=300, help="Max rows to scan")
+    p_db.add_argument("--limit", type=int, default=300)
     p_db.add_argument("--max-cases", type=int, default=30)
     p_db.add_argument("--min-messages", type=int, default=3)
     p_db.add_argument("--max-messages", type=int, default=60)
-    p_db.add_argument(
-        "--all-agents",
+    p_db.add_argument("--all-agents", action="store_true")
+    p_db.add_argument("--require-gold", action="store_true")
+    p_db.add_argument("--since", type=str, default=None)
+    p_db.add_argument("--until", type=str, default=None)
+    p_db.add_argument("--export-raw", type=Path, default=None)
+
+    p_fil = sub.add_parser("filter-drafts", help="Rule-filter case drafts (kept vs dropped)")
+    p_fil.add_argument("--input-dir", type=Path, required=True)
+    p_fil.add_argument("--output-dir", type=Path, required=True)
+    p_fil.add_argument("--dropped-dir", type=Path, default=None)
+    p_fil.add_argument("--report", type=Path, default=None)
+
+    p_gen = sub.add_parser("generate-cases", help="Promote drafts to schema cases")
+    p_gen.add_argument("--input-dir", type=Path, required=True)
+    p_gen.add_argument("--output-dir", type=Path, required=True)
+    p_gen.add_argument(
+        "--heuristic-only",
         action="store_true",
-        help="Do not restrict to User-Agent opencode",
+        help="Do not call LLM; normalize drafts only",
     )
-    p_db.add_argument(
-        "--require-gold",
-        action="store_true",
-        help="Only keep drafts that extracted assistant code gold",
-    )
-    p_db.add_argument("--since", type=str, default=None, help="start_time >= (YYYY-MM-DD)")
-    p_db.add_argument("--until", type=str, default=None, help="start_time < (YYYY-MM-DD)")
-    p_db.add_argument(
-        "--export-raw",
-        type=Path,
-        default=None,
-        help="Optional path to also dump lightweight metadata JSON for audit",
-    )
+    p_gen.add_argument("--max-cases", type=int, default=50)
+    p_gen.add_argument("--filter", action="store_true", help="Apply rule filter before generate")
+
+    p_abl = sub.add_parser("ablation", help="Run agent/model matrix and aggregate tables")
+    p_abl.add_argument("--matrix", type=Path, required=True)
+    p_abl.add_argument("--output-root", type=Path, default=None)
+    p_abl.add_argument("--case-set", type=str, default=None)
 
     args = parser.parse_args(argv)
 
@@ -139,10 +148,6 @@ def main(argv: list[str] | None = None) -> int:
         for d in drafts:
             write_json(out / f"{d['case_id']}.json", d)
         print(f"wrote {len(drafts)} drafts -> {out}")
-        print(
-            "NOTE: drafts require human review, desensitization check, "
-            "and grader finalization before use as a published case set."
-        )
         return 0
 
     if args.cmd == "extract-from-db":
@@ -162,10 +167,9 @@ def main(argv: list[str] | None = None) -> int:
             since=args.since,
             until=args.until,
         )
-        out: Path = args.output_dir
+        out = args.output_dir
         out.mkdir(parents=True, exist_ok=True)
         for d in drafts:
-            # Keep drafts out of published case sets by default directory naming
             write_json(out / f"{d['case_id']}.json", d)
         if args.export_raw:
             meta = [
@@ -175,19 +179,81 @@ def main(argv: list[str] | None = None) -> int:
                     "task_type": d["task_type"],
                     "language": d["language"],
                     "has_gold_code": d["metadata"].get("has_gold_code"),
-                    "has_context_files": d["metadata"].get("has_context_files"),
                     "prompt_preview": d["prompt"][:200],
-                    "start_time": d["metadata"].get("start_time"),
-                    "source_model": d["metadata"].get("source_model"),
                 }
                 for d in drafts
             ]
             write_json(args.export_raw, {"count": len(meta), "items": meta})
         print(f"wrote {len(drafts)} drafts -> {out}")
-        print(
-            "NOTE: drafts require human review, desensitization check, "
-            "and grader finalization before use as a published case set."
+        return 0
+
+    if args.cmd == "filter-drafts":
+        inp: Path = args.input_dir
+        out = args.output_dir
+        out.mkdir(parents=True, exist_ok=True)
+        drop_dir = args.dropped_dir
+        if drop_dir:
+            drop_dir.mkdir(parents=True, exist_ok=True)
+        report_rows = []
+        kept = dropped = 0
+        for path in sorted(inp.glob("*.json")):
+            draft = load_json(path)
+            dec = rule_filter_draft(draft)
+            row = {"file": path.name, "case_id": draft.get("case_id"), **dec.to_dict()}
+            report_rows.append(row)
+            if dec.keep:
+                write_json(out / path.name, draft)
+                kept += 1
+            else:
+                dropped += 1
+                if drop_dir:
+                    write_json(drop_dir / path.name, {**draft, "_filter": dec.to_dict()})
+        if args.report:
+            write_json(args.report, {"kept": kept, "dropped": dropped, "items": report_rows})
+        print(f"filter kept={kept} dropped={dropped} -> {out}")
+        return 0
+
+    if args.cmd == "generate-cases":
+        inp = args.input_dir
+        out = args.output_dir
+        out.mkdir(parents=True, exist_ok=True)
+        validator = load_schema_validator()
+        n_ok = 0
+        for path in sorted(inp.glob("*.json")):
+            if n_ok >= args.max_cases:
+                break
+            draft = load_json(path)
+            if args.filter:
+                if not rule_filter_draft(draft).keep:
+                    continue
+            try:
+                if args.heuristic_only:
+                    case = heuristic_case_from_draft(draft)
+                else:
+                    try:
+                        case = generate_case_with_llm(draft)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"LLM generate failed for {path.name}: {e}; fallback heuristic")
+                        case = heuristic_case_from_draft(draft)
+                errors = sorted(validator.iter_errors(case), key=lambda e: list(e.path))
+                if errors:
+                    print(f"skip invalid {path.name}: {errors[0].message}")
+                    continue
+                write_json(out / f"{case['case_id']}.json", case)
+                n_ok += 1
+            except Exception as e:  # noqa: BLE001
+                print(f"skip {path.name}: {e}")
+        print(f"generated {n_ok} cases -> {out}")
+        return 0 if n_ok > 0 else 1
+
+    if args.cmd == "ablation":
+        abl_dir = run_ablation(
+            args.matrix,
+            output_root=args.output_root,
+            case_set_override=args.case_set,
         )
+        print(f"ablation_dir={abl_dir}")
+        print(f"report={abl_dir / 'ablation_report.md'}")
         return 0
 
     return 2

@@ -60,7 +60,13 @@ class OpenAICompatAgent(AgentAdapter):
                 error_message=f"missing API key env: {api_key_env} or OPENAI_API_KEY",
                 wall_time_s=time.perf_counter() - t0,
             )
-        base_url = (model.base_url or "https://api.openai.com/v1").rstrip("/")
+        base_url = (
+            model.base_url
+            or os.environ.get("OPENAI_BASE_URL")
+            or os.environ.get("AIBENCH_BASE_URL")
+            or "https://api.openai.com/v1"
+        ).rstrip("/")
+        model_name = os.environ.get("OPENAI_MODEL") or model.model
         system = self.agent_config.options.get("system_prompt") or (
             "Return JSON {\"files\":[...],\"message\":\"...\"} only."
         )
@@ -78,7 +84,7 @@ class OpenAICompatAgent(AgentAdapter):
         steps.append(StepRecord(step_index=0, action="llm_call", tool="chat.completions"))
 
         payload: dict[str, Any] = {
-            "model": model.model,
+            "model": model_name,
             "temperature": model.temperature,
             "max_tokens": max_tokens,
             "messages": [

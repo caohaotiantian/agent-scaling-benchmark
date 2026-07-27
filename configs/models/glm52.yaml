@@ -1,0 +1,9 @@
+name: glm-5.2
+provider: openai_compat
+# Overridden at runtime by OPENAI_MODEL if set; default matches .env
+model: GLM-5.2
+base_url: null  # filled from OPENAI_BASE_URL when null
+api_key_env: OPENAI_API_KEY
+temperature: 0
+max_tokens: 4096
+extra: {}
