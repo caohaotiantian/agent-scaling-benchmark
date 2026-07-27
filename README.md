@@ -4,7 +4,9 @@
 
 | 文档 | 说明 |
 |------|------|
-| [设计文档 Phase A](docs/design/2026-07-25-ai-coding-benchmark.md) | 任务定义、判分、指标映射、会话抽取 |
+| **[用户使用手册](docs/USER_GUIDE.md)** | **配置项、默认值、CLI/脚本参数、快速上手** |
+| [E2E 设计](docs/design/2026-07-25-e2e-session-to-benchmark.md) | 会话→case→消融闭环 |
+| [Benchmark 协议设计](docs/design/2026-07-25-ai-coding-benchmark.md) | 任务定义、判分、指标 |
 | [结果表字段](agentic_scaling_benchmark_tables.md) | 综述表 / 通用结果总表 |
 | [结果表设计报告](agentic-scaling-benchmark.html) | 统一评测协议与落盘结构 |
 
