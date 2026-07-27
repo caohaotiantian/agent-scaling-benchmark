@@ -385,7 +385,50 @@ runs:                      # 每一项 = 一次独立实验行
 
 ---
 
-## 9. 扩展命令（遗留能力补全后）
+## 9. 科学效度审计与并行执行
+
+### 效度审计
+
+```bash
+# stub 必须 fail + 污染检测 + 难度/指纹 + 去重
+uv run python -m aibench audit-cases --case-set auto-v0 \
+  --annotate --report /tmp/audit.json --fail-on-error
+
+# 发布时强制审计通过
+uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
+  --require-audit --case-id my_case
+```
+
+| 检查 | 含义 |
+|------|------|
+| stub_fail | script grader 在初始 workspace 上必须失败 |
+| contamination | gold/key_lines 不得已在初始上下文中 |
+| difficulty | 启发式 easy/medium/hard |
+| fingerprint | prompt+paths 去重信号 |
+| content_fingerprint | 整个 case set 内容指纹（写入 run manifest） |
+
+报告中含 **Wilson 95% CI** 与按 `task_type` / `difficulty` 分层成功率。
+
+### 并行
+
+| 位置 | 参数 | 默认 | 说明 |
+|------|------|------|------|
+| `aibench run` | `--workers N` | 1（或 run-config `case_workers`） | **case 级**并行 |
+| run yaml | `case_workers` | 1 | 同上 |
+| `generate-cases` | `--workers N` | 1 | 生成并行 |
+| `ablation` | `--parallel N` | 1 | **实验行**并行 |
+
+每个 case 使用独立 Agent 实例与独立 workspace，mock 上 workers=1 与 workers=2 成功率一致。
+
+生成后一键审计：
+
+```bash
+uv run python -m aibench generate-cases ... --audit --secrets-scan --workers 4
+```
+
+---
+
+## 10. 扩展命令（遗留能力补全后）
 
 ### 发布候选 → 正式集
 
@@ -438,7 +481,7 @@ uv run python -m aibench filter-drafts \
 
 ---
 
-## 10. 命令速查
+## 11. 命令速查
 
 ```bash
 # 环境

@@ -18,6 +18,7 @@ def promote_cases(
     case_ids: list[str] | None = None,
     require_script: bool = True,
     allow_secrets: bool = False,
+    require_audit: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Copy selected cases from source_set to dest_set after checklist checks.
@@ -75,6 +76,25 @@ def promote_cases(
                 }
             )
             continue
+
+        if require_audit:
+            from aibench.models import Case
+            from aibench.validity import audit_case
+
+            try:
+                v = audit_case(Case.from_dict(raw), case_set=source_set)
+            except Exception as e:  # noqa: BLE001
+                skipped.append({"case_id": cid, "reason": f"audit_error: {e}"})
+                continue
+            if not v.ok:
+                skipped.append(
+                    {
+                        "case_id": cid,
+                        "reason": "validity_audit_failed",
+                        "issues": [i.to_dict() for i in v.issues if i.severity == "error"],
+                    }
+                )
+                continue
 
         # mark published
         meta = dict(raw.get("metadata") or {})

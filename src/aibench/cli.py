@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from aibench.ablation import run_ablation
 from aibench.cases import load_schema_validator, validate_case_set
@@ -40,6 +41,12 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--case-set", type=str, default=None)
     p_run.add_argument("--run-id", type=str, default=None)
     p_run.add_argument("--output-root", type=Path, default=None)
+    p_run.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Parallel case workers (default: run-config case_workers or 1)",
+    )
 
     p_val = sub.add_parser("validate-cases", help="Validate a case set against schema")
     p_val.add_argument("--case-set", type=str, default="auto-v0")
@@ -93,9 +100,20 @@ def main(argv: list[str] | None = None) -> int:
     p_gen.add_argument("--max-cases", type=int, default=50)
     p_gen.add_argument("--filter", action="store_true", help="Apply rule filter before generate")
     p_gen.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Parallel generation workers (LLM/heuristic)",
+    )
+    p_gen.add_argument(
         "--secrets-scan",
         action="store_true",
         help="Scan generated cases for secrets and write report next to output",
+    )
+    p_gen.add_argument(
+        "--audit",
+        action="store_true",
+        help="Run validity audit and annotate metadata after generate",
     )
 
     p_abl = sub.add_parser("ablation", help="Run agent/model matrix and aggregate tables")
@@ -139,8 +157,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_pro.add_argument("--allow-non-script", action="store_true")
     p_pro.add_argument("--allow-secrets", action="store_true")
+    p_pro.add_argument(
+        "--require-audit",
+        action="store_true",
+        help="Require validity audit ok (stub-fail + no contamination)",
+    )
     p_pro.add_argument("--dry-run", action="store_true")
     p_pro.add_argument("--report", type=Path, default=None)
+
+    p_aud = sub.add_parser(
+        "audit-cases",
+        help="Scientific validity audit: stub-fail, contamination, difficulty, dedup",
+    )
+    p_aud.add_argument("--case-set", type=str, required=True)
+    p_aud.add_argument("--report", type=Path, default=None)
+    p_aud.add_argument(
+        "--annotate",
+        action="store_true",
+        help="Write difficulty/fingerprint/validity into case metadata",
+    )
+    p_aud.add_argument(
+        "--fail-on-error",
+        action="store_true",
+        help="Exit 2 if any case fails error-level gates",
+    )
 
     p_sec = sub.add_parser("secrets-scan", help="Scan a case directory for likely secrets")
     p_sec.add_argument("--case-set", type=str, default=None)
@@ -168,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             case_set=args.case_set,
             run_id=args.run_id,
             output_root=args.output_root,
+            case_workers=args.workers,
         )
         summary = load_json(run_dir / "summary.json")
         print(f"run_dir={run_dir}")
@@ -295,18 +336,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "generate-cases":
+        from aibench.parallel_util import parallel_map
+
         inp = args.input_dir
         out = args.output_dir
         out.mkdir(parents=True, exist_ok=True)
         validator = load_schema_validator()
-        n_ok = 0
-        for path in sorted(inp.glob("*.json")):
-            if n_ok >= args.max_cases:
-                break
+        paths = sorted(inp.glob("*.json"))[: max(args.max_cases * 3, args.max_cases)]
+
+        def _gen_one(path: Path) -> dict[str, Any] | None:
             draft = load_json(path)
-            if args.filter:
-                if not rule_filter_draft(draft).keep:
-                    continue
+            if args.filter and not rule_filter_draft(draft).keep:
+                return None
             try:
                 if args.heuristic_only:
                     case = heuristic_case_from_draft(draft)
@@ -319,23 +360,43 @@ def main(argv: list[str] | None = None) -> int:
                             break
                         except Exception as e:  # noqa: BLE001
                             last_err = e
-                            print(f"LLM generate attempt {attempt+1} failed for {path.name}: {e}")
                     if case is None:
                         print(f"fallback heuristic for {path.name}: {last_err}")
                         case = heuristic_case_from_draft(draft)
                 errors = sorted(validator.iter_errors(case), key=lambda e: list(e.path))
                 if errors:
                     print(f"skip invalid {path.name}: {errors[0].message}")
-                    continue
-                write_json(out / f"{case['case_id']}.json", case)
-                n_ok += 1
+                    return None
+                return case
             except Exception as e:  # noqa: BLE001
                 print(f"skip {path.name}: {e}")
+                return None
+
+        generated = [c for c in parallel_map(_gen_one, paths, workers=args.workers) if c]
+        n_ok = 0
+        for case in generated:
+            if n_ok >= args.max_cases:
+                break
+            write_json(out / f"{case['case_id']}.json", case)
+            n_ok += 1
         print(f"generated {n_ok} cases -> {out}")
         if args.secrets_scan and n_ok:
             rep = scan_case_dir(out)
             write_json(out / "_secrets_scan.json", rep)
             print(f"secrets_scan findings={rep['finding_count']} clean={rep['clean']}")
+        if args.audit and n_ok:
+            from aibench.cases import Case
+            from aibench.validity import annotate_case_metadata, audit_case
+
+            # case set name = directory name if under cases/
+            set_name = out.name
+            for p in sorted(out.glob("*.json")):
+                if p.name.startswith("_"):
+                    continue
+                case_obj = Case.from_dict(load_json(p))
+                report = audit_case(case_obj, case_set=set_name)
+                annotate_case_metadata(p, report)
+            print(f"audited {n_ok} cases")
         return 0 if n_ok > 0 else 1
 
     if args.cmd == "ablation":
@@ -367,12 +428,58 @@ def main(argv: list[str] | None = None) -> int:
             case_ids=args.case_id,
             require_script=not args.allow_non_script,
             allow_secrets=args.allow_secrets,
+            require_audit=args.require_audit,
             dry_run=args.dry_run,
         )
         if args.report:
             write_json(args.report, report)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if report["promoted_count"] or args.dry_run else 1
+
+    if args.cmd == "audit-cases":
+        from aibench.validity import annotate_case_metadata, audit_case, audit_case_set
+        from aibench.models import Case
+
+        rep = audit_case_set(args.case_set)
+        if args.annotate:
+            from aibench.cases import case_set_dir
+
+            base = case_set_dir(args.case_set)
+            for item in rep.get("reports") or []:
+                # rebuild report object for annotate
+                p = base / f"{item['case_id']}.json"
+                if not p.is_file():
+                    # try any file with matching id
+                    matches = list(base.glob("*.json"))
+                    p = next(
+                        (x for x in matches if load_json(x).get("case_id") == item["case_id"]),
+                        None,
+                    )
+                if p and p.is_file():
+                    from aibench.validity import CaseValidityReport, ValidityIssue
+
+                    issues = [
+                        ValidityIssue(i["code"], i["severity"], i["message"])
+                        for i in item.get("issues") or []
+                    ]
+                    r = CaseValidityReport(
+                        case_id=item["case_id"],
+                        ok=item["ok"],
+                        issues=issues,
+                        difficulty=item.get("difficulty"),
+                        fingerprint=item.get("fingerprint"),
+                        checks=item.get("checks") or {},
+                    )
+                    annotate_case_metadata(p, r)
+        if args.report:
+            write_json(args.report, rep)
+        print(
+            f"audit case_set={args.case_set} passed={rep['passed']}/{rep['total']} "
+            f"failed={rep['failed']} fingerprint={rep.get('content_fingerprint')}"
+        )
+        if args.fail_on_error and rep["failed"] > 0:
+            return 2
+        return 0
 
     if args.cmd == "secrets-scan":
         if args.input_dir:

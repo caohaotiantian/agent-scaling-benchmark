@@ -4,6 +4,7 @@ import os
 from typing import Any
 
 from aibench.diagnostics import aggregate_failures, render_failures_md
+from aibench.stats import format_wilson_ci, stratify_results
 
 
 SUMMARY_REQUIRED_KEYS = [
@@ -104,7 +105,9 @@ def build_summary(
         "infra_error_count": len(infra),
         "infra_error_rate": (len(infra) / case_count) if case_count else 0.0,
         "mean_rating": mean_rating,
-        "confidence_interval": None,
+        "confidence_interval": format_wilson_ci(success_n, effective_n),
+        "stratified_by_task_type": stratify_results(case_results, key="task_type"),
+        "stratified_by_difficulty": stratify_results(case_results, key="difficulty"),
         "judgment_agreement": None,
         "baseline_win_rate": None,
         # Scaling 收益（单路径 baseline 默认空）
@@ -229,17 +232,40 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         f"| 平均 Step/Case | {float(summary.get('avg_steps_per_case') or 0):.2f} |",
         f"| 总模型调用次数 | {summary.get('total_model_calls')} |",
         f"| 总成本(USD估) | {summary.get('total_cost')} |",
+        f"| 成功率 95% CI | {summary.get('confidence_interval')} |",
+        f"| Case set fingerprint | {summary.get('case_set_fingerprint')} |",
         "",
-        "## Case 明细",
+        "## 分层成功率",
         "",
-        "| case_id | passed | infra_error | tokens | wall_s | steps |",
-        "| --- | --- | --- | ---: | ---: | ---: |",
     ]
+    for title, key in (
+        ("task_type", "stratified_by_task_type"),
+        ("difficulty", "stratified_by_difficulty"),
+    ):
+        strata = summary.get(key) or {}
+        lines.append(f"### by {title}")
+        lines.append("")
+        lines.append("| 分层 | n | 成功 | 成功率 | 95% CI |")
+        lines.append("| --- | ---: | ---: | ---: | --- |")
+        for label, st in strata.items():
+            lines.append(
+                f"| {label} | {st.get('n')} | {st.get('successes')} "
+                f"| {float(st.get('success_rate') or 0) * 100:.1f}% | {st.get('confidence_interval')} |"
+            )
+        lines.append("")
+    lines.extend(
+        [
+            "## Case 明细",
+            "",
+            "| case_id | passed | infra_error | tokens | wall_s | steps | difficulty |",
+            "| --- | --- | --- | ---: | ---: | ---: | --- |",
+        ]
+    )
     for r in case_results:
         lines.append(
             f"| {r.get('case_id')} | {r.get('passed')} | {r.get('infra_error')} "
             f"| {r.get('total_tokens')} | {float(r.get('wall_time_s') or 0):.4f} "
-            f"| {r.get('step_count')} |"
+            f"| {r.get('step_count')} | {r.get('difficulty')} |"
         )
     lines.append("")
     diag = summary.get("failure_diagnostics")

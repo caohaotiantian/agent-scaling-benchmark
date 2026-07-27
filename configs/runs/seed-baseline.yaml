@@ -13,3 +13,4 @@ benchmark_name: AI-Coding-Assist
 grouping: task_type
 agent_config: configs/agents/mock.yaml
 model_config: configs/models/mock-model.yaml
+case_workers: 1
