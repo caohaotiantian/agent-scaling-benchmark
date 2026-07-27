@@ -1,0 +1,12 @@
+case_set: seed-v0
+runs:
+  - experiment_name: baseline-mock-a
+    algorithm_name: Baseline
+    agent_config: configs/agents/mock.yaml
+    model_config: configs/models/mock-model.yaml
+    run_id: abl-mock-a
+  - experiment_name: baseline-mock-b
+    algorithm_name: Baseline-repeat
+    agent_config: configs/agents/mock.yaml
+    model_config: configs/models/mock-model.yaml
+    run_id: abl-mock-b

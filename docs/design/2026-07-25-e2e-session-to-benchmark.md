@@ -2,7 +2,7 @@
 
 | 字段 | 值 |
 |------|-----|
-| 状态 | L1-round1-fixed |
+| 状态 | L1 pass (r2 zero severe); implementation landed |
 | 日期 | 2026-07-25 |
 | 任务 slug | `2026-07-25-e2e-session-to-benchmark` |
 | 上游 | `docs/design/2026-07-25-ai-coding-benchmark.md`、`workspace-restoration.md`、`llm_chat_records-source.md` |
@@ -170,7 +170,8 @@ LLM 软过滤：输入 prompt 摘要，输出 `{keep:bool, reason, task_type}`�
 ### D5：消融编排 — 矩阵 YAML（选中）
 
 ```yaml
-case_set: auto-v0
+# 默认 mock 消融用 seed-v0（空 auto-v0 时仍可出表）
+case_set: seed-v0
 runs:
   - experiment_name: baseline-mock
     algorithm_name: Baseline
@@ -180,6 +181,7 @@ runs:
     algorithm_name: Baseline
     agent_config: configs/agents/openai_compat.yaml
     model_config: configs/models/glm52.yaml
+    # 严肃消融勿混入 metadata.weak_grader=true 的候选 case
 ```
 
 | 选项 | 说明 |

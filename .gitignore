@@ -6,7 +6,7 @@ __pycache__/
 .mypy_cache/
 dist/
 *.egg-info/
-runs/
+/runs/
 .DS_Store
 .env
 .env.*
