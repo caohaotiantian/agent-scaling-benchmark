@@ -12,12 +12,12 @@ runs:
     run_id: prod-oc-glm52
     run_config: configs/runs/baseline.yaml
 
-  - experiment_name: tool-loop-glm52
-    algorithm_name: Baseline
-    agent_config: configs/agents/tool_loop.yaml
-    model_config: configs/models/glm52.yaml
-    run_id: prod-tl-glm52
-    run_config: configs/runs/baseline-tool-loop.yaml
+  # - experiment_name: tool-loop-glm52
+  #   algorithm_name: Baseline
+  #   agent_config: configs/agents/tool_loop.yaml
+  #   model_config: configs/models/glm52.yaml
+  #   run_id: prod-tl-glm52
+  #   run_config: configs/runs/baseline-tool-loop.yaml
 
   # Optional second model (uncomment when gateway exposes it):
   # - experiment_name: openai-compat-glm51

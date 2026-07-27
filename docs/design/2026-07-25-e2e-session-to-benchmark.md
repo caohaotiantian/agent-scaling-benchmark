@@ -32,7 +32,7 @@
   → （可选 AI）生成可验收 benchmark 用例
   → 一键跑测
   → 可配置 Agent × 模型 消融
-  → 产出符合 agentic_scaling_benchmark_tables 口径的结果
+  → 产出符合 docs/html/tables.html 字段字典口径的结果
 ```
 
 当前缺口：
@@ -238,7 +238,7 @@ P2：LLM 软过滤、snapshot 自动骨架。
 | `2026-07-25-ai-coding-benchmark.md` | 父设计：case 协议、半确定性、结果表映射；本任务补 **闭环生成与消融** |
 | `workspace-restoration.md` | 生成 case 优先 L1 inline；snapshot 为 P2 |
 | `llm_chat_records-source.md` | 表字段与抽取映射；本任务在其上加 filter/generate |
-| `agentic_scaling_benchmark_tables.md` | 结果列口径；消融聚合不得改列语义 |
+| `docs/html/tables.html` | 结果列口径；消融聚合不得改列语义 |
 
 冲突标记：
 

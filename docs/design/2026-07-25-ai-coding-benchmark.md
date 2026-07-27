@@ -5,7 +5,7 @@
 | 状态 | implemented (harness v0.1) |
 | 日期 | 2026-07-25 |
 | 任务 | Phase A 设计 + Phase B harness 首版 |
-| 关联文档 | `agentic-scaling-benchmark.html`、`agentic_scaling_benchmark_tables.md` |
+| 关联文档 | `docs/html/agentic-scaling-benchmark.html`、`docs/html/tables.html` |
 
 ---
 
@@ -47,7 +47,7 @@ Agentic Scaling 项目需要在统一 Benchmark 协议下横向比较不同算�
 - [x] 一键脚本：`scripts/run_benchmark.sh` / `python -m aibench run`
 - [x] 判分器：确定性脚本 + gold；LLM-judge 为接口预留 stub
 - [x] 落盘：`runs/<run_id>/` 下 `run_manifest.json`、`summary.json`、`results.jsonl` 及 case 明细
-- [x] 结果导出：综述表行 + 通用结果总表行（Markdown/JSON，字段对齐 `agentic_scaling_benchmark_tables.md`）
+- [x] 结果导出：综述表行 + 通用结果总表行（Markdown/JSON，字段对齐 `docs/html/tables.html`）
 - [x] 会话抽取接口：规范化 JSON export → case 草稿（DB 连接待用户提供后接 SQL 适配）
 - [x] README 与最小测试
 
@@ -263,8 +263,8 @@ Outcome 信号（可选）:
 ## 6. Relationship with Existing Designs
 
 - **无 prior `docs/design/*`**。术语与结果口径锚定：
-  - `agentic-scaling-benchmark.html`：统一粒度（Run/Case/Attempt/Step/ModelCall）、综述表、通用表、Arena 映射、落盘结构、落地阶段
-  - `agentic_scaling_benchmark_tables.md`：列名与字段说明（成功数、Token、时间拆解、错误归因等）
+  - `docs/html/agentic-scaling-benchmark.html`：统一粒度（Run/Case/Attempt/Step/ModelCall）、综述表、通用表、Arena 映射、落盘结构、落地阶段
+  - `docs/html/tables.html`：列名与字段说明（成功数、Token、时间拆解、错误归因等）
 - 本设计将 HTML 中「AI 辅助编程 / 半确定性 / 偏好型」具体化为可运行协议，不修改上述文档的通用列语义。
 - **冲突处理**：HTML 偏好型示例主指标为 `win_rate`；本 Benchmark 默认主指标为 `task_success_rate`，在 `summary.json` 中显式写 `primary_metric_name`，综述表按该字段展示，避免与 SWE 的 `resolved_rate` 混名。
 

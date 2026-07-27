@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>用户向导 · USER_GUIDE</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="文档导航"><div class="site-nav-inner"><a class="brand" href="index.html">aibench · docs/html</a><a href="index.html">文档首页</a><a href="project-overview.html">项目介绍</a><a href="reference.html">参考手册</a><a href="user-guide.html" class="active">用户向导</a><a href="agentic-scaling-benchmark.html">结果表设计</a><a href="tables.html">字段字典</a><a href="configs.html">生产配置</a><a href="remaining-work.html">未尽事项</a></div></nav>
+<div class="page">
+
+<header class="hero">
+  <h1>用户向导 · USER_GUIDE</h1>
+  <p>从环境准备到抽库、生成 case、跑测与消融的操作步骤与速查。</p>
+  <div class="meta">
+    <span class="pill">HTML 归档 · docs/html</span>
+    <span class="pill">源文件 · docs/USER_GUIDE.md</span>
+  </div>
+</header>
+<article class="md-body">
+<h1 id="ai-coding-assist-benchmark">AI-Coding-Assist Benchmark — 用户使用手册</h1>
+<blockquote>
+<p><strong>展示版（推荐）</strong>：<a href="user-guide.html">docs/html/user-guide.html</a><br>
+文档站首页：<a href="index.html">docs/html/index.html</a></p>
+</blockquote>
+<p>面向：从真实会话构建候选测评集、一键跑测、Agent/模型消融，并产出对齐 Agentic Scaling 结果表的报告。</p>
+<p><strong>更细的参数级说明</strong>见 <a href="reference.html">参考手册 HTML</a>（源：<code>REFERENCE.md</code>）。<br>
+<strong>浏览器演示总览</strong>见 <a href="project-overview.html"><code>docs/html/project-overview.html</code></a>。</p>
+<hr>
+<h2 id="1">1. 系统在做什么</h2>
+<pre><code class="language-text">MySQL llm_chat_records（或 JSON 导出）
+        │
+        ▼
+  extract-from-db / extract-cases     # 抽草稿 draft
+        │
+        ▼
+  filter-drafts                       # 规则筛选
+        │
+        ▼
+  generate-cases                      # 启发式或 LLM 生成可验收 case
+        │
+        ▼
+  validate-cases → auto-v0（候选集）
+        │
+        ▼
+  run / ablation                      # 单次或矩阵消融
+        │
+        ▼
+  runs/.../summary.json + tables.json + ablation_report.md
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>名称</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>draft</strong></td>
+<td>从会话抽出的草稿，未必要可跑</td>
+</tr>
+<tr>
+<td><strong>auto-v0</strong></td>
+<td>自动候选 case 集（<code>needs_review</code>，<strong>非</strong>人工发布正式集）</td>
+</tr>
+<tr>
+<td><strong>published / prod-v0</strong></td>
+<td>人工 <code>promote</code> 后的正式集（流水线不自动写入）</td>
+</tr>
+</tbody>
+</table>
+<p>生产默认：<strong>无 mock</strong>。Agent = <code>openai_compat</code>，模型 = <code>GLM-5.2</code>，矩阵对比 <code>openai_compat</code> vs <code>tool_loop</code>。</p>
+<hr>
+<h2 id="2">2. 环境准备</h2>
+<pre><code class="language-bash">cd agent-scaling-benchmark
+uv sync --extra dev
+cp .env.example .env   # 按需填写
+./scripts/install-hooks.sh   # 提交前 ruff format + import + lint
+</code></pre>
+<p>CLI 启动时会加载项目根 <code>.env</code>。也可：</p>
+<pre><code class="language-bash">set -a &amp;&amp; source .env &amp;&amp; set +a
+</code></pre>
+<h3 id="21">2.1 最低环境变量</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>需要</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>从 MySQL 抽会话</td>
+<td><code>AIBENCH_DB_URL</code></td>
+</tr>
+<tr>
+<td>LLM 生成 case / 真 Agent 跑测</td>
+<td><code>OPENAI_API_KEY</code> + <code>OPENAI_BASE_URL</code>（建议再设 <code>OPENAI_MODEL</code>）</td>
+</tr>
+<tr>
+<td>离线 dry-run</td>
+<td>可不填</td>
+</tr>
+</tbody>
+</table>
+<p>完整变量表见 <a href="reference.html">REFERENCE §6</a>（Markdown 源见 <code>REFERENCE.md</code>）。</p>
+<p><strong>不要把 <code>.env</code> 提交到 git。</strong></p>
+<h3 id="22">2.2 代码风格</h3>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>./scripts/lint.sh</code></td>
+<td>format + import 修复 + lint</td>
+</tr>
+<tr>
+<td><code>uv run pytest tests/ -q</code></td>
+<td>单测</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="3">3. 快速上手</h2>
+<h3 id="31-smoke-dbllm">3.1 离线 smoke（不访问 DB/LLM）</h3>
+<pre><code class="language-bash">./scripts/e2e_pipeline.sh --dry-run
+</code></pre>
+<h3 id="32">3.2 只要生成测试用例（推荐先做这一步）</h3>
+<pre><code class="language-bash">set -a &amp;&amp; source .env &amp;&amp; set +a
+
+uv run python -m aibench extract-from-db \
+  --output-dir benchmarks/ai_coding/cases/drafts-from-db \
+  --limit 100 --max-cases 30 --require-gold
+
+uv run python -m aibench filter-drafts \
+  --input-dir benchmarks/ai_coding/cases/drafts-from-db \
+  --output-dir benchmarks/ai_coding/cases/drafts-kept
+
+uv run python -m aibench generate-cases \
+  --input-dir benchmarks/ai_coding/cases/drafts-kept \
+  --output-dir benchmarks/ai_coding/cases/auto-v0 \
+  --max-cases 8 --audit --secrets-scan
+
+uv run python -m aibench validate-cases --case-set auto-v0
+</code></pre>
+<p>产物：<code>benchmarks/ai_coding/cases/auto-v0/*.json</code>。<br>
+<strong>不要</strong>用完整 <code>e2e_pipeline.sh</code> 若你还不想消融（脚本末尾会跑 ablation）。</p>
+<h3 id="33">3.3 完整生产流水线（含消融）</h3>
+<pre><code class="language-bash">./scripts/e2e_pipeline.sh --limit 100 --max-cases 8
+</code></pre>
+<h3 id="34-auto-v0">3.4 已有 auto-v0 后单次跑测</h3>
+<pre><code class="language-bash">./scripts/run_benchmark.sh
+# 默认：openai_compat + glm52 + auto-v0 + baseline.yaml
+</code></pre>
+<h3 id="35">3.5 消融对比</h3>
+<pre><code class="language-bash">uv run python -m aibench ablation \
+  --matrix configs/runs/ablation-matrix.yaml \
+  --case-set auto-v0 \
+  --baseline-experiment openai-compat-glm52 \
+  --export-csv
+</code></pre>
+<hr>
+<h2 id="4-limit-max-cases">4. <code>--limit</code> 与 <code>--max-cases</code>（务必理解）</h2>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>CLI 默认</th>
+<th>e2e 默认</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--limit</code></td>
+<td>抽库 300</td>
+<td>100</td>
+<td>DB 最多扫描多少行</td>
+</tr>
+<tr>
+<td><code>--max-cases</code>（抽库）</td>
+<td>30</td>
+<td>max-cases×3</td>
+<td>最多写多少草稿</td>
+</tr>
+<tr>
+<td><code>--max-cases</code>（生成）</td>
+<td>50</td>
+<td>8</td>
+<td>最多写多少最终 case</td>
+</tr>
+</tbody>
+</table>
+<p><strong>不传参 = 用默认，不是无限扫库。</strong></p>
+<hr>
+<h2 id="5">5. 配置怎么选</h2>
+<table>
+<thead>
+<tr>
+<th>需求</th>
+<th>配置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>默认单次生产跑测</td>
+<td><code>configs/runs/baseline.yaml</code></td>
+</tr>
+<tr>
+<td>多步工具 Agent</td>
+<td><code>configs/agents/tool_loop.yaml</code> + <code>runs/baseline-tool-loop.yaml</code></td>
+</tr>
+<tr>
+<td>对照消融</td>
+<td><code>configs/runs/ablation-matrix.yaml</code></td>
+</tr>
+<tr>
+<td>换模型</td>
+<td><code>configs/models/glm51.yaml</code> 或 <code>qwen37.yaml</code></td>
+</tr>
+<tr>
+<td>包外部 CLI</td>
+<td><code>configs/agents/shell.yaml</code>（填 <code>command_template</code>）</td>
+</tr>
+<tr>
+<td>单测 / dry-run mock</td>
+<td><strong>仅</strong> <code>tests/fixtures/configs/</code></td>
+</tr>
+</tbody>
+</table>
+<p>说明见 <a href="configs.html">生产配置 HTML</a> 与 <a href="reference.html">REFERENCE §7</a>。</p>
+<hr>
+<h2 id="6-cli">6. CLI 与脚本（操作向）</h2>
+<p>入口：<code>uv run python -m aibench &lt;cmd&gt;</code>。</p>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>你什么时候用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>extract-from-db</code></td>
+<td>从 MySQL 建草稿</td>
+</tr>
+<tr>
+<td><code>filter-drafts</code></td>
+<td>去掉运维/闲聊/非编程会话</td>
+</tr>
+<tr>
+<td><code>generate-cases</code></td>
+<td>草稿变成可 pytest 的 case</td>
+</tr>
+<tr>
+<td><code>validate-cases</code></td>
+<td>Schema 校验</td>
+</tr>
+<tr>
+<td><code>audit-cases</code></td>
+<td>stub 必须 fail、污染检测</td>
+</tr>
+<tr>
+<td><code>run</code></td>
+<td>一组 Agent/模型跑一遍</td>
+</tr>
+<tr>
+<td><code>ablation</code></td>
+<td>多组配置横向对比</td>
+</tr>
+<tr>
+<td><code>promote</code></td>
+<td>人工发布到 prod-v0</td>
+</tr>
+<tr>
+<td><code>secrets-scan</code></td>
+<td>扫密钥</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>脚本</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scripts/run_benchmark.sh</code></td>
+<td>生产单次跑测</td>
+</tr>
+<tr>
+<td><code>scripts/e2e_pipeline.sh</code></td>
+<td>DB→case→消融；<code>--dry-run</code> 仅 fixture</td>
+</tr>
+</tbody>
+</table>
+<p><strong>完整参数清单（每个 flag 的默认值与作用）</strong>：<br>
+<a href="reference.html">REFERENCE HTML</a> · 演示页 <a href="project-overview.html#s7">§七</a>。</p>
+<hr>
+<h2 id="7">7. 结果怎么读</h2>
+<h3 id="run">单次 run</h3>
+<p><code>runs/AI-Coding-Assist__&lt;时间&gt;_&lt;run_id&gt;/</code></p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>summary.json</code></td>
+<td>成功率、Wilson CI、Token、成本估算</td>
+</tr>
+<tr>
+<td><code>tables.json</code></td>
+<td>综述表一行 + 通用表关键字段</td>
+</tr>
+<tr>
+<td><code>report.md</code></td>
+<td>人类可读</td>
+</tr>
+<tr>
+<td><code>results.jsonl</code></td>
+<td>每 case 明细</td>
+</tr>
+</tbody>
+</table>
+<p>主指标：<code>task_success_rate</code>（半确定性）。</p>
+<h3 id="_1">消融</h3>
+<p><code>runs/ablation_&lt;时间&gt;/ablation_report.md</code> — <strong>多行对比表，汇报首选</strong>。</p>
+<h3 id="_2">用途速查</h3>
+<table>
+<thead>
+<tr>
+<th>目的</th>
+<th>打开</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>汇报选型</td>
+<td><code>ablation_report.md</code> / <code>overview_row</code></td>
+</tr>
+<tr>
+<td>查失败原因</td>
+<td><code>report.md</code> + <code>cases/&lt;id&gt;/result.json</code></td>
+</tr>
+<tr>
+<td>复现</td>
+<td><code>run_manifest.json</code> 中的 fingerprint 与配置路径</td>
+</tr>
+</tbody>
+</table>
+<p>字段与设计表的对应关系见 <a href="reference.html">REFERENCE HTML</a> §16–18。</p>
+<hr>
+<h2 id="8">8. 科学效度与并行（实用）</h2>
+<p><strong>科学效度</strong> = 可自动执行的 case 质量门禁（实现于 <code>validity.py</code>），保证指标差异尽量来自 Agent/模型，而非坏题/答案泄漏。<br>
+完整门禁列表与算法逻辑见 <a href="reference.html">REFERENCE HTML</a> §14 与演示页 <a href="project-overview.html#s8">§八</a>。</p>
+<table>
+<thead>
+<tr>
+<th>级别</th>
+<th>门禁示例</th>
+<th>是否阻断 <code>validity_ok</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>error</strong></td>
+<td>stub 初始必须 fail；gold/key_line 不得已在 context；prompt 过短</td>
+<td>是</td>
+</tr>
+<tr>
+<td><strong>warn</strong></td>
+<td>prompt 大代码块、weak_grader 标记、重复指纹</td>
+<td>否</td>
+</tr>
+<tr>
+<td><strong>注解</strong></td>
+<td>difficulty、fingerprint、集级 content_fingerprint</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="language-bash"># 生成后审计
+uv run python -m aibench audit-cases --case-set auto-v0 \
+  --annotate --fail-on-error
+
+# 发布（可叠加 --require-audit）
+uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
+  --require-audit --case-id &lt;id&gt;
+
+# 并行
+uv run python -m aibench run --workers 4
+uv run python -m aibench generate-cases ... --workers 4
+uv run python -m aibench ablation --matrix ... --parallel 2
+</code></pre>
+<p>报告侧：Wilson 95% CI、有效 case（排除 infra_error）、按 task_type/difficulty 分层。</p>
+<hr>
+<h2 id="9">9. 常见问题</h2>
+<p><strong>Q: auto-v0 为空？</strong><br>
+先跑 extract → filter → generate；检查 <code>.env</code> 的 DB/API。</p>
+<p><strong>Q: 只想生成 case？</strong><br>
+不要跑完整 <code>e2e_pipeline.sh</code>（末尾有消融）。按 §3.2。</p>
+<p><strong>Q: LLM 生成全失败？</strong><br>
+确认 <code>OPENAI_*</code>；失败会 fallback 启发式（多为 gold，区分度弱）。</p>
+<p><strong>Q: 结果表很多空列？</strong><br>
+正常。Fusion 时间拆解等本 harness 无数据源，保持 <code>null</code>。</p>
+<p><strong>Q: 能否接 mini-swe-agent？</strong><br>
+用 <code>shell</code> adapter 配 <code>command_template</code>，或实现新 adapter 并注册。</p>
+<hr>
+<h2 id="10">10. 文档索引</h2>
+<table>
+<thead>
+<tr>
+<th>文档</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="index.html">docs/html/index.html</a></td>
+<td><strong>文档站首页（HTML 归档）</strong></td>
+</tr>
+<tr>
+<td><a href="reference.html">reference.html</a></td>
+<td>参数级权威参考手册</td>
+</tr>
+<tr>
+<td><a href="project-overview.html">project-overview.html</a></td>
+<td>项目介绍演示页</td>
+</tr>
+<tr>
+<td><a href="user-guide.html">user-guide.html</a></td>
+<td>本向导的 HTML 展示</td>
+</tr>
+<tr>
+<td><a href="configs.html">configs.html</a></td>
+<td>生产配置</td>
+</tr>
+<tr>
+<td><a href="agentic-scaling-benchmark.html">agentic-scaling-benchmark.html</a></td>
+<td>结果表设计报告</td>
+</tr>
+<tr>
+<td><a href="tables.html">tables.html</a></td>
+<td>字段字典</td>
+</tr>
+<tr>
+<td><a href="remaining-work.html">remaining-work.html</a></td>
+<td>未尽事项</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="11">11. 命令速查</h2>
+<pre><code class="language-bash">uv sync --extra dev &amp;&amp; set -a &amp;&amp; source .env &amp;&amp; set +a
+
+# 生成用例
+uv run python -m aibench extract-from-db \
+  --output-dir benchmarks/ai_coding/cases/drafts-from-db \
+  --limit 100 --max-cases 30 --require-gold
+uv run python -m aibench filter-drafts \
+  --input-dir benchmarks/ai_coding/cases/drafts-from-db \
+  --output-dir benchmarks/ai_coding/cases/drafts-kept
+uv run python -m aibench generate-cases \
+  --input-dir benchmarks/ai_coding/cases/drafts-kept \
+  --output-dir benchmarks/ai_coding/cases/auto-v0 \
+  --max-cases 8 --audit --secrets-scan
+uv run python -m aibench validate-cases --case-set auto-v0
+
+# 跑测 / 消融
+./scripts/run_benchmark.sh
+uv run python -m aibench ablation --matrix configs/runs/ablation-matrix.yaml --export-csv
+
+# 全流程
+./scripts/e2e_pipeline.sh --limit 100 --max-cases 8
+</code></pre>
+</article>
+<footer class="site-footer">
+  AI-Coding-Assist Benchmark · 文档站点 docs/html · 本地打开即可浏览
+</footer>
+</div>
+</body>
+</html>

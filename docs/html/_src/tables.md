@@ -1,3 +1,5 @@
+> **展示版（推荐）**：[docs/html/tables.html](docs/html/tables.html) · 文档站：[docs/html/index.html](docs/html/index.html)
+
 # Agentic Scaling 项目效果综述
 
 |                                                                                                                             |                |                              |                    |         |            |             |                 |                 |              |
