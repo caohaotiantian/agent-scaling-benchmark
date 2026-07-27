@@ -1,0 +1,15 @@
+experiment_name: seed-baseline
+algorithm_name: Baseline
+algorithm_version: v0.1
+budget_axis: steps
+budget_value: "max_steps=20"
+branches: 1
+max_attempts: 1
+max_steps: 20
+max_wall_time_s: 120
+selection_strategy: first-submit
+case_set: seed-v0
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: configs/agents/mock.yaml
+model_config: configs/models/mock-model.yaml
