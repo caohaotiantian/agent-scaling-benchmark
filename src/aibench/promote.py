@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from aibench.cases import case_set_dir, load_schema_validator, validate_case_set
+from aibench.cases import case_set_dir, is_case_json_path, load_schema_validator, validate_case_set
 from aibench.io_util import load_json, write_json
 from aibench.secrets_scan import scan_case_dict
 
@@ -37,6 +37,8 @@ def promote_cases(
     if case_ids:
         id_set = set(case_ids)
         for p in sorted(src.glob("*.json")):
+            if not is_case_json_path(p):
+                continue
             raw = load_json(p)
             if raw.get("case_id") in id_set:
                 selected.append(p)
@@ -44,7 +46,7 @@ def promote_cases(
         if missing:
             raise ValueError(f"case_ids not found in {source_set}: {sorted(missing)}")
     else:
-        selected = sorted(src.glob("*.json"))
+        selected = sorted(p for p in src.glob("*.json") if is_case_json_path(p))
 
     promoted: list[str] = []
     skipped: list[dict[str, Any]] = []

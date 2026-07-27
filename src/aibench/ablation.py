@@ -30,7 +30,11 @@ def _filter_weak_grader_case_set(case_set: str, *, skip_weak: bool) -> str:
         return case_set
     weak_count = 0
     strong: list[Path] = []
+    from aibench.cases import is_case_json_path
+
     for p in sorted(src.glob("*.json")):
+        if not is_case_json_path(p):
+            continue
         raw = load_json(p)
         if (raw.get("metadata") or {}).get("weak_grader"):
             weak_count += 1

@@ -57,9 +57,13 @@ def scan_case_file(path: Path) -> list[Finding]:
 
 
 def scan_case_dir(directory: Path) -> dict[str, Any]:
+    from aibench.cases import is_case_json_path
+
     all_f: list[dict[str, Any]] = []
     files = 0
     for p in sorted(directory.glob("*.json")):
+        if not is_case_json_path(p):
+            continue
         files += 1
         for f in scan_case_file(p):
             all_f.append(f.to_dict())
