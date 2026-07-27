@@ -31,95 +31,116 @@ def _run_one_case(
     model_cfg: ModelConfig,
     max_steps: int,
     max_wall_time_s: float,
+    case_retries: int | None = None,
 ) -> dict[str, Any]:
     """Execute a single case in isolation (safe for thread pool)."""
-    case_dir = run_dir / "cases" / case.case_id
-    workspace = case_dir / "workspace"
-    mat_info: dict[str, Any] | None = None
-    mat_error: str | None = None
-    try:
-        mat = materialize_workspace(
-            case,
-            workspace,
-            case_set_dir=case_set_dir(cs),
-            allow_network=True,
-        )
-        mat_info = mat.to_dict()
-        write_json(case_dir / "workspace_manifest.json", mat_info)
-    except Exception as e:  # noqa: BLE001
-        mat_error = str(e)
-        write_json(
-            case_dir / "workspace_manifest.json",
-            {"error": mat_error, "sources_applied": []},
-        )
+    import os
 
-    if mat_error:
-        agent_result = AgentRunResult(
-            status="infra_error",
-            error_message=f"workspace materialize failed: {mat_error}",
-        )
-    else:
-        agent = create_agent(agent_cfg, model_cfg)
+    # Extra case-level retries for infra_error only (agent already retries HTTP).
+    max_case_tries = case_retries
+    if max_case_tries is None:
+        max_case_tries = max(1, int(os.environ.get("AIBENCH_CASE_RETRY", "2")))
+
+    case_dir = run_dir / "cases" / case.case_id
+    last_row: dict[str, Any] | None = None
+
+    for attempt in range(1, max_case_tries + 1):
+        workspace = case_dir / "workspace"
+        mat_info: dict[str, Any] | None = None
+        mat_error: str | None = None
         try:
-            agent_result = agent.run(
+            mat = materialize_workspace(
                 case,
                 workspace,
-                max_steps=max_steps,
-                max_wall_time_s=max_wall_time_s,
+                case_set_dir=case_set_dir(cs),
+                allow_network=True,
             )
+            mat_info = mat.to_dict()
+            write_json(case_dir / "workspace_manifest.json", mat_info)
         except Exception as e:  # noqa: BLE001
+            mat_error = str(e)
+            write_json(
+                case_dir / "workspace_manifest.json",
+                {"error": mat_error, "sources_applied": []},
+            )
+
+        if mat_error:
             agent_result = AgentRunResult(
                 status="infra_error",
-                error_message=str(e),
+                error_message=f"workspace materialize failed: {mat_error}",
             )
+        else:
+            agent = create_agent(agent_cfg, model_cfg)
+            try:
+                agent_result = agent.run(
+                    case,
+                    workspace,
+                    max_steps=max_steps,
+                    max_wall_time_s=max_wall_time_s,
+                )
+            except Exception as e:  # noqa: BLE001
+                agent_result = AgentRunResult(
+                    status="infra_error",
+                    error_message=str(e),
+                )
 
-    infra = agent_result.status == "infra_error"
-    grade = None
-    if not infra:
-        grade = grade_case(case, workspace)
-        if grade.infra_error:
-            infra = True
+        infra = agent_result.status == "infra_error"
+        grade = None
+        if not infra:
+            grade = grade_case(case, workspace)
+            if grade.infra_error:
+                infra = True
 
-    passed = bool(grade and grade.passed and not infra)
-    judge_score = None
-    if grade and grade.mode == "llm_judge" and grade.score is not None:
-        judge_score = grade.score
+        passed = bool(grade and grade.passed and not infra)
+        judge_score = None
+        if grade and grade.mode == "llm_judge" and grade.score is not None:
+            judge_score = grade.score
 
-    difficulty = case.metadata.get("difficulty") or estimate_difficulty(case)
-    row = {
-        "case_id": case.case_id,
-        "task_type": case.task_type,
-        "language": case.language,
-        "difficulty": difficulty,
-        "fingerprint": case.metadata.get("fingerprint") or case_fingerprint(case),
-        "agent_status": agent_result.status,
-        "passed": passed,
-        "infra_error": infra,
-        "empty_patch": agent_result.empty_patch,
-        "total_tokens": agent_result.usage.total_tokens,
-        "prompt_tokens": agent_result.usage.prompt_tokens,
-        "completion_tokens": agent_result.usage.completion_tokens,
-        "model_calls": agent_result.usage.model_calls,
-        "wall_time_s": agent_result.wall_time_s,
-        "step_count": len(agent_result.steps),
-        "judge_score": judge_score,
-        "grade": grade.to_dict() if grade else None,
-        "error_message": agent_result.error_message,
-        "failure_category": _failure_category(infra, passed, agent_result.status, grade),
-        "workspace_sources": (mat_info or {}).get("sources_applied"),
-        "workspace_warnings": (mat_info or {}).get("warnings"),
-    }
-    write_json(
-        case_dir / "result.json",
-        {
+        difficulty = case.metadata.get("difficulty") or estimate_difficulty(case)
+        row = {
             "case_id": case.case_id,
-            "agent": agent_result.to_dict(),
+            "task_type": case.task_type,
+            "language": case.language,
+            "difficulty": difficulty,
+            "fingerprint": case.metadata.get("fingerprint") or case_fingerprint(case),
+            "agent_status": agent_result.status,
+            "passed": passed,
+            "infra_error": infra,
+            "empty_patch": agent_result.empty_patch,
+            "total_tokens": agent_result.usage.total_tokens,
+            "prompt_tokens": agent_result.usage.prompt_tokens,
+            "completion_tokens": agent_result.usage.completion_tokens,
+            "model_calls": agent_result.usage.model_calls,
+            "wall_time_s": agent_result.wall_time_s,
+            "step_count": len(agent_result.steps),
+            "judge_score": judge_score,
             "grade": grade.to_dict() if grade else None,
-            "workspace": mat_info,
-            "row": row,
-        },
-    )
-    return row
+            "error_message": agent_result.error_message,
+            "failure_category": _failure_category(infra, passed, agent_result.status, grade),
+            "workspace_sources": (mat_info or {}).get("sources_applied"),
+            "workspace_warnings": (mat_info or {}).get("warnings"),
+            "attempt": attempt,
+        }
+        write_json(
+            case_dir / "result.json",
+            {
+                "case_id": case.case_id,
+                "agent": agent_result.to_dict(),
+                "grade": grade.to_dict() if grade else None,
+                "workspace": mat_info,
+                "row": row,
+            },
+        )
+        last_row = row
+        if not infra or attempt >= max_case_tries:
+            return row
+        print(
+            f"[retry] case {case.case_id} infra_error attempt {attempt}/{max_case_tries}: "
+            f"{agent_result.error_message}"
+        )
+
+    assert last_row is not None
+    return last_row
 
 
 def run_benchmark(

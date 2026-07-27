@@ -104,23 +104,28 @@ def fetch_chat_records(
         ORDER BY start_time DESC
         LIMIT :limit OFFSET :offset
     """
-    out: list[ChatRecord] = []
-    with engine.connect() as conn:
-        rows = conn.execute(text(sql), params).mappings().all()
-        for r in rows:
-            out.append(
-                ChatRecord(
-                    request_id=str(r["request_id"]),
-                    start_time=r.get("start_time"),
-                    model=r.get("model"),
-                    requests_tags=r.get("requests_tags"),
-                    tools=r.get("tools"),
-                    full_history=r.get("full_history"),
-                    key_alias=r.get("key_alias"),
-                    created_at=r.get("created_at"),
+    from aibench.retry import retry_call
+
+    def _fetch() -> list[ChatRecord]:
+        rows_out: list[ChatRecord] = []
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+            for r in rows:
+                rows_out.append(
+                    ChatRecord(
+                        request_id=str(r["request_id"]),
+                        start_time=r.get("start_time"),
+                        model=r.get("model"),
+                        requests_tags=r.get("requests_tags"),
+                        tools=r.get("tools"),
+                        full_history=r.get("full_history"),
+                        key_alias=r.get("key_alias"),
+                        created_at=r.get("created_at"),
+                    )
                 )
-            )
-    return out
+        return rows_out
+
+    return retry_call(_fetch, label="db_fetch_llm_chat_records")
 
 
 def chat_record_to_session(rec: ChatRecord) -> SessionRecord | None:

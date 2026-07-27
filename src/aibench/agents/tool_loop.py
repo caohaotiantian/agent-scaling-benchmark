@@ -84,27 +84,32 @@ class ToolLoopAgent(AgentAdapter):
                     empty_patch=len(written) == 0,
                     error_message="max_wall_time exceeded",
                 )
+            from aibench.retry import retry_call
+
             try:
-                with httpx.Client(timeout=min(90.0, max_wall_time_s)) as client:
-                    resp = client.post(
-                        f"{base_url}/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {api_key}",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": model_name,
-                            "temperature": model.temperature,
-                            "max_tokens": max_tokens,
-                            "messages": messages,
-                        },
-                    )
-                    resp.raise_for_status()
-                    body = resp.json()
+                def _llm() -> dict[str, Any]:
+                    with httpx.Client(timeout=min(90.0, max_wall_time_s)) as client:
+                        resp = client.post(
+                            f"{base_url}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "model": model_name,
+                                "temperature": model.temperature,
+                                "max_tokens": max_tokens,
+                                "messages": messages,
+                            },
+                        )
+                        resp.raise_for_status()
+                        return resp.json()
+
+                body = retry_call(_llm, label=f"tool_loop_llm:{case.case_id}:step{step}")
             except Exception as e:  # noqa: BLE001
                 return AgentRunResult(
                     status="infra_error",
-                    error_message=f"LLM failed: {e}",
+                    error_message=f"LLM failed after retries: {e}",
                     usage=usage,
                     steps=steps,
                     wall_time_s=time.perf_counter() - t0,
