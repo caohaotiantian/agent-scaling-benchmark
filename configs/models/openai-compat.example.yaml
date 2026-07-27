@@ -1,8 +1,0 @@
-name: openai-compat-example
-provider: openai_compat
-model: deepseek-chat
-base_url: https://api.openai.com/v1
-api_key_env: AIBENCH_API_KEY
-temperature: 0
-max_tokens: 4096
-extra: {}

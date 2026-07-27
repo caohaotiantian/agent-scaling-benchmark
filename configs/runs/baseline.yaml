@@ -1,0 +1,17 @@
+# Production single-run defaults (no mock)
+experiment_name: prod-baseline
+algorithm_name: Baseline
+algorithm_version: v1.0
+budget_axis: steps
+budget_value: "max_steps=40, max_wall_time_s=300"
+branches: 1
+max_attempts: 1
+max_steps: 40
+max_wall_time_s: 300
+selection_strategy: first-submit
+case_set: auto-v0
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: configs/agents/openai_compat.yaml
+model_config: configs/models/glm52.yaml
+case_workers: 4

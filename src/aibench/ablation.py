@@ -87,8 +87,8 @@ def run_ablation(
         item = job["item"]
         i = job["index"]
         exp = item.get("experiment_name") or f"run-{i}"
-        agent = item.get("agent_config") or "configs/agents/mock.yaml"
-        model = item.get("model_config") or "configs/models/mock-model.yaml"
+        agent = item.get("agent_config") or "configs/agents/openai_compat.yaml"
+        model = item.get("model_config") or "configs/models/glm52.yaml"
         run_cfg = item.get("run_config")
         run_id = item.get("run_id") or f"ablation-{exp}"
         row_case = item.get("case_set") or case_set

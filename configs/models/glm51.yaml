@@ -1,0 +1,9 @@
+# Optional second model for multi-model ablation (same gateway)
+name: glm-5.1
+provider: openai_compat
+model: GLM-5.1
+base_url: null  # uses OPENAI_BASE_URL
+api_key_env: OPENAI_API_KEY
+temperature: 0
+max_tokens: 8192
+extra: {}

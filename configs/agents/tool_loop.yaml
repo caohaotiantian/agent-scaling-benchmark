@@ -1,7 +1,18 @@
+# Production: multi-step tool-loop agent
 name: tool_loop
-version: "0.1.0"
+version: "1.0.0"
 adapter: tool_loop
-description: Multi-step tool loop agent (list/read/write/bash/submit).
+description: >
+  Multi-step agent with list/read/write/bash/submit tools.
+  Requires OPENAI_API_KEY and OPENAI_BASE_URL (or model base_url).
 options:
   allow_bash: true
-  max_tokens: 2048
+  max_tokens: 4096
+  system_prompt: |
+    You are a production coding agent for automated benchmarks.
+    Call tools by returning JSON only:
+    {"tool":"list|read|write|bash|submit","path":"...","content":"...","command":"...","message":"..."}
+    - list/read/write operate under the workspace root
+    - bash runs in the workspace (keep commands simple)
+    - When tests pass and the task is done, tool=submit
+    Prefer small, correct edits that make pytest pass.

@@ -20,26 +20,28 @@ uv sync --extra dev
 ./scripts/install-hooks.sh
 # 手动: ./scripts/lint.sh
 
-# 单次：mock agent + auto-v0
+# 生产默认：openai_compat + GLM-5.2 + auto-v0（需 .env 与 case 集）
 ./scripts/run_benchmark.sh
 
-# 端到端 dry-run（fixture 筛选/生成 + mock 消融出表，不访问 DB/LLM）
+# 离线 smoke（仅 tests/fixtures，非正式生产配置）
 ./scripts/e2e_pipeline.sh --dry-run
 ```
+
+生产配置说明见 [`configs/README.md`](configs/README.md)（**不含 mock**）。
 
 ### 全流程（会话 → 候选 case → 消融）
 
 ```bash
 set -a && source .env && set +a   # AIBENCH_DB_URL / OPENAI_*
 
-# 真链路：DB 抽取 → 规则筛选 → 生成候选集 auto-v0 → 消融
-./scripts/e2e_pipeline.sh --limit 80 --max-cases 8 --heuristic-only
+# 生产：DB → LLM 生成 auto-v0 → openai_compat vs tool_loop 消融
+./scripts/e2e_pipeline.sh --limit 100 --max-cases 8
 
 # 或分步：
-uv run python -m aibench extract-from-db --output-dir benchmarks/ai_coding/cases/drafts-from-db --limit 80 --require-gold
+uv run python -m aibench extract-from-db --output-dir benchmarks/ai_coding/cases/drafts-from-db --limit 100 --require-gold
 uv run python -m aibench filter-drafts --input-dir benchmarks/ai_coding/cases/drafts-from-db --output-dir benchmarks/ai_coding/cases/drafts-kept
-uv run python -m aibench generate-cases --input-dir benchmarks/ai_coding/cases/drafts-kept --output-dir benchmarks/ai_coding/cases/auto-v0 --heuristic-only
-uv run python -m aibench ablation --matrix configs/runs/ablation-matrix.mock.yaml --case-set seed-v0
+uv run python -m aibench generate-cases --input-dir benchmarks/ai_coding/cases/drafts-kept --output-dir benchmarks/ai_coding/cases/auto-v0 --audit
+uv run python -m aibench ablation --matrix configs/runs/ablation-matrix.yaml --case-set auto-v0
 ```
 
 `auto-v0` 是**自动候选集**（`needs_review`），不是 published 正式集。消融对比 Agent/模型请改矩阵 YAML。

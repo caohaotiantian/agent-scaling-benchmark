@@ -6,10 +6,13 @@ from aibench.runner import run_benchmark
 
 
 def test_mock_run_end_to_end(tmp_path: Path):
+    root = Path(__file__).resolve().parents[1]
     run_dir = run_benchmark(
         case_set="seed-v0",
         run_id="test-mock-001",
         output_root=tmp_path,
+        agent_config_path=root / "tests/fixtures/configs/agents/mock.yaml",
+        model_config_path=root / "tests/fixtures/configs/models/mock-model.yaml",
     )
     assert (run_dir / "run_manifest.json").is_file()
     assert (run_dir / "summary.json").is_file()

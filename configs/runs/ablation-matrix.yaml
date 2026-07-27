@@ -1,0 +1,28 @@
+# Production ablation: real agents × models on session-derived auto-v0
+# Requires .env: AIBENCH_DB_URL (for build) + OPENAI_API_KEY + OPENAI_BASE_URL
+case_set: auto-v0
+baseline_experiment: openai-compat-glm52
+parallel: 1
+allow_weak_grader: false
+runs:
+  - experiment_name: openai-compat-glm52
+    algorithm_name: Baseline
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: prod-oc-glm52
+    run_config: configs/runs/baseline.yaml
+
+  - experiment_name: tool-loop-glm52
+    algorithm_name: Baseline
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: prod-tl-glm52
+    run_config: configs/runs/baseline-tool-loop.yaml
+
+  # Optional second model (uncomment when gateway exposes it):
+  # - experiment_name: openai-compat-glm51
+  #   algorithm_name: Baseline
+  #   agent_config: configs/agents/openai_compat.yaml
+  #   model_config: configs/models/glm51.yaml
+  #   run_id: prod-oc-glm51
+  #   run_config: configs/runs/baseline.yaml
