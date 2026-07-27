@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--output-root", type=Path, default=None)
 
     p_val = sub.add_parser("validate-cases", help="Validate a case set against schema")
-    p_val.add_argument("--case-set", type=str, default="seed-v0")
+    p_val.add_argument("--case-set", type=str, default="auto-v0")
 
     p_sum = sub.add_parser("check-summary", help="Validate summary.json required keys")
     p_sum.add_argument("run_dir", type=Path)

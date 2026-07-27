@@ -28,7 +28,7 @@ Usage: $0 [options]
 Options:
   --agent PATH        Agent config YAML (default: mock)
   --model PATH        Model config YAML (default: mock-model)
-  --case-set NAME     Case set under benchmarks/ai_coding/cases/ (default: seed-v0)
+  --case-set NAME     Case set under benchmarks/ai_coding/cases/ (default: auto-v0)
   --run-config PATH   Run config YAML
   --run-id ID         Optional run id
   -h, --help          Show help
