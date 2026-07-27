@@ -71,7 +71,7 @@ def validate_case_set(case_set: str) -> list[str]:
     for path in paths:
         try:
             raw = load_json(path)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             errors.append(f"{path.name}: invalid JSON ({e})")
             continue
         for err in sorted(validator.iter_errors(raw), key=lambda e: list(e.path)):

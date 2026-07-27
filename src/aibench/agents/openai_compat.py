@@ -68,15 +68,11 @@ class OpenAICompatAgent(AgentAdapter):
         ).rstrip("/")
         model_name = os.environ.get("OPENAI_MODEL") or model.model
         system = self.agent_config.options.get("system_prompt") or (
-            "Return JSON {\"files\":[...],\"message\":\"...\"} only."
+            'Return JSON {"files":[...],"message":"..."} only.'
         )
-        max_tokens = int(
-            self.agent_config.options.get("max_tokens", model.max_tokens)
-        )
+        max_tokens = int(self.agent_config.options.get("max_tokens", model.max_tokens))
 
-        file_blob = "\n\n".join(
-            f"### {fb.path}\n```\n{fb.content}\n```" for fb in case.files
-        )
+        file_blob = "\n\n".join(f"### {fb.path}\n```\n{fb.content}\n```" for fb in case.files)
         user = (
             f"Task:\n{case.prompt}\n\nCurrent files:\n{file_blob}\n\n"
             "Output JSON with updated files only (include full file content)."
@@ -117,14 +113,18 @@ class OpenAICompatAgent(AgentAdapter):
             body, files, message = retry_call(
                 _request_and_parse,
                 label=f"openai_compat:{case.case_id}",
-                retry_if=lambda e: is_retryable_error(e)
-                or "parse" in str(e).lower()
-                or "json" in str(e).lower()
-                or "empty content" in str(e).lower(),
+                retry_if=lambda e: (
+                    is_retryable_error(e)
+                    or "parse" in str(e).lower()
+                    or "json" in str(e).lower()
+                    or "empty content" in str(e).lower()
+                ),
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             err = str(e)
-            status = "infra_error" if is_retryable_error(e) or "request" in err.lower() else "failed"
+            status = (
+                "infra_error" if is_retryable_error(e) or "request" in err.lower() else "failed"
+            )
             return AgentRunResult(
                 status=status,
                 error_message=f"LLM request/parse failed after retries: {e}",

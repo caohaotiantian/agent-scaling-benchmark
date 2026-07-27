@@ -43,7 +43,9 @@ class ShellAgent(AgentAdapter):
             .replace("{max_steps}", str(max_steps))
         )
         env = os.environ.copy()
-        env.update({str(k): str(v) for k, v in (self.agent_config.options.get("env") or {}).items()})
+        env.update(
+            {str(k): str(v) for k, v in (self.agent_config.options.get("env") or {}).items()}
+        )
         try:
             proc = subprocess.run(
                 cmd,
@@ -61,7 +63,7 @@ class ShellAgent(AgentAdapter):
                 error_message="shell agent timeout",
                 wall_time_s=time.perf_counter() - t0,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return AgentRunResult(
                 status="infra_error",
                 error_message=str(e),

@@ -6,7 +6,6 @@ import json
 import re
 from typing import Any
 
-
 _PATH_CONTENT = re.compile(
     r"<path>(?P<path>[^<]+)</path>\s*<type>file</type>\s*<content>(?P<body>[\s\S]*?)</content>",
     re.I,
@@ -37,9 +36,9 @@ CODING_TOOLS = {
 def parse_jsonish(value: Any) -> Any:
     if value is None:
         return None
-    if isinstance(value, (dict, list)):
+    if isinstance(value, dict | list):
         return value
-    if isinstance(value, (bytes, bytearray)):
+    if isinstance(value, bytes | bytearray):
         value = value.decode("utf-8", errors="replace")
     if isinstance(value, str):
         s = value.strip()
@@ -222,21 +221,19 @@ def is_coding_record(
     ua = (user_agent or "").lower()
     if "opencode" in ua or "codegenie" in ua:
         return True
-    if set(tools) & CODING_TOOLS:
-        # agentic coding tools present
-        if re.search(
-            r"(代码|实现|修复|重构|函数|bug|fix|implement|refactor|class |def |import |编译|测试|pytest|error)",
-            user_text,
-            re.I,
-        ):
-            return True
-    if re.search(
-        r"(实现|修复|重构|bug|fix|implement|refactor|写一个|编写一个|python|代码|函数|算法)",
+    if set(tools) & CODING_TOOLS and re.search(
+        r"(代码|实现|修复|重构|函数|bug|fix|implement|refactor|class |def |import |编译|测试|pytest|error)",
         user_text,
         re.I,
     ):
         return True
-    return False
+    return bool(
+        re.search(
+            r"(实现|修复|重构|bug|fix|implement|refactor|写一个|编写一个|python|代码|函数|算法)",
+            user_text,
+            re.I,
+        )
+    )
 
 
 def primary_user_prompt(messages: list[dict[str, Any]]) -> str:

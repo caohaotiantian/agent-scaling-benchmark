@@ -123,7 +123,7 @@ def materialize_workspace(
         try:
             _apply_snapshot(spec.snapshot_path, workspace, case_set_dir=case_set_dir)
             sources.append(f"snapshot:{spec.snapshot_path}")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             msg = f"snapshot failed: {e}"
             if spec.strict and mode == "snapshot":
                 raise RuntimeError(msg) from e
@@ -145,7 +145,7 @@ def materialize_workspace(
                     sparse_paths=spec.git_sparse_paths,
                 )
                 sources.append(f"git:{spec.git_url}@{spec.git_ref or 'HEAD'}")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 msg = f"git failed: {e}"
                 if spec.strict and mode == "git":
                     raise RuntimeError(msg) from e

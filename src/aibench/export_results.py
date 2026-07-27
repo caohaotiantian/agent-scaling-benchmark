@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Any
 
 from aibench.io_util import load_json
 
@@ -40,9 +39,7 @@ def export_ablation_xlsx(ablation_dir: Path, out_xlsx: Path | None = None) -> Pa
     try:
         from openpyxl import Workbook
     except ImportError as e:
-        raise RuntimeError(
-            "openpyxl not installed; run: uv add openpyxl"
-        ) from e
+        raise RuntimeError("openpyxl not installed; run: uv add openpyxl") from e
 
     summary = load_json(ablation_dir / "ablation_summary.json")
     rows = summary.get("runs") or []

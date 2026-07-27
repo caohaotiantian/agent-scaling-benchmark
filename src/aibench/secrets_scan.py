@@ -9,7 +9,6 @@ from typing import Any
 
 from aibench.io_util import load_json
 
-
 _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("openai_sk", re.compile(r"sk-[A-Za-z0-9]{20,}")),
     ("aws_key", re.compile(r"AKIA[0-9A-Z]{16}")),
@@ -44,10 +43,10 @@ def scan_text(text: str, *, path: str = "<text>") -> list[Finding]:
 def scan_case_dict(case: dict[str, Any], *, path: str = "case") -> list[Finding]:
     findings: list[Finding] = []
     findings.extend(scan_text(str(case.get("prompt") or ""), path=f"{path}:prompt"))
-    for f in ((case.get("context") or {}).get("files") or []):
+    for f in (case.get("context") or {}).get("files") or []:
         p = f.get("path") or "file"
         findings.extend(scan_text(str(f.get("content") or ""), path=f"{path}:{p}"))
-    for g in ((case.get("grader") or {}).get("gold_files") or []):
+    for g in (case.get("grader") or {}).get("gold_files") or []:
         p = g.get("path") or "gold"
         findings.extend(scan_text(str(g.get("content") or ""), path=f"{path}:gold:{p}"))
     return findings

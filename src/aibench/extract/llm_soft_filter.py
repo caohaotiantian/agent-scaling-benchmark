@@ -57,7 +57,7 @@ def llm_soft_filter_draft(draft: dict[str, Any], *, timeout_s: float = 60.0) -> 
     try:
         start, end = text.find("{"), text.rfind("}")
         data = json.loads(text[start : end + 1] if start >= 0 else text)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return FilterDecision(True, f"llm_filter_parse_fail:{e}", 0.0, ["parse_fail"])
 
     keep = bool(data.get("keep"))

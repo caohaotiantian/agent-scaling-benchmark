@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from aibench.promote import promote_cases
 from aibench.io_util import write_json
+from aibench.promote import promote_cases
 
 
 def test_promote_dry_run_and_script_gate(tmp_path: Path, monkeypatch):
@@ -30,7 +30,10 @@ def test_promote_dry_run_and_script_gate(tmp_path: Path, monkeypatch):
         "context": {
             "files": [
                 {"path": "add.py", "content": "def add(a,b):\n    raise NotImplementedError\n"},
-                {"path": "test_add.py", "content": "from add import add\n\ndef test_add():\n    assert add(1,2)==3\n"},
+                {
+                    "path": "test_add.py",
+                    "content": "from add import add\n\ndef test_add():\n    assert add(1,2)==3\n",
+                },
             ]
         },
         "grader": {"mode": "script", "command": "python -m pytest -q test_add.py"},

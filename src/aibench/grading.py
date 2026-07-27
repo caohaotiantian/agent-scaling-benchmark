@@ -112,11 +112,8 @@ def _grade_gold(case: Case, workspace: Path) -> GradeResult:
         if g.match == "exact":
             if actual != expected:
                 mismatches.append(f"exact mismatch: {gold.path}")
-        else:
-            if _normalize(actual) != _normalize(expected):
-                # Soft: if key logic present via stripping comments-only drift
-                if not _soft_equal(actual, expected):
-                    mismatches.append(f"normalized mismatch: {gold.path}")
+        elif _normalize(actual) != _normalize(expected) and not _soft_equal(actual, expected):
+            mismatches.append(f"normalized mismatch: {gold.path}")
 
     ok = not mismatches
     return GradeResult(
@@ -138,8 +135,9 @@ def _soft_equal(a: str, b: str) -> bool:
 
 def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
     """Score workspace against prompt/rubric via OpenAI-compatible chat."""
-    from aibench.env_config import openai_settings
     import httpx
+
+    from aibench.env_config import openai_settings
 
     settings = openai_settings()
     if not settings["api_key"] or not settings["base_url"] or not settings["model"]:
@@ -156,7 +154,9 @@ def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
             continue
         try:
             rel = p.relative_to(workspace).as_posix()
-            files_blob.append(f"### {rel}\n{p.read_text(encoding='utf-8', errors='replace')[:4000]}")
+            files_blob.append(
+                f"### {rel}\n{p.read_text(encoding='utf-8', errors='replace')[:4000]}"
+            )
         except OSError:
             continue
     rubric = case.grader.judge_rubric or "Score whether the solution fulfills the user task."
@@ -174,6 +174,7 @@ def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
     from aibench.retry import retry_call
 
     try:
+
         def _judge_req() -> str:
             with httpx.Client(timeout=90.0) as client:
                 resp = client.post(
@@ -200,7 +201,7 @@ def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
                 return text
 
         content = retry_call(_judge_req, label="llm_judge")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return GradeResult(
             passed=False,
             mode="llm_judge",
@@ -218,7 +219,7 @@ def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
         score = float(data.get("score"))
         passed = bool(data.get("passed")) if "passed" in data else score >= float(thr)
         reason = str(data.get("reason") or "")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         return GradeResult(
             passed=False,
             mode="llm_judge",

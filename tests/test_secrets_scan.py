@@ -1,4 +1,4 @@
-from aibench.secrets_scan import scan_text, scan_case_dict
+from aibench.secrets_scan import scan_case_dict, scan_text
 
 
 def test_scan_detects_sk():

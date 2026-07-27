@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 
 @dataclass
@@ -47,8 +48,10 @@ def redact_secrets(text: str) -> str:
     patterns = [
         (r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+", r"\1=***"),
         (r"sk-[A-Za-z0-9]{10,}", "sk-***"),
-        (r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-         "***PRIVATE_KEY***"),
+        (
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+            "***PRIVATE_KEY***",
+        ),
     ]
     out = text
     for pat, repl in patterns:
@@ -113,7 +116,9 @@ def session_to_case_draft(
             "command": "python -m pytest -q",
         }
 
-    case_id = f"sess-{session.session_id[:12]}-{task_fingerprint(prompt, [f['path'] for f in files])}"
+    case_id = (
+        f"sess-{session.session_id[:12]}-{task_fingerprint(prompt, [f['path'] for f in files])}"
+    )
     return {
         "case_id": case_id,
         "schema_version": "0.1",

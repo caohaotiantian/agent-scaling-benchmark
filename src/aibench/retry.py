@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 import random
 import time
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -72,7 +73,7 @@ def retry_call(
     for i in range(1, attempts + 1):
         try:
             return fn()
-        except BaseException as e:  # noqa: BLE001
+        except BaseException as e:
             last = e
             if i >= attempts or not pred(e):
                 raise

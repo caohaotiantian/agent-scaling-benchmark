@@ -1,9 +1,9 @@
 from aibench.extract.sessions import (
-    SessionRecord,
     Message,
+    SessionRecord,
     filter_and_draft,
-    redact_secrets,
     is_coding_session,
+    redact_secrets,
 )
 
 
@@ -21,9 +21,7 @@ def test_filter_and_draft():
                 Message(role="user", content="请帮我实现一个 fizzbuzz 函数"),
                 Message(role="assistant", content="好的"),
             ],
-            artifacts=[
-                {"type": "file", "path": "fb.py", "content": "def fizzbuzz(n): pass\n"}
-            ],
+            artifacts=[{"type": "file", "path": "fb.py", "content": "def fizzbuzz(n): pass\n"}],
         ),
         SessionRecord(
             session_id="zzz",
