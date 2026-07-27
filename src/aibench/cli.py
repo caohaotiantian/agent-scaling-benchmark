@@ -230,10 +230,17 @@ def main(argv: list[str] | None = None) -> int:
                 if args.heuristic_only:
                     case = heuristic_case_from_draft(draft)
                 else:
-                    try:
-                        case = generate_case_with_llm(draft)
-                    except Exception as e:  # noqa: BLE001
-                        print(f"LLM generate failed for {path.name}: {e}; fallback heuristic")
+                    last_err: Exception | None = None
+                    case = None
+                    for attempt in range(2):
+                        try:
+                            case = generate_case_with_llm(draft)
+                            break
+                        except Exception as e:  # noqa: BLE001
+                            last_err = e
+                            print(f"LLM generate attempt {attempt+1} failed for {path.name}: {e}")
+                    if case is None:
+                        print(f"fallback heuristic for {path.name}: {last_err}")
                         case = heuristic_case_from_draft(draft)
                 errors = sorted(validator.iter_errors(case), key=lambda e: list(e.path))
                 if errors:

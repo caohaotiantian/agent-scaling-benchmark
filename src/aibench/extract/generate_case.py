@@ -115,12 +115,52 @@ def _default_key_lines(content: str) -> list[str]:
     return lines
 
 
+_TASK_TYPE_MAP = {
+    "implement": "feature",
+    "implementation": "feature",
+    "fix": "bugfix",
+    "bug": "bugfix",
+    "bug_fix": "bugfix",
+    "refactor": "refactor",
+    "test": "test_gen",
+    "tests": "test_gen",
+    "explain": "explain_to_edit",
+}
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    raw = (text or "").strip()
+    if not raw:
+        raise ValueError("empty LLM content")
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError(f"no JSON object in LLM content: {raw[:200]!r}")
+        data = json.loads(raw[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("LLM JSON root must be object")
+    return data
+
+
+def _normalize_task_type(value: Any) -> str:
+    s = str(value or "feature").strip().lower().replace("-", "_").replace(" ", "_")
+    if s in {"bugfix", "feature", "refactor", "explain_to_edit", "test_gen", "pairwise"}:
+        return s
+    return _TASK_TYPE_MAP.get(s, "feature")
+
+
 def generate_case_with_llm(
     draft: dict[str, Any],
     *,
-    timeout_s: float = 90.0,
+    timeout_s: float = 120.0,
 ) -> dict[str, Any]:
-    """Ask LLM to produce a minimal self-contained coding case JSON."""
+    """Ask LLM to produce a minimal self-contained coding case JSON with script grader."""
     settings = openai_settings()
     if not settings["api_key"] or not settings["base_url"] or not settings["model"]:
         raise RuntimeError("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL required for LLM generate")
@@ -128,69 +168,130 @@ def generate_case_with_llm(
     prompt = draft.get("prompt") or ""
     files = ((draft.get("context") or {}).get("files")) or []
     file_summaries = []
-    for f in files[:6]:
-        body = (f.get("content") or "")[:1500]
+    for f in files[:3]:
+        body = (f.get("content") or "")[:600]
         file_summaries.append(f"### {f.get('path')}\n{body}")
 
     system = (
-        "You generate AI-coding-assist benchmark cases. "
-        "Return ONLY a JSON object with keys: case_id, schema_version, task_type, language, "
-        "prompt, context, grader, metadata. "
-        "context.files is an array of {path, content}. "
-        "Prefer grader.mode=script with command like 'python -m pytest -q test_xxx.py' "
-        "and include the test file in context.files. "
-        "Keep the task small and self-contained. No markdown fences."
+        "You create tiny self-contained Python coding benchmark cases.\n"
+        "Return ONLY one JSON object (markdown fences allowed).\n"
+        "Required keys: case_id, schema_version, task_type, language, prompt, context, grader, metadata.\n"
+        "task_type MUST be one of: bugfix, feature, refactor, explain_to_edit, test_gen, pairwise.\n"
+        "language should be python.\n"
+        "context.files: array of {path, content}. Include:\n"
+        "  1) a stub implementation that is incomplete/wrong\n"
+        "  2) a pytest file that fails on the stub and passes on a correct fix\n"
+        "grader: {\"mode\":\"script\",\"command\":\"python -m pytest -q <test_file>.py\"}\n"
+        "Keep files short (<80 lines each). No secrets. Abstract away private paths."
     )
     user = (
-        f"Source user task:\n{prompt[:3000]}\n\n"
-        f"Known files (may be incomplete):\n{chr(10).join(file_summaries) or '(none)'}\n\n"
-        "Produce a minimal reproducible case. Desensitize secrets."
+        f"Inspire a MINIMAL coding task from this real user request "
+        f"(do NOT require the original repo):\n{prompt[:800]}\n\n"
+        f"Optional context snippets:\n{chr(10).join(file_summaries) or '(none)'}\n\n"
+        "Output the case JSON now."
     )
     base = settings["base_url"].rstrip("/")
-    payload = {
-        "model": settings["model"],
-        "temperature": 0,
-        "max_tokens": 4096,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-    }
-    with httpx.Client(timeout=timeout_s) as client:
-        resp = client.post(
-            f"{base}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {settings['api_key']}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
+
+    def _chat(messages: list[dict[str, str]], max_tokens: int = 8192) -> str:
+        payload = {
+            "model": settings["model"],
+            "temperature": 0,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        }
+        with httpx.Client(timeout=timeout_s) as client:
+            resp = client.post(
+                f"{base}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings['api_key']}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            msg = body["choices"][0]["message"]
+            content = msg.get("content") or ""
+            reasoning = msg.get("reasoning_content") or ""
+            # Prefer answer content; some models only fill reasoning and hit length.
+            text = content.strip() if str(content).strip() else str(reasoning).strip()
+            if not text:
+                raise ValueError(f"empty content in response: {str(body)[:300]}")
+            return text
+
+    try:
+        raw_text = _chat(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=8192,
         )
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-
-    text = content.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    data = json.loads(text)
-    if not isinstance(data, dict):
-        raise ValueError("LLM did not return a JSON object")
-
-    # safety + defaults
+        data = _extract_json_object(raw_text)
+    except Exception:
+        # Ultra-short retry: reduce thinking budget consumption
+        raw_text = _chat(
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "Output ONLY a JSON coding benchmark case. No analysis.\n"
+                        "Schema: case_id, schema_version=0.1, task_type=feature, language=python,\n"
+                        "prompt, context.files=[{path,content}], grader={mode:script,command},\n"
+                        "metadata={}.\n"
+                        "Include stub .py + test_*.py. Command: python -m pytest -q test_xxx.py\n"
+                        f"Inspired by: {prompt[:400]}"
+                    ),
+                }
+            ],
+            max_tokens=4096,
+        )
+        data = _extract_json_object(raw_text)
+    data["task_type"] = _normalize_task_type(data.get("task_type"))
+    data["language"] = data.get("language") or "python"
     data.setdefault("schema_version", "0.1")
     data.setdefault("metadata", {})
     data["metadata"]["generation"] = "llm"
     data["metadata"]["review_status"] = "needs_review"
     data["metadata"]["split"] = "auto"
+    data["metadata"]["weak_grader"] = False
     if draft.get("metadata", {}).get("source_session_id"):
         data["metadata"]["source_session_id"] = draft["metadata"]["source_session_id"]
         data["metadata"]["source"] = "llm_chat_records"
 
     grader = data.get("grader") or {}
+    if grader.get("mode") != "script":
+        # force script if tests exist
+        test_files = [
+            f["path"]
+            for f in ((data.get("context") or {}).get("files") or [])
+            if str(f.get("path", "")).startswith("test_") or "/test_" in str(f.get("path", ""))
+        ]
+        if test_files:
+            grader = {
+                "mode": "script",
+                "command": f"python -m pytest -q {test_files[0]}",
+            }
     if grader.get("mode") == "script" and not is_safe_grader_command(grader.get("command")):
         raise ValueError(f"unsafe grader command: {grader.get('command')}")
+    data["grader"] = grader
 
-    # ensure required shapes
-    data = heuristic_case_from_draft(data)
+    # Light normalize without destroying LLM script grader
+    data["prompt"] = redact_secrets(str(data.get("prompt") or ""))
+    ctx = data.setdefault("context", {})
+    cleaned = []
+    for f in ctx.get("files") or []:
+        cleaned.append(
+            {
+                "path": f["path"],
+                "content": redact_secrets(str(f.get("content") or "")),
+            }
+        )
+    if not cleaned:
+        raise ValueError("LLM case has no context.files")
+    ctx["files"] = cleaned
+    if not data.get("case_id"):
+        data["case_id"] = f"auto-{task_fingerprint(data['prompt'], [f['path'] for f in cleaned])}"
     data["metadata"]["generation"] = "llm"
+    data["metadata"]["weak_grader"] = data.get("grader", {}).get("mode") != "script"
     return data
