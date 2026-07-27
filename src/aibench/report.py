@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from typing import Any
+
+from aibench.diagnostics import aggregate_failures, render_failures_md
 
 
 SUMMARY_REQUIRED_KEYS = [
@@ -116,7 +119,8 @@ def build_summary(
         "total_tokens": total_tokens,
         "avg_tokens_per_case": avg_tokens,
         "avg_tokens_per_success": avg_tokens_success,
-        "total_cost": None,
+        "total_cost": _estimate_cost_usd(total_tokens),
+        "avg_cost_per_case": None,
         "token_amplification": None,
         # 时间效率
         "total_wall_time_h": total_wall_s / 3600.0,
@@ -131,8 +135,26 @@ def build_summary(
         "report_path": None,
         "result_dir": m.get("result_dir"),
         "raw_results_path": None,
+        "failure_diagnostics": aggregate_failures(case_results),
     }
+    if summary["total_cost"] is not None and effective_n:
+        summary["avg_cost_per_case"] = summary["total_cost"] / effective_n
     return summary
+
+
+def _estimate_cost_usd(total_tokens: int) -> float | None:
+    """Rough USD estimate from env rates (per 1M tokens)."""
+    try:
+        # blended rate if only one set; else (in+out)/2
+        blended = os.environ.get("AIBENCH_USD_PER_MTOK")
+        if blended:
+            return total_tokens / 1_000_000.0 * float(blended)
+        pin = float(os.environ.get("AIBENCH_USD_PER_MTOK_INPUT", "0.5"))
+        pout = float(os.environ.get("AIBENCH_USD_PER_MTOK_OUTPUT", "1.5"))
+        # unknown split → use average
+        return total_tokens / 1_000_000.0 * ((pin + pout) / 2.0)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]) -> str:
@@ -206,6 +228,7 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         f"| 总 Step 数 | {summary.get('total_steps')} |",
         f"| 平均 Step/Case | {float(summary.get('avg_steps_per_case') or 0):.2f} |",
         f"| 总模型调用次数 | {summary.get('total_model_calls')} |",
+        f"| 总成本(USD估) | {summary.get('total_cost')} |",
         "",
         "## Case 明细",
         "",
@@ -219,6 +242,9 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
             f"| {r.get('step_count')} |"
         )
     lines.append("")
+    diag = summary.get("failure_diagnostics")
+    if diag:
+        lines.append(render_failures_md(diag))
     return "\n".join(lines)
 
 

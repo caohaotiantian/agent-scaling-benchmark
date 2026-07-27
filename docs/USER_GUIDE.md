@@ -385,7 +385,60 @@ runs:                      # 每一项 = 一次独立实验行
 
 ---
 
-## 9. 命令速查
+## 9. 扩展命令（遗留能力补全后）
+
+### 发布候选 → 正式集
+
+```bash
+# 预演
+uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 --dry-run
+
+# 指定 case 发布（推荐）
+uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
+  --case-id gitcode_api_v4_to_v5 --case-id py_stack_lifo_bug
+```
+
+门控：schema 合法、默认要求 `grader.mode=script`、拒绝 `weak_grader`、secrets 扫描干净。
+
+### 脱敏扫描 / Snapshot
+
+```bash
+uv run python -m aibench secrets-scan --case-set auto-v0 --report /tmp/secrets.json
+uv run python -m aibench snapshot-skeleton --case-set auto-v0
+```
+
+### 消融增强
+
+```bash
+uv run python -m aibench ablation \
+  --matrix configs/runs/ablation-matrix.session.yaml \
+  --parallel 2 \
+  --baseline-experiment mock-baseline \
+  --export-csv --export-xlsx
+# 默认剔除 weak_grader；需要保留时加 --allow-weak-grader
+```
+
+### LLM 软过滤
+
+```bash
+uv run python -m aibench filter-drafts \
+  --input-dir benchmarks/ai_coding/cases/drafts-from-db \
+  --output-dir benchmarks/ai_coding/cases/drafts-kept \
+  --llm-soft
+```
+
+### 新 Agent
+
+| adapter | 配置 | 说明 |
+|---------|------|------|
+| `tool_loop` | `configs/agents/tool_loop.yaml` | 多步 list/read/write/bash/submit |
+| `shell` | `configs/agents/shell.example.yaml` | 外部 CLI（可包 mini-swe 等） |
+
+费用：设 `AIBENCH_USD_PER_MTOK` 或 input/output 单价（每百万 token USD）。
+
+---
+
+## 10. 命令速查
 
 ```bash
 # 环境

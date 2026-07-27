@@ -17,8 +17,13 @@ benchmarks/ai_coding/cases/drafts*/
 benchmarks/ai_coding/cases/drafts-kept/
 benchmarks/ai_coding/cases/drafts-dropped/
 benchmarks/ai_coding/cases/auto-v0/
+benchmarks/ai_coding/cases/prod-v0/
 benchmarks/ai_coding/cases/e2e-demo/
+benchmarks/ai_coding/cases/.ablation-filtered-*/
+benchmarks/ai_coding/cases/_test_*/
 benchmarks/ai_coding/cases/review-pack-v0/
 .e2e-artifacts/
 /tmp_aibench*
 
+benchmarks/ai_coding/cases/prod-v0/
+benchmarks/ai_coding/cases/.ablation-filtered-*/

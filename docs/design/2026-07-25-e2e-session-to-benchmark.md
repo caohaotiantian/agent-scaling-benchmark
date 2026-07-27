@@ -2,7 +2,10 @@
 
 | 字段 | 值 |
 |------|-----|
-| 状态 | L1 pass (r2 zero severe); implementation landed |
+| 状态 | closed |
+| Closing-commit | see git log (remaining-work batch) |
+| Closed-on | 2026-07-27 |
+| Deferred | Git LFS remote snapshots; Fusion-only timing fields; interactive promote UI |
 | 日期 | 2026-07-25 |
 | 任务 slug | `2026-07-25-e2e-session-to-benchmark` |
 | 上游 | `docs/design/2026-07-25-ai-coding-benchmark.md`、`workspace-restoration.md`、`llm_chat_records-source.md` |

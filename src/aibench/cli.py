@@ -8,19 +8,24 @@ from pathlib import Path
 from aibench.ablation import run_ablation
 from aibench.cases import load_schema_validator, validate_case_set
 from aibench.env_config import load_dotenv
+from aibench.export_results import export_ablation_csv, export_ablation_xlsx
 from aibench.extract.filter_rules import rule_filter_draft
 from aibench.extract.generate_case import generate_case_with_llm, heuristic_case_from_draft
 from aibench.extract.llm_chat_records import (
     extract_case_drafts_from_db,
     resolve_db_url,
 )
+from aibench.extract.llm_soft_filter import llm_soft_filter_draft
 from aibench.extract.sessions import (
     filter_and_draft,
     load_sessions_from_export,
 )
+from aibench.extract.snapshot_skeleton import build_snapshots_for_case_set
 from aibench.io_util import load_json, write_json
+from aibench.promote import promote_cases
 from aibench.report import check_summary
 from aibench.runner import run_benchmark
+from aibench.secrets_scan import scan_case_dir
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,6 +76,11 @@ def main(argv: list[str] | None = None) -> int:
     p_fil.add_argument("--output-dir", type=Path, required=True)
     p_fil.add_argument("--dropped-dir", type=Path, default=None)
     p_fil.add_argument("--report", type=Path, default=None)
+    p_fil.add_argument(
+        "--llm-soft",
+        action="store_true",
+        help="After rules keep, also apply LLM soft filter (requires OPENAI_*)",
+    )
 
     p_gen = sub.add_parser("generate-cases", help="Promote drafts to schema cases")
     p_gen.add_argument("--input-dir", type=Path, required=True)
@@ -82,11 +92,71 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_gen.add_argument("--max-cases", type=int, default=50)
     p_gen.add_argument("--filter", action="store_true", help="Apply rule filter before generate")
+    p_gen.add_argument(
+        "--secrets-scan",
+        action="store_true",
+        help="Scan generated cases for secrets and write report next to output",
+    )
 
     p_abl = sub.add_parser("ablation", help="Run agent/model matrix and aggregate tables")
     p_abl.add_argument("--matrix", type=Path, required=True)
     p_abl.add_argument("--output-root", type=Path, default=None)
     p_abl.add_argument("--case-set", type=str, default=None)
+    p_abl.add_argument(
+        "--allow-weak-grader",
+        action="store_true",
+        help="Do not strip weak_grader=true cases (default: strip)",
+    )
+    p_abl.add_argument("--parallel", type=int, default=1, help="Parallel run workers")
+    p_abl.add_argument(
+        "--baseline-experiment",
+        type=str,
+        default=None,
+        help="Experiment name used as baseline for relative lift",
+    )
+    p_abl.add_argument(
+        "--export-csv",
+        action="store_true",
+        help="Also write ablation_overview.csv",
+    )
+    p_abl.add_argument(
+        "--export-xlsx",
+        action="store_true",
+        help="Also write ablation_overview.xlsx (needs openpyxl)",
+    )
+
+    p_pro = sub.add_parser(
+        "promote",
+        help="Human-gated promote candidate cases to published set (e.g. prod-v0)",
+    )
+    p_pro.add_argument("--from-set", default="auto-v0")
+    p_pro.add_argument("--to-set", default="prod-v0")
+    p_pro.add_argument(
+        "--case-id",
+        action="append",
+        default=None,
+        help="Case id to promote (repeatable). If omitted, all gated candidates.",
+    )
+    p_pro.add_argument("--allow-non-script", action="store_true")
+    p_pro.add_argument("--allow-secrets", action="store_true")
+    p_pro.add_argument("--dry-run", action="store_true")
+    p_pro.add_argument("--report", type=Path, default=None)
+
+    p_sec = sub.add_parser("secrets-scan", help="Scan a case directory for likely secrets")
+    p_sec.add_argument("--case-set", type=str, default=None)
+    p_sec.add_argument("--input-dir", type=Path, default=None)
+    p_sec.add_argument("--report", type=Path, default=None)
+
+    p_snap = sub.add_parser(
+        "snapshot-skeleton",
+        help="Materialize snapshots/<case_id>/ from context.files and set workspace.mode=mixed",
+    )
+    p_snap.add_argument("--case-set", type=str, required=True)
+
+    p_exp = sub.add_parser("export-ablation", help="Export ablation_summary to CSV/XLSX")
+    p_exp.add_argument("--ablation-dir", type=Path, required=True)
+    p_exp.add_argument("--csv", action="store_true", default=True)
+    p_exp.add_argument("--xlsx", action="store_true")
 
     args = parser.parse_args(argv)
 
@@ -104,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"success_rate={summary['success_rate']:.3f} "
             f"({summary['success_count']}/{summary['effective_case_count']}) "
-            f"tokens={summary['total_tokens']}"
+            f"tokens={summary['total_tokens']} cost={summary.get('total_cost')}"
         )
         return 0
 
@@ -199,15 +269,26 @@ def main(argv: list[str] | None = None) -> int:
         for path in sorted(inp.glob("*.json")):
             draft = load_json(path)
             dec = rule_filter_draft(draft)
-            row = {"file": path.name, "case_id": draft.get("case_id"), **dec.to_dict()}
+            if dec.keep and args.llm_soft:
+                soft = llm_soft_filter_draft(draft)
+                row = {
+                    "file": path.name,
+                    "case_id": draft.get("case_id"),
+                    "rule": dec.to_dict(),
+                    "llm": soft.to_dict(),
+                }
+                keep = soft.keep
+            else:
+                row = {"file": path.name, "case_id": draft.get("case_id"), **dec.to_dict()}
+                keep = dec.keep
             report_rows.append(row)
-            if dec.keep:
+            if keep:
                 write_json(out / path.name, draft)
                 kept += 1
             else:
                 dropped += 1
                 if drop_dir:
-                    write_json(drop_dir / path.name, {**draft, "_filter": dec.to_dict()})
+                    write_json(drop_dir / path.name, {**draft, "_filter": row})
         if args.report:
             write_json(args.report, {"kept": kept, "dropped": dropped, "items": report_rows})
         print(f"filter kept={kept} dropped={dropped} -> {out}")
@@ -251,6 +332,10 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as e:  # noqa: BLE001
                 print(f"skip {path.name}: {e}")
         print(f"generated {n_ok} cases -> {out}")
+        if args.secrets_scan and n_ok:
+            rep = scan_case_dir(out)
+            write_json(out / "_secrets_scan.json", rep)
+            print(f"secrets_scan findings={rep['finding_count']} clean={rep['clean']}")
         return 0 if n_ok > 0 else 1
 
     if args.cmd == "ablation":
@@ -258,9 +343,63 @@ def main(argv: list[str] | None = None) -> int:
             args.matrix,
             output_root=args.output_root,
             case_set_override=args.case_set,
+            allow_weak_grader=args.allow_weak_grader,
+            parallel=args.parallel,
+            baseline_experiment=args.baseline_experiment,
         )
         print(f"ablation_dir={abl_dir}")
         print(f"report={abl_dir / 'ablation_report.md'}")
+        if args.export_csv:
+            p = export_ablation_csv(abl_dir)
+            print(f"csv={p}")
+        if args.export_xlsx:
+            try:
+                p = export_ablation_xlsx(abl_dir)
+                print(f"xlsx={p}")
+            except RuntimeError as e:
+                print(f"xlsx skipped: {e}")
+        return 0
+
+    if args.cmd == "promote":
+        report = promote_cases(
+            source_set=args.from_set,
+            dest_set=args.to_set,
+            case_ids=args.case_id,
+            require_script=not args.allow_non_script,
+            allow_secrets=args.allow_secrets,
+            dry_run=args.dry_run,
+        )
+        if args.report:
+            write_json(args.report, report)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report["promoted_count"] or args.dry_run else 1
+
+    if args.cmd == "secrets-scan":
+        if args.input_dir:
+            directory = args.input_dir
+        elif args.case_set:
+            from aibench.cases import case_set_dir
+
+            directory = case_set_dir(args.case_set)
+        else:
+            print("provide --case-set or --input-dir")
+            return 1
+        rep = scan_case_dir(directory)
+        if args.report:
+            write_json(args.report, rep)
+        print(json.dumps(rep, ensure_ascii=False, indent=2))
+        return 0 if rep["clean"] else 2
+
+    if args.cmd == "snapshot-skeleton":
+        rep = build_snapshots_for_case_set(args.case_set)
+        print(json.dumps(rep, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.cmd == "export-ablation":
+        if args.csv:
+            print(export_ablation_csv(args.ablation_dir))
+        if args.xlsx:
+            print(export_ablation_xlsx(args.ablation_dir))
         return 0
 
     return 2
