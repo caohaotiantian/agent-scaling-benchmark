@@ -13,6 +13,12 @@ _DROP_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("judge_meta", re.compile(r"(任务完成度评测|rubric-judge|<<RUBRIC>>|is_correct)", re.I)),
     ("pure_chat", re.compile(r"^(今天天气|你好|在吗)[\s\S]{0,40}$", re.I)),
     ("system_only_noise", re.compile(r"WITTY_INTERNAL_INITIATOR|openclaw-tui.*HEARTBEAT", re.I)),
+    ("explain_only", re.compile(
+        r"(设计方案|总结一下|详细说明|是怎么定义的|默认值从何而来|虚拟大小是怎么|"
+        r"Automatically detect the language|superpowers|EXTREMELY_IMPORTANT)",
+        re.I,
+    )),
+    ("log_dump", re.compile(r"匹配\d+次|\.log\s*（匹配", re.I)),
 ]
 
 _KEEP_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
@@ -78,6 +84,9 @@ def rule_filter_text(
 
     if score < 1.0:
         return FilterDecision(False, "low_coding_signal", score, labels or ["no_signal"])
+    # Prefer cases with real file context for restoration credibility
+    if not has_context_files and score < 2.5:
+        return FilterDecision(False, "no_workspace_context", score, labels + ["no_context"])
     return FilterDecision(True, "ok", score, labels)
 
 

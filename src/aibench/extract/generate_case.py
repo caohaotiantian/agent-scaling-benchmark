@@ -50,21 +50,36 @@ def heuristic_case_from_draft(draft: dict[str, Any]) -> dict[str, Any]:
     grader = case.get("grader") or {"mode": "gold"}
     if grader.get("mode") == "script" and not is_safe_grader_command(grader.get("command")):
         grader = {"mode": "gold", "match": "contains_key_lines", "key_lines": ["def "]}
+
+    # Gold key lines must come from assistant solution code, not from prompt prose / trees.
+    # Context files are the *starting* workspace; grader checks agent output contains solution keys.
     if grader.get("mode") == "gold":
         gold = grader.get("gold_files") or []
-        if not gold and cleaned:
-            # weak gold: require some non-empty implementation signal in first file
-            grader = {
-                "mode": "gold",
-                "match": "contains_key_lines",
-                "key_lines": _default_key_lines(cleaned[0].get("content") or ""),
-                "gold_files": cleaned[:1],
-            }
+        gold_body = (gold[0].get("content") if gold else "") or ""
+        keys = [k for k in _default_key_lines(gold_body) if _is_useful_key_line(k)]
+        # Drop keys already present in starting context (would pass without agent work).
+        ctx_blob = "\n".join(f.get("content") or "" for f in cleaned)
+        keys = [k for k in keys if k not in ctx_blob]
+        if not keys:
+            # No separable solution signal — mark weak and use a soft structural check
+            keys = ["def "] if any(f["path"].endswith(".py") for f in cleaned) else ["function "]
+            meta_weak = True
+        else:
+            meta_weak = False
+        grader = {
+            "mode": "gold",
+            "match": "contains_key_lines",
+            "key_lines": keys[:5],
+            "gold_files": gold[:1] if gold else [],
+        }
+    else:
+        meta_weak = grader.get("mode") != "script"
     case["grader"] = grader
     meta = case.setdefault("metadata", {})
     meta["review_status"] = meta.get("review_status") or "needs_review"
     meta["split"] = meta.get("split") or "auto"
     meta["generation"] = "heuristic"
+    meta["weak_grader"] = bool(meta_weak) if grader.get("mode") == "gold" else grader.get("mode") != "script"
     case["schema_version"] = case.get("schema_version") or "0.1"
     if not case.get("task_type"):
         case["task_type"] = guess_task_type(case["prompt"])
@@ -76,15 +91,28 @@ def heuristic_case_from_draft(draft: dict[str, Any]) -> dict[str, Any]:
     return case
 
 
+def _is_useful_key_line(s: str) -> bool:
+    if not s or len(s) < 4:
+        return False
+    # drop markdown trees, absolute paths, ascii art
+    if s.startswith(("├", "│", "└", "┌", "─", "/Users/", "C:\\", "open ")):
+        return False
+    if "python-algorithms/" in s or s in {"↓", "{", "}"}:
+        return False
+    return True
+
+
 def _default_key_lines(content: str) -> list[str]:
     lines = []
     for ln in content.splitlines():
         s = ln.strip()
-        if any(k in s for k in ("def ", "class ", "function ", "return ")):
+        if not _is_useful_key_line(s):
+            continue
+        if any(k in s for k in ("def ", "class ", "function ", "return ", "import ", "public ", "fn ")):
             lines.append(s[:100])
         if len(lines) >= 3:
             break
-    return lines or ["def "]
+    return lines
 
 
 def generate_case_with_llm(

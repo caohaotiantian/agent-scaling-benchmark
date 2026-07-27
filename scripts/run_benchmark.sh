@@ -17,7 +17,7 @@ fi
 
 AGENT_CFG="${ROOT}/configs/agents/mock.yaml"
 MODEL_CFG="${ROOT}/configs/models/mock-model.yaml"
-CASE_SET="seed-v0"
+CASE_SET="auto-v0"
 RUN_CONFIG="${ROOT}/configs/runs/seed-baseline.yaml"
 RUN_ID=""
 

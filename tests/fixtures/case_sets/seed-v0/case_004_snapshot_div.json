@@ -1,0 +1,34 @@
+{
+  "case_id": "seed-v0-004-snapshot-div",
+  "schema_version": "0.1",
+  "task_type": "feature",
+  "language": "python",
+  "prompt": "在 calc.py 中实现 div(a, b)：整数除法（向下取整语义用 //）。空除以 0 时返回 None。不要改测试文件。",
+  "context": {
+    "files": [
+      {
+        "path": "test_calc.py",
+        "content": "from calc import add, mul, div\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_mul():\n    assert mul(2, 3) == 6\n\n\ndef test_div():\n    assert div(7, 2) == 3\n\n\ndef test_div_zero():\n    assert div(1, 0) is None\n"
+      }
+    ],
+    "notes": "Demonstrates workspace restoration: base project from snapshot/, tests overlaid via inline files.",
+    "workspace": {
+      "mode": "mixed",
+      "snapshot": {
+        "path": "snapshots/calc_project"
+      },
+      "strict": true
+    }
+  },
+  "grader": {
+    "mode": "script",
+    "command": "python -m pytest -q test_calc.py"
+  },
+  "metadata": {
+    "source": "seed",
+    "source_session_id": null,
+    "difficulty": "easy",
+    "tags": ["python", "feature", "snapshot", "workspace-restore"],
+    "split": "dev"
+  }
+}

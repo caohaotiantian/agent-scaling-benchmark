@@ -1,0 +1,38 @@
+{
+  "case_id": "seed-v0-003-normalize-name",
+  "schema_version": "0.1",
+  "task_type": "refactor",
+  "language": "python",
+  "prompt": "实现 util.py 中的 normalize_name(s: str) -> str：去除首尾空白，中间连续空白压成单个空格，并转为小写。不要修改测试文件。",
+  "context": {
+    "files": [
+      {
+        "path": "util.py",
+        "content": "def normalize_name(s: str) -> str:\n    pass\n"
+      }
+    ],
+    "notes": "Seed case: gold-file grader (no external pytest dependency in workspace tests file)."
+  },
+  "grader": {
+    "mode": "gold",
+    "match": "contains_key_lines",
+    "key_lines": [
+      "def normalize_name",
+      ".strip()",
+      ".lower()"
+    ],
+    "gold_files": [
+      {
+        "path": "util.py",
+        "content": "import re\n\n\ndef normalize_name(s: str) -> str:\n    s = s.strip().lower()\n    return re.sub(r\"\\s+\", \" \", s)\n"
+      }
+    ]
+  },
+  "metadata": {
+    "source": "seed",
+    "source_session_id": null,
+    "difficulty": "easy",
+    "tags": ["python", "refactor", "gold"],
+    "split": "dev"
+  }
+}

@@ -13,7 +13,20 @@ def case_schema_path() -> Path:
 
 
 def case_set_dir(case_set: str) -> Path:
-    return repo_root() / "benchmarks/ai_coding/cases" / case_set
+    """Resolve case set directory.
+
+    Search order:
+      1. benchmarks/ai_coding/cases/<set>  (production / auto-generated)
+      2. tests/fixtures/case_sets/<set>    (unit-test fixtures only)
+    """
+    root = repo_root()
+    primary = root / "benchmarks/ai_coding/cases" / case_set
+    if primary.is_dir():
+        return primary
+    fixture = root / "tests/fixtures/case_sets" / case_set
+    if fixture.is_dir():
+        return fixture
+    return primary
 
 
 def load_schema_validator() -> Draft202012Validator:
