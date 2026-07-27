@@ -3,11 +3,15 @@ from __future__ import annotations
 from aibench.agents.base import AgentAdapter
 from aibench.agents.mock import MockAgent
 from aibench.agents.openai_compat import OpenAICompatAgent
+from aibench.agents.shell_agent import ShellAgent
+from aibench.agents.tool_loop import ToolLoopAgent
 from aibench.models import AgentConfig, ModelConfig
 
 _REGISTRY: dict[str, type[AgentAdapter]] = {
     "mock": MockAgent,
     "openai_compat": OpenAICompatAgent,
+    "tool_loop": ToolLoopAgent,
+    "shell": ShellAgent,
 }
 
 

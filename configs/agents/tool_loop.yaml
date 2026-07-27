@@ -1,0 +1,7 @@
+name: tool_loop
+version: "0.1.0"
+adapter: tool_loop
+description: Multi-step tool loop agent (list/read/write/bash/submit).
+options:
+  allow_bash: true
+  max_tokens: 2048

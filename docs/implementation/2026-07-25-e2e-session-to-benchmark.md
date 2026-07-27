@@ -5,6 +5,8 @@
 | Design | `docs/design/2026-07-25-e2e-session-to-benchmark.md` |
 | Slug | `2026-07-25-e2e-session-to-benchmark` |
 | TEST-CMD | `uv run pytest tests/ -q` |
+| Status | closed |
+| Closed-on | 2026-07-27 |
 
 ## 1. Task Index
 

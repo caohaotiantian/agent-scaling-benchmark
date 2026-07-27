@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -19,12 +20,7 @@ def grade_case(case: Case, workspace: Path) -> GradeResult:
     if mode == "gold":
         return _grade_gold(case, workspace)
     if mode == "llm_judge":
-        return GradeResult(
-            passed=False,
-            mode=mode,
-            score=None,
-            detail="llm_judge not enabled in this run (stub)",
-        )
+        return _grade_llm_judge(case, workspace)
     if mode == "composite":
         # Prefer script if present, else gold.
         if case.grader.command:
@@ -138,3 +134,91 @@ def _soft_equal(a: str, b: str) -> bool:
         return s
 
     return collapse(a) == collapse(b)
+
+
+def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
+    """Score workspace against prompt/rubric via OpenAI-compatible chat."""
+    from aibench.env_config import openai_settings
+    import httpx
+
+    settings = openai_settings()
+    if not settings["api_key"] or not settings["base_url"] or not settings["model"]:
+        return GradeResult(
+            passed=False,
+            mode="llm_judge",
+            detail="llm_judge requires OPENAI_API_KEY/BASE_URL/MODEL",
+            infra_error=True,
+        )
+
+    files_blob = []
+    for p in sorted(workspace.rglob("*")):
+        if not p.is_file() or p.stat().st_size > 100_000:
+            continue
+        try:
+            rel = p.relative_to(workspace).as_posix()
+            files_blob.append(f"### {rel}\n{p.read_text(encoding='utf-8', errors='replace')[:4000]}")
+        except OSError:
+            continue
+    rubric = case.grader.judge_rubric or "Score whether the solution fulfills the user task."
+    thr = case.grader.judge_threshold if case.grader.judge_threshold is not None else 0.7
+    system = (
+        "You are a strict coding benchmark judge. "
+        'Reply ONLY JSON: {"score": 0.0-1.0, "passed": true|false, "reason": "..."}'
+    )
+    user = (
+        f"Task:\n{case.prompt[:2000]}\n\nRubric:\n{rubric}\n\n"
+        f"Workspace files:\n{chr(10).join(files_blob) or '(empty)'}\n\n"
+        f"Threshold for pass: {thr}"
+    )
+    base = settings["base_url"].rstrip("/")
+    try:
+        with httpx.Client(timeout=90.0) as client:
+            resp = client.post(
+                f"{base}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings['api_key']}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": settings["model"],
+                    "temperature": 0,
+                    "max_tokens": 512,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                },
+            )
+            resp.raise_for_status()
+            msg = resp.json()["choices"][0]["message"]
+            content = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+    except Exception as e:  # noqa: BLE001
+        return GradeResult(
+            passed=False,
+            mode="llm_judge",
+            detail=f"llm_judge request failed: {e}",
+            infra_error=True,
+        )
+
+    text = content
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        start, end = text.find("{"), text.rfind("}")
+        data = json.loads(text[start : end + 1] if start >= 0 else text)
+        score = float(data.get("score"))
+        passed = bool(data.get("passed")) if "passed" in data else score >= float(thr)
+        reason = str(data.get("reason") or "")
+    except Exception as e:  # noqa: BLE001
+        return GradeResult(
+            passed=False,
+            mode="llm_judge",
+            detail=f"llm_judge parse fail: {e}; raw={content[:200]}",
+        )
+    return GradeResult(
+        passed=passed,
+        mode="llm_judge",
+        score=score,
+        detail=f"score={score} thr={thr} {reason}".strip(),
+    )
