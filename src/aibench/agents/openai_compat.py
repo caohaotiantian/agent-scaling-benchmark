@@ -92,7 +92,9 @@ class OpenAICompatAgent(AgentAdapter):
                 {"role": "user", "content": user},
             ],
         }
-        try:
+        from aibench.retry import is_retryable_error, retry_call
+
+        def _request_and_parse() -> tuple[dict[str, Any], list[dict[str, str]], str]:
             with httpx.Client(timeout=min(max_wall_time_s, 120.0)) as client:
                 resp = client.post(
                     f"{base_url}/chat/completions",
@@ -103,22 +105,29 @@ class OpenAICompatAgent(AgentAdapter):
                     json=payload,
                 )
                 resp.raise_for_status()
-                body = resp.json()
-        except Exception as e:  # noqa: BLE001
-            return AgentRunResult(
-                status="infra_error",
-                error_message=f"LLM request failed: {e}",
-                steps=steps,
-                wall_time_s=time.perf_counter() - t0,
-            )
+                body_local = resp.json()
+            msg = body_local["choices"][0]["message"]
+            content = msg.get("content") or msg.get("reasoning_content") or ""
+            if not str(content).strip():
+                raise ValueError("empty content in response")
+            files_local, message_local = _parse_files_payload(str(content))
+            return body_local, files_local, message_local
 
         try:
-            content = body["choices"][0]["message"]["content"]
-            files, message = _parse_files_payload(content)
+            body, files, message = retry_call(
+                _request_and_parse,
+                label=f"openai_compat:{case.case_id}",
+                retry_if=lambda e: is_retryable_error(e)
+                or "parse" in str(e).lower()
+                or "json" in str(e).lower()
+                or "empty content" in str(e).lower(),
+            )
         except Exception as e:  # noqa: BLE001
+            err = str(e)
+            status = "infra_error" if is_retryable_error(e) or "request" in err.lower() else "failed"
             return AgentRunResult(
-                status="failed",
-                error_message=f"parse model output failed: {e}",
+                status=status,
+                error_message=f"LLM request/parse failed after retries: {e}",
                 steps=steps,
                 wall_time_s=time.perf_counter() - t0,
                 empty_patch=True,

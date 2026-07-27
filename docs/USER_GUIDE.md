@@ -62,6 +62,10 @@ set -a && source .env && set +a
 | `AIBENCH_BASE_URL` | 无 | 可选 | 与 `OPENAI_BASE_URL` 同义兜底 |
 | `AIBENCH_MODEL` | 无 | 可选 | 与 `OPENAI_MODEL` 同义兜底 |
 | `DATABASE_URL` | 无 | 可选 | `AIBENCH_DB_URL` 未设时的库连接兜底 |
+| `AIBENCH_RETRY_MAX` | `3` | 可选 | HTTP/DB 最大尝试次数（含首次） |
+| `AIBENCH_RETRY_BACKOFF` | `1.0` | 可选 | 重试基础退避秒数（指数 + jitter） |
+| `AIBENCH_RETRY_BACKOFF_MAX` | `20.0` | 可选 | 退避上限秒 |
+| `AIBENCH_CASE_RETRY` | `2` | 可选 | case 因 **infra_error** 整 case 重跑次数 |
 
 **不要把 `.env` 提交到 git。**
 

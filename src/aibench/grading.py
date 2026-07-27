@@ -171,32 +171,40 @@ def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
         f"Threshold for pass: {thr}"
     )
     base = settings["base_url"].rstrip("/")
+    from aibench.retry import retry_call
+
     try:
-        with httpx.Client(timeout=90.0) as client:
-            resp = client.post(
-                f"{base}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings['api_key']}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": settings["model"],
-                    "temperature": 0,
-                    "max_tokens": 512,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                },
-            )
-            resp.raise_for_status()
-            msg = resp.json()["choices"][0]["message"]
-            content = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+        def _judge_req() -> str:
+            with httpx.Client(timeout=90.0) as client:
+                resp = client.post(
+                    f"{base}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings['api_key']}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": settings["model"],
+                        "temperature": 0,
+                        "max_tokens": 512,
+                        "messages": [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                    },
+                )
+                resp.raise_for_status()
+                msg = resp.json()["choices"][0]["message"]
+                text = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+                if not text:
+                    raise ValueError("empty content in response")
+                return text
+
+        content = retry_call(_judge_req, label="llm_judge")
     except Exception as e:  # noqa: BLE001
         return GradeResult(
             passed=False,
             mode="llm_judge",
-            detail=f"llm_judge request failed: {e}",
+            detail=f"llm_judge request failed after retries: {e}",
             infra_error=True,
         )
 

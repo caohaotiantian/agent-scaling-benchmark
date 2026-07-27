@@ -192,32 +192,37 @@ def generate_case_with_llm(
     )
     base = settings["base_url"].rstrip("/")
 
+    from aibench.retry import retry_call
+
     def _chat(messages: list[dict[str, str]], max_tokens: int = 8192) -> str:
-        payload = {
-            "model": settings["model"],
-            "temperature": 0,
-            "max_tokens": max_tokens,
-            "messages": messages,
-        }
-        with httpx.Client(timeout=timeout_s) as client:
-            resp = client.post(
-                f"{base}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {settings['api_key']}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            resp.raise_for_status()
-            body = resp.json()
-            msg = body["choices"][0]["message"]
-            content = msg.get("content") or ""
-            reasoning = msg.get("reasoning_content") or ""
-            # Prefer answer content; some models only fill reasoning and hit length.
-            text = content.strip() if str(content).strip() else str(reasoning).strip()
-            if not text:
-                raise ValueError(f"empty content in response: {str(body)[:300]}")
-            return text
+        def _once() -> str:
+            payload = {
+                "model": settings["model"],
+                "temperature": 0,
+                "max_tokens": max_tokens,
+                "messages": messages,
+            }
+            with httpx.Client(timeout=timeout_s) as client:
+                resp = client.post(
+                    f"{base}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings['api_key']}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                resp.raise_for_status()
+                body = resp.json()
+                msg = body["choices"][0]["message"]
+                content = msg.get("content") or ""
+                reasoning = msg.get("reasoning_content") or ""
+                # Prefer answer content; some models only fill reasoning and hit length.
+                text = content.strip() if str(content).strip() else str(reasoning).strip()
+                if not text:
+                    raise ValueError(f"empty content in response: {str(body)[:300]}")
+                return text
+
+        return retry_call(_once, label="llm_generate_chat")
 
     try:
         raw_text = _chat(
@@ -229,7 +234,7 @@ def generate_case_with_llm(
         )
         data = _extract_json_object(raw_text)
     except Exception:
-        # Ultra-short retry: reduce thinking budget consumption
+        # Ultra-short path after retries exhausted on long prompt
         raw_text = _chat(
             [
                 {
