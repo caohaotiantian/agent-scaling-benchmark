@@ -1,5 +1,7 @@
 # 遗留任务清单
 
+> **展示版（推荐）**：[docs/html/remaining-work.html](html/remaining-work.html)
+
 更新时间：已完成一轮「遗留任务」落地（见 commit history）。
 
 ## 已完成

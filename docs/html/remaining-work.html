@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>未尽事项</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="文档导航"><div class="site-nav-inner"><a class="brand" href="index.html">aibench · docs/html</a><a href="index.html">文档首页</a><a href="project-overview.html">项目介绍</a><a href="reference.html">参考手册</a><a href="user-guide.html">用户向导</a><a href="agentic-scaling-benchmark.html">结果表设计</a><a href="tables.html">字段字典</a><a href="configs.html">生产配置</a><a href="remaining-work.html" class="active">未尽事项</a></div></nav>
+<div class="page">
+
+<header class="hero">
+  <h1>未尽事项</h1>
+  <p>已落地能力清单与可选增强项。</p>
+  <div class="meta">
+    <span class="pill">HTML 归档 · docs/html</span>
+    <span class="pill">源文件 · docs/REMAINING_WORK.md</span>
+  </div>
+</header>
+<article class="md-body">
+<h1 id="_1">遗留任务清单</h1>
+<blockquote>
+<p><strong>展示版（推荐）</strong>：<a href="remaining-work.html">docs/html/remaining-work.html</a></p>
+</blockquote>
+<p>更新时间：已完成一轮「遗留任务」落地（见 commit history）。</p>
+<h2 id="_2">已完成</h2>
+<h3 id="_3">主路径</h3>
+<ul>
+<li>[x] Case 协议 / schema / workspace 还原  </li>
+<li>[x] mock + openai_compat + <strong>tool_loop</strong> + <strong>shell</strong> Agent  </li>
+<li>[x] 会话抽库 → 规则筛选 → LLM/启发式生成 → validate  </li>
+<li>[x] 一键 e2e、消融矩阵、综述表  </li>
+<li>[x] 用户手册  </li>
+</ul>
+<h3 id="p1">原 P1</h3>
+<ul>
+<li>[x] <strong>promote</strong> CLI（人工门控发布到 <code>prod-v0</code>）  </li>
+<li>[x] <strong>weak_grader</strong> 消融默认剔除（<code>--allow-weak-grader</code> 可关）  </li>
+<li>[x] <strong>失败诊断</strong> 写入 <code>report.md</code> / <code>summary.failure_diagnostics</code>  </li>
+<li>[x] <strong>secrets-scan</strong> CLI + generate <code>--secrets-scan</code>  </li>
+</ul>
+<h3 id="p2">原 P2</h3>
+<ul>
+<li>[x] <strong>LLM 软过滤</strong> <code>filter-drafts --llm-soft</code>  </li>
+<li>[x] <strong>snapshot-skeleton</strong> CLI  </li>
+<li>[x] <strong>llm_judge</strong> 判分实现  </li>
+<li>[x] <strong>tool_loop</strong> 多步工具 Agent  </li>
+<li>[x] <strong>shell</strong> 适配器（可包 mini-swe 等 CLI）  </li>
+<li>[x] <strong>并行消融</strong> <code>--parallel N</code>  </li>
+<li>[x] <strong>相对基线收益</strong>（<code>--baseline-experiment</code> / 矩阵首行）  </li>
+<li>[x] <strong>费用估算</strong>（<code>AIBENCH_USD_PER_MTOK*</code>）  </li>
+</ul>
+<h3 id="p3">原 P3</h3>
+<ul>
+<li>[x] validate-cases 默认 <code>auto-v0</code>  </li>
+<li>[x] <strong>CSV / XLSX</strong> 导出（<code>export-ablation</code> / ablation <code>--export-csv|--export-xlsx</code>）  </li>
+<li>[x] <strong>GitHub Actions CI</strong>（pytest + dry-run）  </li>
+<li>[x] 设计/实现文档状态更新  </li>
+</ul>
+<h3 id="2026-07-27">科学效度与并行（2026-07-27）</h3>
+<ul>
+<li>[x] stub-fail / 污染 / 难度 / 指纹审计（<code>audit-cases</code>）  </li>
+<li>[x] Wilson CI + 分层成功率  </li>
+<li>[x] case set fingerprint 入 manifest  </li>
+<li>[x] case 级并行（<code>run --workers</code> / <code>case_workers</code>）  </li>
+<li>[x] generate 并行（<code>generate-cases --workers</code>）  </li>
+<li>[x] promote <code>--require-audit</code>  </li>
+</ul>
+<h2 id="_4">仍可增强（非阻塞）</h2>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>人工标定难度真值 / 反作弊红队</td>
+<td>当前难度为启发式</td>
+</tr>
+<tr>
+<td>Bootstrap / 置换检验</td>
+<td>已有 Wilson CI</td>
+</tr>
+<tr>
+<td>Git LFS / 远程 snapshot URI</td>
+<td>大体量现场</td>
+</tr>
+<tr>
+<td>Fusion 时间拆解全字段</td>
+<td>无 Fusion 时 null</td>
+</tr>
+<tr>
+<td>消融 run 级失败继续/汇总</td>
+<td>当前异常即中断</td>
+</tr>
+<tr>
+<td>Docker/gVisor 沙箱</td>
+<td>生产安全关键差距</td>
+</tr>
+<tr>
+<td>tool_loop bash 白名单加严</td>
+<td>已有基础限制</td>
+</tr>
+<tr>
+<td>真机 CI 连 DB/API</td>
+<td>默认 dry-run</td>
+</tr>
+</tbody>
+</table>
+<h2 id="_5">明确不做</h2>
+<ul>
+<li>无人审核自动发布正式集  </li>
+<li>Fusion/投机算法本体  </li>
+<li>完整 IDE / 全量 OS 镜像现场  </li>
+</ul>
+</article>
+<footer class="site-footer">
+  AI-Coding-Assist Benchmark · 文档站点 docs/html · 本地打开即可浏览
+</footer>
+</div>
+</body>
+</html>
