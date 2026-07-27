@@ -1,0 +1,14 @@
+# Production template: wrap an external coding CLI (e.g. mini-swe-agent / opencode)
+# Copy and set command_template to your installed CLI.
+name: shell_cli
+version: "1.0.0"
+adapter: shell
+description: >
+  External CLI agent. Placeholders: {workspace} {prompt_file} {case_id} {max_steps}.
+  Exit 0 = completed. Edits must land under {workspace}.
+options:
+  # Example (uncomment and adapt):
+  # command_template: "mini-swe-agent --workspace {workspace} --prompt-file {prompt_file}"
+  # command_template: "opencode run --dir {workspace} \"$(cat {prompt_file})\""
+  command_template: ""
+  env: {}

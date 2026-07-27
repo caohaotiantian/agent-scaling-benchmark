@@ -1,0 +1,14 @@
+# Test-only matrix (not for production)
+case_set: seed-v0
+baseline_experiment: baseline-mock-a
+runs:
+  - experiment_name: baseline-mock-a
+    algorithm_name: Baseline
+    agent_config: tests/fixtures/configs/agents/mock.yaml
+    model_config: tests/fixtures/configs/models/mock-model.yaml
+    run_id: abl-mock-a
+  - experiment_name: baseline-mock-b
+    algorithm_name: Baseline-repeat
+    agent_config: tests/fixtures/configs/agents/mock.yaml
+    model_config: tests/fixtures/configs/models/mock-model.yaml
+    run_id: abl-mock-b

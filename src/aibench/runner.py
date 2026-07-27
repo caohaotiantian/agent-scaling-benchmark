@@ -154,7 +154,7 @@ def run_benchmark(
     case_workers: int | None = None,
 ) -> Path:
     root = repo_root()
-    run_cfg_path = run_config_path or (root / "configs/runs/seed-baseline.yaml")
+    run_cfg_path = run_config_path or (root / "configs/runs/baseline.yaml")
     run_raw = load_yaml(run_cfg_path)
     run_cfg = RunConfig.from_dict(run_raw)
 

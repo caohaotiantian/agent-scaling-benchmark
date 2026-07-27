@@ -13,17 +13,24 @@ def test_wilson_ci_bounds():
 
 
 def test_parallel_matches_serial_on_seed(tmp_path: Path):
+    root = Path(__file__).resolve().parents[1]
+    agent = root / "tests/fixtures/configs/agents/mock.yaml"
+    model = root / "tests/fixtures/configs/models/mock-model.yaml"
     r1 = run_benchmark(
         case_set="seed-v0",
         run_id="par-serial",
         output_root=tmp_path / "a",
         case_workers=1,
+        agent_config_path=agent,
+        model_config_path=model,
     )
     r2 = run_benchmark(
         case_set="seed-v0",
         run_id="par-parallel",
         output_root=tmp_path / "b",
         case_workers=2,
+        agent_config_path=agent,
+        model_config_path=model,
     )
     s1 = load_json(r1 / "summary.json")
     s2 = load_json(r2 / "summary.json")

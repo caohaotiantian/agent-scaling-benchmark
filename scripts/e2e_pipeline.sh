@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end: (optional DB extract) → filter → generate → validate → ablation
+# End-to-end production pipeline: DB → filter → generate → validate → ablation
+# Defaults use real agents/models (no mock). Dry-run uses test fixtures only.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -19,27 +20,33 @@ else
 fi
 
 DRY_RUN=0
-LIMIT=80
+LIMIT=100
 MAX_CASES=8
-MATRIX="$ROOT/configs/runs/ablation-matrix.mock.yaml"
+MATRIX="$ROOT/configs/runs/ablation-matrix.yaml"
 DRAFT_DIR="$ROOT/benchmarks/ai_coding/cases/drafts-from-db"
 KEPT_DIR="$ROOT/benchmarks/ai_coding/cases/drafts-kept"
 CASE_SET_DIR="$ROOT/benchmarks/ai_coding/cases/auto-v0"
 SKIP_EXTRACT=0
 HEURISTIC_ONLY=0
 OUT_ROOT="$ROOT/runs"
+WORKERS=""
 
 usage() {
   cat <<EOF
 Usage: $0 [options]
 
-  --dry-run            Use fixtures only (no DB/LLM); mock ablation on seed-v0
+Production defaults:
+  matrix=configs/runs/ablation-matrix.yaml  (openai_compat vs tool_loop, GLM-5.2)
+  case_set=auto-v0  (no mock)
+
+  --dry-run            Offline fixture path only (tests/fixtures mock matrix)
   --skip-extract       Reuse existing drafts in drafts-from-db
   --heuristic-only     Generate cases without LLM
-  --limit N            DB scan limit (default 80)
+  --limit N            DB scan limit (default 100)
   --max-cases N        Max generated cases (default 8)
   --matrix PATH        Ablation matrix YAML
   --output-root PATH   Runs root
+  --workers N          Passed to generate-cases (parallel generation)
 EOF
 }
 
@@ -52,6 +59,7 @@ while [[ $# -gt 0 ]]; do
     --max-cases) MAX_CASES="$2"; shift 2 ;;
     --matrix) MATRIX="$2"; shift 2 ;;
     --output-root) OUT_ROOT="$2"; shift 2 ;;
+    --workers) WORKERS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1"; usage; exit 1 ;;
   esac
@@ -60,7 +68,7 @@ done
 echo "==> e2e pipeline dry_run=$DRY_RUN"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  echo "==> dry-run: fixture extract + filter + heuristic generate + mock ablation"
+  echo "==> dry-run: fixtures only (not production)"
   FIX_DRAFT="$ROOT/.e2e-artifacts/drafts"
   FIX_KEPT="$ROOT/.e2e-artifacts/kept"
   FIX_CASES="$ROOT/benchmarks/ai_coding/cases/e2e-demo"
@@ -83,21 +91,19 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     --heuristic-only \
     --max-cases "$MAX_CASES"
 
-  # Case set name = directory name under cases/
   "${UV[@]}" python -m aibench validate-cases --case-set e2e-demo
 
   "${UV[@]}" python -m aibench ablation \
-    --matrix "$MATRIX" \
+    --matrix "$ROOT/tests/fixtures/configs/runs/ablation-matrix.mock.yaml" \
     --case-set seed-v0 \
+    --allow-weak-grader \
     --output-root "$OUT_ROOT/e2e-dry-run"
-  # seed-v0 resolves from tests/fixtures/case_sets when not under benchmarks/
 
-  echo "OK dry-run complete. Ablation under $OUT_ROOT/e2e-dry-run"
-  ls -la "$OUT_ROOT/e2e-dry-run" | head -20
+  echo "OK dry-run complete under $OUT_ROOT/e2e-dry-run"
   exit 0
 fi
 
-# Full path (DB + optional LLM)
+# Production path
 if [[ "$SKIP_EXTRACT" -eq 0 ]]; then
   echo "==> extract-from-db limit=$LIMIT"
   mkdir -p "$DRAFT_DIR"
@@ -109,7 +115,7 @@ if [[ "$SKIP_EXTRACT" -eq 0 ]]; then
 fi
 
 echo "==> filter-drafts"
-mkdir -p "$KEPT_DIR"
+mkdir -p "$KEPT_DIR" "$ROOT/.e2e-artifacts"
 "${UV[@]}" python -m aibench filter-drafts \
   --input-dir "$DRAFT_DIR" \
   --output-dir "$KEPT_DIR" \
@@ -117,27 +123,29 @@ mkdir -p "$KEPT_DIR"
   --report "$ROOT/.e2e-artifacts/filter_report.json"
 
 echo "==> generate-cases"
-mkdir -p "$CASE_SET_DIR" "$ROOT/.e2e-artifacts"
-GEN_FLAGS=(--input-dir "$KEPT_DIR" --output-dir "$CASE_SET_DIR" --max-cases "$MAX_CASES")
+mkdir -p "$CASE_SET_DIR"
+GEN_FLAGS=(--input-dir "$KEPT_DIR" --output-dir "$CASE_SET_DIR" --max-cases "$MAX_CASES" --audit --secrets-scan)
 if [[ "$HEURISTIC_ONLY" -eq 1 ]]; then
   GEN_FLAGS+=(--heuristic-only)
 fi
+if [[ -n "$WORKERS" ]]; then
+  GEN_FLAGS+=(--workers "$WORKERS")
+fi
 "${UV[@]}" python -m aibench generate-cases "${GEN_FLAGS[@]}"
 
-echo "==> validate auto-v0"
+echo "==> validate + audit auto-v0"
 "${UV[@]}" python -m aibench validate-cases --case-set auto-v0
+"${UV[@]}" python -m aibench audit-cases --case-set auto-v0 --annotate || true
 
-echo "==> ablation on auto-v0"
-MATRIX_SESS="${MATRIX_SESS:-$ROOT/configs/runs/ablation-matrix.session.yaml}"
-if [[ -f "$MATRIX_SESS" && "$MATRIX" == "$ROOT/configs/runs/ablation-matrix.mock.yaml" ]]; then
-  MATRIX="$MATRIX_SESS"
-fi
+echo "==> production ablation"
 "${UV[@]}" python -m aibench ablation \
   --matrix "$MATRIX" \
   --case-set auto-v0 \
+  --baseline-experiment openai-compat-glm52 \
+  --export-csv \
   --output-root "$OUT_ROOT"
 
-echo "OK e2e complete"
+echo "OK e2e production complete"
 ABL=$(ls -td "$OUT_ROOT"/ablation_* 2>/dev/null | head -1 || true)
 if [[ -n "$ABL" ]]; then
   echo "ablation_dir=$ABL"
