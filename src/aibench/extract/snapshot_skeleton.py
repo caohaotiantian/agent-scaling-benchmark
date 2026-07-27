@@ -47,7 +47,11 @@ def build_snapshots_for_case_set(case_set: str) -> dict[str, Any]:
     if not base.is_dir():
         raise FileNotFoundError(base)
     built = []
+    from aibench.cases import is_case_json_path
+
     for p in sorted(base.glob("*.json")):
+        if not is_case_json_path(p):
+            continue
         case = load_json(p)
         snap = build_snapshot_for_case(case, case_set=case_set, update_case_json=True)
         built.append({"case_id": case.get("case_id"), "snapshot": str(snap)})

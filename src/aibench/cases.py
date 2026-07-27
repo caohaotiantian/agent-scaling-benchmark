@@ -34,11 +34,17 @@ def load_schema_validator() -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
+def is_case_json_path(path: Path) -> bool:
+    """True for real case files; skip sidecar reports like ``_secrets_scan.json``."""
+    name = path.name
+    return path.suffix == ".json" and not name.startswith("_")
+
+
 def iter_case_paths(case_set: str) -> list[Path]:
     d = case_set_dir(case_set)
     if not d.is_dir():
         raise FileNotFoundError(f"Case set not found: {d}")
-    return sorted(d.glob("*.json"))
+    return sorted(p for p in d.glob("*.json") if is_case_json_path(p))
 
 
 def load_cases(case_set: str, validate: bool = True) -> list[Case]:
