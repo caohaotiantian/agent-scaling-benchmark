@@ -354,11 +354,11 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     last_err: Exception | None = None
                     case = None
-                    for attempt in range(2):
+                    for _attempt in range(2):
                         try:
                             case = generate_case_with_llm(draft)
                             break
-                        except Exception as e:  # noqa: BLE001
+                        except Exception as e:
                             last_err = e
                     if case is None:
                         print(f"fallback heuristic for {path.name}: {last_err}")
@@ -368,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"skip invalid {path.name}: {errors[0].message}")
                     return None
                 return case
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 print(f"skip {path.name}: {e}")
                 return None
 
@@ -437,8 +437,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if report["promoted_count"] or args.dry_run else 1
 
     if args.cmd == "audit-cases":
-        from aibench.validity import annotate_case_metadata, audit_case, audit_case_set
         from aibench.models import Case
+        from aibench.validity import annotate_case_metadata, audit_case, audit_case_set
 
         rep = audit_case_set(args.case_set)
         if args.annotate:

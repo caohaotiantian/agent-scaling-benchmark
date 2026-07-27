@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterator
+from typing import Any
 from urllib.parse import quote_plus
 
 from aibench.extract.history_parse import (
@@ -23,7 +23,6 @@ from aibench.extract.sessions import (
     Message,
     SessionRecord,
     redact_secrets,
-    session_to_case_draft,
     task_fingerprint,
 )
 
@@ -85,7 +84,12 @@ def fetch_chat_records(
         connect_args={"connect_timeout": 15, "read_timeout": 180, "write_timeout": 60},
     )
     clauses = ["full_history IS NOT NULL"]
-    params: dict[str, Any] = {"limit": limit, "offset": offset, "min_n": min_messages, "max_n": max_messages}
+    params: dict[str, Any] = {
+        "limit": limit,
+        "offset": offset,
+        "min_n": min_messages,
+        "max_n": max_messages,
+    }
     clauses.append("JSON_LENGTH(full_history) BETWEEN :min_n AND :max_n")
     if since:
         clauses.append("start_time >= :since")
@@ -100,7 +104,7 @@ def fetch_chat_records(
     sql = f"""
         SELECT request_id, start_time, model, requests_tags, tools, full_history, key_alias, created_at
         FROM llm_chat_records
-        WHERE {' AND '.join(clauses)}
+        WHERE {" AND ".join(clauses)}
         ORDER BY start_time DESC
         LIMIT :limit OFFSET :offset
     """
@@ -134,9 +138,7 @@ def chat_record_to_session(rec: ChatRecord) -> SessionRecord | None:
         return None
     ua = extract_user_agent(rec.requests_tags)
     tools = tool_names(rec.tools)
-    user_text = "\n".join(
-        m["content"] for m in messages if m.get("role") in {"user", "human"}
-    )
+    user_text = "\n".join(m["content"] for m in messages if m.get("role") in {"user", "human"})
     if not is_coding_record(user_agent=ua, tools=tools, user_text=user_text):
         return None
 
@@ -218,9 +220,7 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
         return None
     ua = extract_user_agent(rec.requests_tags)
     tools = tool_names(rec.tools)
-    user_text = "\n".join(
-        m["content"] for m in messages if m.get("role") in {"user", "human"}
-    )
+    user_text = "\n".join(m["content"] for m in messages if m.get("role") in {"user", "human"})
     if not is_coding_record(user_agent=ua, tools=tools, user_text=user_text):
         return None
 
@@ -234,9 +234,7 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
     gold = gold_from_assistant(messages, language)
     task_type = guess_task_type(prompt)
 
-    context_files = [
-        {"path": f["path"], "content": redact_secrets(f["content"])} for f in files
-    ]
+    context_files = [{"path": f["path"], "content": redact_secrets(f["content"])} for f in files]
     if not context_files:
         # Still allow pure "write from scratch" tasks
         context_files = [
@@ -252,9 +250,7 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             }
         ]
 
-    gold_files = [
-        {"path": g["path"], "content": redact_secrets(g["content"])} for g in gold
-    ]
+    gold_files = [{"path": g["path"], "content": redact_secrets(g["content"])} for g in gold]
 
     if gold_files:
         grader: dict[str, Any] = {
@@ -316,7 +312,9 @@ def _key_lines_from_gold(content: str, max_lines: int = 5) -> list[str]:
         s = ln.strip()
         if not s or s.startswith("#") or s.startswith("//"):
             continue
-        if any(k in s for k in ("def ", "class ", "function ", "import ", "return ", "const ", "let ")):
+        if any(
+            k in s for k in ("def ", "class ", "function ", "import ", "return ", "const ", "let ")
+        ):
             lines.append(s[:120])
         if len(lines) >= max_lines:
             break

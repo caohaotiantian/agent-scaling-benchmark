@@ -40,9 +40,23 @@ MySQL llm_chat_records（或 JSON 导出）
 
 ```bash
 cd agent-scaling-benchmark
-uv sync
+uv sync --extra dev
 cp .env.example .env   # 按需填写
+
+# 安装 pre-commit hook（提交前自动 ruff format + import 整理 + lint）
+./scripts/install-hooks.sh
 ```
+
+### 代码风格（ruff）
+
+| 命令 | 作用 |
+|------|------|
+| `./scripts/lint.sh` | 对 `src`/`tests` 执行 format + import 修复 + lint |
+| `uv run ruff check --fix src tests` | lint 与 import 自动修复 |
+| `uv run ruff format src tests` | 代码格式化 |
+| `uv run pre-commit run --all-files` | 按 hook 跑全仓库 |
+
+配置见 `pyproject.toml` 中 `[tool.ruff]`；git hook 见 `.pre-commit-config.yaml`。
 
 CLI 启动时会自动加载项目根目录 `.env`。也可手动：
 

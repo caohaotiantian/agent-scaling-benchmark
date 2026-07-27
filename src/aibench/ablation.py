@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from aibench.cases import case_set_dir, load_cases
+from aibench.cases import case_set_dir
 from aibench.io_util import load_json, load_yaml, repo_root, write_json
 from aibench.report import render_summary_tables_json
 from aibench.runner import run_benchmark
@@ -51,9 +51,7 @@ def _filter_weak_grader_case_set(case_set: str, *, skip_weak: bool) -> str:
     if snap.is_dir():
         shutil.copytree(snap, dest / "snapshots")
     if not strong:
-        raise ValueError(
-            f"case set {case_set!r} has only weak_grader cases; nothing to ablate"
-        )
+        raise ValueError(f"case set {case_set!r} has only weak_grader cases; nothing to ablate")
     return dest_name
 
 
@@ -70,8 +68,8 @@ def run_ablation(
     root = repo_root()
     matrix = load_matrix(matrix_path)
     case_set = case_set_override or matrix.get("case_set") or "auto-v0"
-    skip_weak = skip_weak_grader and not allow_weak_grader and not matrix.get(
-        "allow_weak_grader", False
+    skip_weak = (
+        skip_weak_grader and not allow_weak_grader and not matrix.get("allow_weak_grader", False)
     )
     # Per-row case sets may differ; filter default set once
     filtered_default = _filter_weak_grader_case_set(case_set, skip_weak=skip_weak)

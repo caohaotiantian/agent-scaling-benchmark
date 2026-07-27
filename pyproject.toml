@@ -16,7 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = []
+dev = [
+  "ruff>=0.9.0",
+  "pre-commit>=4.0.0",
+]
 
 [project.scripts]
 aibench = "aibench.cli:main"
@@ -34,3 +37,43 @@ packages = ["src/aibench"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+# Ruff: lint + import sort + format
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+exclude = [
+  ".venv",
+  "runs",
+  "benchmarks",
+  ".e2e-artifacts",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort (import sorting)
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "SIM", # flake8-simplify
+  "RUF", # ruff-specific
+]
+ignore = [
+  "E501",   # line length handled by formatter
+  "RUF001", # allow fullwidth chars in Chinese user-facing strings / regex
+  "RUF002", # allow en-dash etc. in docstrings
+  "RUF003", # allow fullwidth chars in comments
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["aibench"]
+combine-as-imports = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true

@@ -83,7 +83,7 @@ def promote_cases(
 
             try:
                 v = audit_case(Case.from_dict(raw), case_set=source_set)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 skipped.append({"case_id": cid, "reason": f"audit_error: {e}"})
                 continue
             if not v.ok:

@@ -14,9 +14,13 @@
 
 ```bash
 # 依赖（推荐 uv）
-uv sync
+uv sync --extra dev
 
-# 单次：mock agent + seed-v0
+# 安装 git pre-commit（ruff：format + import 整理 + lint）
+./scripts/install-hooks.sh
+# 手动: ./scripts/lint.sh
+
+# 单次：mock agent + auto-v0
 ./scripts/run_benchmark.sh
 
 # 端到端 dry-run（fixture 筛选/生成 + mock 消融出表，不访问 DB/LLM）

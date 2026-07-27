@@ -55,8 +55,7 @@ def case_fingerprint(case: Case | dict[str, Any]) -> str:
     else:
         prompt = str(case.get("prompt") or "")
         paths = sorted(
-            f.get("path") or ""
-            for f in ((case.get("context") or {}).get("files") or [])
+            f.get("path") or "" for f in ((case.get("context") or {}).get("files") or [])
         )
         task_type = str(case.get("task_type") or "")
     basis = f"{task_type}|{prompt.strip()}|{'|'.join(paths)}"

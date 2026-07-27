@@ -6,7 +6,6 @@ from typing import Any
 from aibench.diagnostics import aggregate_failures, render_failures_md
 from aibench.stats import format_wilson_ci, stratify_results
 
-
 SUMMARY_REQUIRED_KEYS = [
     "run_id",
     "experiment_name",
@@ -156,7 +155,7 @@ def _estimate_cost_usd(total_tokens: int) -> float | None:
         pout = float(os.environ.get("AIBENCH_USD_PER_MTOK_OUTPUT", "1.5"))
         # unknown split → use average
         return total_tokens / 1_000_000.0 * ((pin + pout) / 2.0)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 

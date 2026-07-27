@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from aibench.runner import run_benchmark
 from aibench.io_util import load_json
+from aibench.runner import run_benchmark
 from aibench.stats import format_wilson_ci, wilson_ci
 
 

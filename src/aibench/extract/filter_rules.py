@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any
-
 
 _DROP_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("ops_disk_health", re.compile(r"(巡检|磁盘健康|硬盘运行|disk health|smartctl)", re.I)),
@@ -13,20 +12,26 @@ _DROP_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("judge_meta", re.compile(r"(任务完成度评测|rubric-judge|<<RUBRIC>>|is_correct)", re.I)),
     ("pure_chat", re.compile(r"^(今天天气|你好|在吗)[\s\S]{0,40}$", re.I)),
     ("system_only_noise", re.compile(r"WITTY_INTERNAL_INITIATOR|openclaw-tui.*HEARTBEAT", re.I)),
-    ("explain_only", re.compile(
-        r"(设计方案|总结一下|详细说明|是怎么定义的|默认值从何而来|虚拟大小是怎么|"
-        r"Automatically detect the language|superpowers|EXTREMELY_IMPORTANT)",
-        re.I,
-    )),
+    (
+        "explain_only",
+        re.compile(
+            r"(设计方案|总结一下|详细说明|是怎么定义的|默认值从何而来|虚拟大小是怎么|"
+            r"Automatically detect the language|superpowers|EXTREMELY_IMPORTANT)",
+            re.I,
+        ),
+    ),
     ("log_dump", re.compile(r"匹配\d+次|\.log\s*（匹配", re.I)),
 ]
 
 _KEEP_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("coding_intent", re.compile(
-        r"(实现|修复|重构|bug|fix|implement|refactor|编写|函数|接口|api|pytest|单元测试|"
-        r"切换到|报错|compile|class |def |import )",
-        re.I,
-    )),
+    (
+        "coding_intent",
+        re.compile(
+            r"(实现|修复|重构|bug|fix|implement|refactor|编写|函数|接口|api|pytest|单元测试|"
+            r"切换到|报错|compile|class |def |import )",
+            re.I,
+        ),
+    ),
     ("code_fence", re.compile(r"```[\w]*\n")),
 ]
 
@@ -86,7 +91,7 @@ def rule_filter_text(
         return FilterDecision(False, "low_coding_signal", score, labels or ["no_signal"])
     # Prefer cases with real file context for restoration credibility
     if not has_context_files and score < 2.5:
-        return FilterDecision(False, "no_workspace_context", score, labels + ["no_context"])
+        return FilterDecision(False, "no_workspace_context", score, [*labels, "no_context"])
     return FilterDecision(True, "ok", score, labels)
 
 

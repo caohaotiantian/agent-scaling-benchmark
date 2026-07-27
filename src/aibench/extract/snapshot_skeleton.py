@@ -20,7 +20,7 @@ def build_snapshot_for_case(
     base = case_set_dir(case_set)
     snap = base / "snapshots" / cid
     snap.mkdir(parents=True, exist_ok=True)
-    for f in ((case.get("context") or {}).get("files") or []):
+    for f in (case.get("context") or {}).get("files") or []:
         rel = str(f.get("path") or "file.txt").lstrip("/")
         if ".." in Path(rel).parts:
             continue

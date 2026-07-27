@@ -57,7 +57,7 @@ def _run_one_case(
             )
             mat_info = mat.to_dict()
             write_json(case_dir / "workspace_manifest.json", mat_info)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             mat_error = str(e)
             write_json(
                 case_dir / "workspace_manifest.json",
@@ -78,7 +78,7 @@ def _run_one_case(
                     max_steps=max_steps,
                     max_wall_time_s=max_wall_time_s,
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 agent_result = AgentRunResult(
                     status="infra_error",
                     error_message=str(e),
@@ -177,14 +177,12 @@ def run_benchmark(
     run_dir = out_root / f"{run_cfg.benchmark_name}__{ts}_{rid}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    sampling = (
-        f"temperature={model_cfg.temperature}, max_tokens={model_cfg.max_tokens}"
-    )
+    sampling = f"temperature={model_cfg.temperature}, max_tokens={model_cfg.max_tokens}"
     from aibench.validity import audit_case_set
 
     try:
         set_fp = audit_case_set(cs).get("content_fingerprint")
-    except Exception:  # noqa: BLE001
+    except Exception:
         set_fp = None
 
     manifest: dict[str, Any] = {
@@ -239,9 +237,7 @@ def run_benchmark(
     case_results = parallel_map(_job, cases, workers=workers)
     case_results.sort(key=lambda r: str(r.get("case_id") or ""))
 
-    summary = build_summary(
-        run_id=rid, run_manifest=manifest, case_results=case_results
-    )
+    summary = build_summary(run_id=rid, run_manifest=manifest, case_results=case_results)
     tables = render_summary_tables_json(summary)
     report_md = render_report_md(summary, case_results)
 

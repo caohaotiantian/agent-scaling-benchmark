@@ -1,5 +1,3 @@
-import time
-
 import pytest
 
 from aibench.retry import is_retryable_error, retry_call

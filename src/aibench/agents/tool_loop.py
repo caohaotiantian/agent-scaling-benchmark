@@ -44,9 +44,7 @@ class ToolLoopAgent(AgentAdapter):
                 wall_time_s=time.perf_counter() - t0,
             )
         base_url = (
-            model.base_url
-            or os.environ.get("OPENAI_BASE_URL")
-            or "https://api.openai.com/v1"
+            model.base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         ).rstrip("/")
         model_name = os.environ.get("OPENAI_MODEL") or model.model
         max_tokens = int(self.agent_config.options.get("max_tokens", model.max_tokens))
@@ -87,6 +85,7 @@ class ToolLoopAgent(AgentAdapter):
             from aibench.retry import retry_call
 
             try:
+
                 def _llm() -> dict[str, Any]:
                     with httpx.Client(timeout=min(90.0, max_wall_time_s)) as client:
                         resp = client.post(
@@ -106,7 +105,7 @@ class ToolLoopAgent(AgentAdapter):
                         return resp.json()
 
                 body = retry_call(_llm, label=f"tool_loop_llm:{case.case_id}:step{step}")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 return AgentRunResult(
                     status="infra_error",
                     error_message=f"LLM failed after retries: {e}",
@@ -142,7 +141,11 @@ class ToolLoopAgent(AgentAdapter):
 
             tool = str(data.get("tool") or "").lower()
             if tool == "submit":
-                steps.append(StepRecord(step_index=step, action="submit", detail=str(data.get("message") or "")))
+                steps.append(
+                    StepRecord(
+                        step_index=step, action="submit", detail=str(data.get("message") or "")
+                    )
+                )
                 return AgentRunResult(
                     status="completed",
                     artifacts={
@@ -156,9 +159,7 @@ class ToolLoopAgent(AgentAdapter):
                 )
 
             obs = self._run_tool(tool, data, workspace, allow_bash=allow_bash, written=written)
-            steps.append(
-                StepRecord(step_index=step, action="tool", tool=tool, detail=obs[:200])
-            )
+            steps.append(StepRecord(step_index=step, action="tool", tool=tool, detail=obs[:200]))
             messages.append({"role": "assistant", "content": json.dumps(data, ensure_ascii=False)})
             messages.append({"role": "user", "content": f"Tool result:\n{obs[:4000]}"})
 
@@ -214,9 +215,7 @@ class ToolLoopAgent(AgentAdapter):
                 return "error: bash disabled"
             cmd = str(data.get("command") or "")
             if not cmd or any(x in cmd for x in (";", "&&", "`", "|", ">", "<")):
-                # allow simple commands only
-                if any(x in cmd for x in (";", "&&", "`")):
-                    return "error: command not allowed"
+                return "error: command not allowed"
             try:
                 proc = subprocess.run(
                     cmd,
@@ -227,7 +226,7 @@ class ToolLoopAgent(AgentAdapter):
                     timeout=30,
                     check=False,
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 return f"error: {e}"
             return f"exit={proc.returncode}\n{(proc.stdout or '')[-2000]}\n{(proc.stderr or '')[-1000]}"
         return f"error: unknown tool {tool}"

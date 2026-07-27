@@ -79,7 +79,9 @@ def heuristic_case_from_draft(draft: dict[str, Any]) -> dict[str, Any]:
     meta["review_status"] = meta.get("review_status") or "needs_review"
     meta["split"] = meta.get("split") or "auto"
     meta["generation"] = "heuristic"
-    meta["weak_grader"] = bool(meta_weak) if grader.get("mode") == "gold" else grader.get("mode") != "script"
+    meta["weak_grader"] = (
+        bool(meta_weak) if grader.get("mode") == "gold" else grader.get("mode") != "script"
+    )
     case["schema_version"] = case.get("schema_version") or "0.1"
     if not case.get("task_type"):
         case["task_type"] = guess_task_type(case["prompt"])
@@ -97,9 +99,7 @@ def _is_useful_key_line(s: str) -> bool:
     # drop markdown trees, absolute paths, ascii art
     if s.startswith(("├", "│", "└", "┌", "─", "/Users/", "C:\\", "open ")):
         return False
-    if "python-algorithms/" in s or s in {"↓", "{", "}"}:
-        return False
-    return True
+    return not ("python-algorithms/" in s or s in {"↓", "{", "}"})
 
 
 def _default_key_lines(content: str) -> list[str]:
@@ -108,7 +108,9 @@ def _default_key_lines(content: str) -> list[str]:
         s = ln.strip()
         if not _is_useful_key_line(s):
             continue
-        if any(k in s for k in ("def ", "class ", "function ", "return ", "import ", "public ", "fn ")):
+        if any(
+            k in s for k in ("def ", "class ", "function ", "return ", "import ", "public ", "fn ")
+        ):
             lines.append(s[:100])
         if len(lines) >= 3:
             break
@@ -141,7 +143,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
         start = raw.find("{")
         end = raw.rfind("}")
         if start < 0 or end <= start:
-            raise ValueError(f"no JSON object in LLM content: {raw[:200]!r}")
+            raise ValueError(f"no JSON object in LLM content: {raw[:200]!r}") from None
         data = json.loads(raw[start : end + 1])
     if not isinstance(data, dict):
         raise ValueError("LLM JSON root must be object")
@@ -163,7 +165,9 @@ def generate_case_with_llm(
     """Ask LLM to produce a minimal self-contained coding case JSON with script grader."""
     settings = openai_settings()
     if not settings["api_key"] or not settings["base_url"] or not settings["model"]:
-        raise RuntimeError("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL required for LLM generate")
+        raise RuntimeError(
+            "OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL required for LLM generate"
+        )
 
     prompt = draft.get("prompt") or ""
     files = ((draft.get("context") or {}).get("files")) or []
@@ -181,7 +185,7 @@ def generate_case_with_llm(
         "context.files: array of {path, content}. Include:\n"
         "  1) a stub implementation that is incomplete/wrong\n"
         "  2) a pytest file that fails on the stub and passes on a correct fix\n"
-        "grader: {\"mode\":\"script\",\"command\":\"python -m pytest -q <test_file>.py\"}\n"
+        'grader: {"mode":"script","command":"python -m pytest -q <test_file>.py"}\n'
         "Keep files short (<80 lines each). No secrets. Abstract away private paths."
     )
     user = (
