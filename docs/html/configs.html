@@ -68,7 +68,11 @@
 </tr>
 <tr>
 <td><code>runs/ablation-matrix.yaml</code></td>
-<td>消融：openai_compat vs tool_loop</td>
+<td>消融：基线 / 模型轴（glm51）/ Agent 轴（tool_loop），每次只变一条轴</td>
+</tr>
+<tr>
+<td><code>runs/anchor-panel.yaml</code></td>
+<td>校准锚点面板：弱/中/强，供 <code>calibrate-cases</code> 实测用例区分度</td>
 </tr>
 </tbody>
 </table>
@@ -77,8 +81,11 @@
 AIBENCH_DB_URL=mysql+pymysql://...
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=http://host:port/v1
-OPENAI_MODEL=GLM-5.2   # optional override of yaml model field
+OPENAI_MODEL=GLM-5.2   # 仅当模型 YAML 的 `model` 为空时作为兜底
 </code></pre>
+<p><strong>模型解析优先级：模型 YAML 的 <code>model</code> 字段优先，<code>OPENAI_MODEL</code> 只在其为空时兜底。</strong>
+（与 <code>base_url</code> 一致。反过来的话，多模型消融的每一行都会静默跑成 <code>OPENAI_MODEL</code> 指定的
+同一个模型，而报告仍按不同模型标注 —— 那是会得出错误结论的静默失败。）</p>
 <h2 id="commands">Commands</h2>
 <pre><code class="language-bash"># Single production run
 ./scripts/run_benchmark.sh
@@ -87,6 +94,9 @@ uv run python -m aibench run --run-config configs/runs/baseline.yaml
 
 # Full DB → cases → ablation
 ./scripts/e2e_pipeline.sh --limit 100 --max-cases 8
+
+# 同上，并加入经验校准与按区分度选题（成本 = 锚点数 × repeats 次全量跑测）
+./scripts/e2e_pipeline.sh --limit 100 --max-cases 8 --calibrate --repeats 3
 
 # Ablation only
 uv run python -m aibench ablation \
@@ -97,7 +107,9 @@ uv run python -m aibench ablation \
 <h2 id="notes">Notes</h2>
 <ul>
 <li>模型 YAML 中 <code>base_url: null</code> 表示使用环境变量中的网关地址。</li>
-<li>消融矩阵可通过注释块启用第二模型行。</li>
+<li>消融矩阵每行只改<strong>一条轴</strong>（模型或 Agent），否则 McNemar 配对检验的差异无法归因。</li>
+<li>锚点面板必须<strong>同时跨越模型与 Agent 两条轴</strong>，且含一个明显弱的锚点；否则 <code>spread</code> 恒为 0，
+  校准会把所有用例误判为无区分度。</li>
 <li><code>shell.yaml</code> 的 <code>command_template</code> 默认为空，接入外部 CLI 前必须填写。</li>
 </ul>
 </article>

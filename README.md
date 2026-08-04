@@ -57,7 +57,25 @@ uv run python -m aibench generate-cases \
 uv run python -m aibench validate-cases --case-set auto-v0
 ```
 
-产物：`benchmarks/ai_coding/cases/auto-v0/`。
+产物：`benchmarks/ai_coding/cases/auto-v0/`。每条 case 带 `metadata.tier`（T1–T5），
+层级由源 trace 的过程信号推导、再由结构不变量核验。
+
+### 校准与选题（让区分度可验证）
+
+结构不变量保证用例「该有区分度」，跑一遍才知道有没有：
+
+```bash
+# 用锚点面板（弱/中/强）实测每条 case 的通过率与区分指数
+uv run python -m aibench calibrate-cases --case-set auto-v0 --repeats 3
+
+# 按区分度挑出可用题，组成新集合
+uv run python -m aibench select-cases \
+  --calibration runs/calibration_<ts>/calibration.json \
+  --from-set auto-v0 --to-set disc-v0
+```
+
+淘汰：`p_hat > 0.9`（送分题）、`p_hat < 0.05`（多半是坏题）、点二列相关 `< 0.15`（噪声题）。
+锚点面板见 `configs/runs/anchor-panel.yaml`，**必须同时变化模型与 agent 两条轴**。
 
 ### 完整生产流水线（含消融对比）
 
@@ -83,17 +101,27 @@ uv run python -m aibench validate-cases --case-set auto-v0
 ## 项目在做什么
 
 ```text
-MySQL 会话 → 草稿 → 筛选 → 可跑 Case（auto-v0）
-                              ↓
+MySQL 生产 trace ──► 草稿（含过程信号 → 建议层级 T1–T5）
+                       ↓
+                    规则/LLM 筛选
+                       ↓
+     分层生成 ──► 消毒定级（去缺陷标记 / 去题面泄露 / 拆隐藏测试）
+                       ↓
+     效度门禁：stub 必 fail（下界）+ 参考解必 pass（上界）+ 分层不变量
+                       ↓
+     经验校准（锚点面板 × 重复）──► 按区分度选题 ──► 可用 case 集
+                       ↓
               Agent/模型配置（可替换）→ 判分
-                              ↓
-         summary / tables / ablation_report
-         （对齐综述表与通用结果总表）
+                       ↓
+   summary / tables / ablation_report（分层成功率 + McNemar 配对检验）
 ```
 
 | 要点 | 说明 |
 |------|------|
+| **分层** | T1 直接修复 / T2 定位修复 / T3 隐藏规格 / T4 跨文件检索 / T5 迭代自修复 |
+| **区分度** | 隐藏测试 + 保护路径消灭捷径；校准淘汰送分题与噪声题 |
 | **消融** | 同一 case 集上对比多组 Agent/模型，不是删网络层 |
+| **显著性** | 同一 case 集上用 McNemar 配对检验，比各自的 Wilson CI 灵敏 |
 | **生产配置** | 见 `configs/`（无 mock；mock 仅在 `tests/fixtures`） |
 | **与设计表** | `tables.json` / `ablation_report.md` 填设计报告与字段字典定义的列 |
 | **主指标** | `task_success_rate`（半确定性） |

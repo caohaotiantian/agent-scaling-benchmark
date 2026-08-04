@@ -80,7 +80,8 @@
 <li><a href="#10-case-协议与-schema">Case 协议与 Schema</a></li>
 <li><a href="#11-workspace-物化规则">Workspace 物化规则</a></li>
 <li><a href="#12-agent-适配器">Agent 适配器</a></li>
-<li><a href="#13-判分grading">判分（Grading）</a></li>
+<li><a href="#13-判分grading">判分（Grading）</a>
+13.5 <a href="#135-区分度分层tier与校准">区分度分层（Tier）与校准</a></li>
 <li><a href="#14-科学效度审计与发布门控">科学效度审计与发布门控</a></li>
 <li><a href="#15-重试与并行">重试与并行</a></li>
 <li><a href="#16-运行产物与结果表映射">运行产物与结果表映射</a></li>
@@ -478,8 +479,8 @@ set -a &amp;&amp; source .env &amp;&amp; set +a
 <tr>
 <td><code>OPENAI_MODEL</code></td>
 <td>无</td>
-<td>建议设置</td>
-<td>运行时覆盖 model YAML 中的 <code>model</code> 字段</td>
+<td>可选</td>
+<td><strong>兜底</strong>：仅当 model YAML 的 <code>model</code> 为空时生效（配置优先）</td>
 </tr>
 <tr>
 <td><code>AIBENCH_API_KEY</code></td>
@@ -516,6 +517,12 @@ set -a &amp;&amp; source .env &amp;&amp; set +a
 <td><code>20.0</code></td>
 <td>可选</td>
 <td>退避上限（秒）</td>
+</tr>
+<tr>
+<td><code>AIBENCH_GENERATE_TIMEOUT</code></td>
+<td><code>300</code></td>
+<td>可选</td>
+<td><code>generate-cases</code> 单次 LLM 请求超时（秒）；推理模型出整份 case JSON 常需 2 分钟以上</td>
 </tr>
 <tr>
 <td><code>AIBENCH_CASE_RETRY</code></td>
@@ -617,7 +624,7 @@ set -a &amp;&amp; source .env &amp;&amp; set +a
 <tr>
 <td><code>model</code></td>
 <td>string</td>
-<td>模型 ID；可被 <code>OPENAI_MODEL</code> 覆盖</td>
+<td>模型 ID；<strong>优先于</strong> <code>OPENAI_MODEL</code>（后者仅在此处为空时兜底）</td>
 </tr>
 <tr>
 <td><code>base_url</code></td>
@@ -917,7 +924,7 @@ runs:
 <td><code>--model</code></td>
 <td>Path</td>
 <td>run-config 的 <code>model_config</code></td>
-<td>覆盖模型 YAML；<code>model</code> 可再被 <code>OPENAI_MODEL</code> 覆盖</td>
+<td>覆盖模型 YAML；其 <code>model</code> 字段优先于 <code>OPENAI_MODEL</code></td>
 </tr>
 <tr>
 <td><code>--case-set</code></td>
@@ -1203,9 +1210,24 @@ runs:
 <td>关</td>
 <td>生成后对每条 <code>audit_case</code> + <code>annotate</code> metadata</td>
 </tr>
+<tr>
+<td><code>--tier</code></td>
+<td><code>T1..T5</code></td>
+<td>草稿 <code>metadata.tier</code></td>
+<td>强制目标层；不传则用 trace 推导的层（§13.5.3）</td>
+</tr>
+<tr>
+<td><code>--min-tier</code></td>
+<td><code>T1..T5</code></td>
+<td>无</td>
+<td>定级低于此层的 case 直接丢弃</td>
+</tr>
 </tbody>
 </table>
 <p><strong>行为细节</strong>：默认 LLM 最多尝试 2 次，失败则 print fallback 并启发式；schema 非法则 skip；最终 <code>n_ok==0</code> 时 exit 1。元数据常含 <code>generation=llm|heuristic</code>、<code>review_status=needs_review</code>。</p>
+<p>按目标层选用不同的生成 brief（<code>_TIER_BRIEFS</code>），产物再经 <code>settle_tier</code> 消毒定级，
+<code>metadata</code> 记录 <code>tier</code> / <code>tier_requested</code> / <code>tier_notes</code> / <code>capability_axes</code> / <code>tier_facts</code>。
+命令结束会打印实际定级分布，例如 <code>tier distribution: T2=31, T3=12</code>。</p>
 <h3 id="88-ablation">8.8 <code>ablation</code> — 矩阵消融</h3>
 <p><strong>作用</strong>：同一 case set 上按矩阵跑多组 Agent/模型，汇总对比表。</p>
 <table>
@@ -1359,7 +1381,7 @@ runs:
 <td><code>--annotate</code></td>
 <td>flag</td>
 <td>关</td>
-<td>写入 <code>difficulty</code>、<code>fingerprint</code>、<code>validity_ok</code>、<code>validity_issues</code></td>
+<td>写入 <code>difficulty</code>、<code>tier</code>、<code>fingerprint</code>、<code>validity_ok</code>、<code>validity_issues</code></td>
 </tr>
 <tr>
 <td><code>--fail-on-error</code></td>
@@ -1369,6 +1391,117 @@ runs:
 </tr>
 </tbody>
 </table>
+<p>报告含 <code>tier_distribution</code>；每条 case 的 <code>checks</code> 含 <code>stub_fail</code>、<code>reference_solution</code>、<code>tier</code>。</p>
+<h3 id="8101-calibrate-cases">8.10.1 <code>calibrate-cases</code> — 经验校准（区分度实测）</h3>
+<p><strong>作用</strong>：用锚点面板跑 <code>anchors × repeats</code> 次，按 case 统计 <code>p_hat</code> / <code>spread</code> /
+<code>point_biserial</code> / <code>flaky</code>，给出 keep/drop 判定。见 §13.5.5。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>默认</th>
+<th>作用说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--case-set</code></td>
+<td>str</td>
+<td>必填</td>
+<td>待校准集合</td>
+</tr>
+<tr>
+<td><code>--anchors</code></td>
+<td>Path</td>
+<td><code>configs/runs/anchor-panel.yaml</code></td>
+<td><code>anchors:</code> 列表（name/agent_config/model_config/run_config）</td>
+</tr>
+<tr>
+<td><code>--repeats</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td>每个锚点独立重复次数（用于识别 flaky）</td>
+</tr>
+<tr>
+<td><code>--output-root</code></td>
+<td>Path</td>
+<td><code>runs/</code></td>
+<td>生成 <code>calibration_&lt;timestamp&gt;/</code></td>
+</tr>
+<tr>
+<td><code>--workers</code></td>
+<td>int</td>
+<td>run 配置</td>
+<td>case 并行度</td>
+</tr>
+<tr>
+<td><code>--p-max</code></td>
+<td>float</td>
+<td><code>0.9</code></td>
+<td>高于此通过率判送分题</td>
+</tr>
+<tr>
+<td><code>--p-min</code></td>
+<td>float</td>
+<td><code>0.05</code></td>
+<td>低于此通过率判无人能过</td>
+</tr>
+<tr>
+<td><code>--min-rpb</code></td>
+<td>float</td>
+<td><code>0.15</code></td>
+<td>点二列相关低于此判噪声题</td>
+</tr>
+</tbody>
+</table>
+<p>产物：<code>calibration.json</code> + <code>calibration_report.md</code>。<strong>成本 = 锚点数 × repeats 次全量跑测</strong>，
+按需预算。<code>kept_count==0</code> 时 exit 1。</p>
+<h3 id="8102-select-cases">8.10.2 <code>select-cases</code> — 按区分度选题</h3>
+<p><strong>作用</strong>：把校准保留的 case 复制成新集合，按 <code>spread</code>、<code>point_biserial</code> 降序。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>默认</th>
+<th>作用说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--calibration</code></td>
+<td>Path</td>
+<td>必填</td>
+<td><code>calibration.json</code></td>
+</tr>
+<tr>
+<td><code>--from-set</code></td>
+<td>str</td>
+<td>必填</td>
+<td>源集合</td>
+</tr>
+<tr>
+<td><code>--to-set</code></td>
+<td>str</td>
+<td>必填</td>
+<td>目标集合</td>
+</tr>
+<tr>
+<td><code>--max-cases</code></td>
+<td>int</td>
+<td>无</td>
+<td>只取区分度最高的前 N 条</td>
+</tr>
+<tr>
+<td><code>--dry-run</code></td>
+<td>flag</td>
+<td>关</td>
+<td>不写盘，只回报选择结果</td>
+</tr>
+</tbody>
+</table>
+<p>写入时把 <code>metadata.calibration</code>（<code>p_hat</code> / <code>spread</code> / <code>point_biserial</code> / <code>attempts</code>）落到 case 上。</p>
 <h3 id="811-secrets-scan">8.11 <code>secrets-scan</code></h3>
 <p><strong>作用</strong>：用正则扫描 prompt / context.files / gold_files 中疑似密钥。</p>
 <table>
@@ -1661,7 +1794,11 @@ runs:
 <tbody>
 <tr>
 <td><code>files[]</code></td>
-<td><code>{path, content}</code> 列表；inline 工作区文件</td>
+<td><code>{path, content, role?}</code> 列表；inline 工作区文件</td>
+</tr>
+<tr>
+<td><code>files[].role</code></td>
+<td><code>impl</code>（默认）| <code>test</code> 可见测试 | <code>distractor</code> 干扰文件 | <code>spec</code> 规格说明</td>
 </tr>
 <tr>
 <td><code>notes</code></td>
@@ -1692,7 +1829,7 @@ runs:
 </tr>
 <tr>
 <td><code>gold_files</code></td>
-<td>gold 模式期望文件</td>
+<td>gold 模式期望文件；对 T3+ 同时充当<strong>参考解</strong>（§14.3.3）</td>
 </tr>
 <tr>
 <td><code>match</code></td>
@@ -1705,6 +1842,14 @@ runs:
 <tr>
 <td><code>judge_rubric</code> / <code>judge_threshold</code></td>
 <td>llm_judge 用</td>
+</tr>
+<tr>
+<td><code>hidden_tests</code></td>
+<td><code>{path, content}</code> 列表；<strong>判分时才写入工作区</strong>，Agent 看不到（§13.1）</td>
+</tr>
+<tr>
+<td><code>protected_paths</code></td>
+<td>判分前字节必须与 <code>context.files</code> 一致的路径；被改判 <code>reward_hack</code></td>
 </tr>
 </tbody>
 </table>
@@ -1739,7 +1884,27 @@ runs:
 </tr>
 <tr>
 <td><code>difficulty</code></td>
-<td><code>easy</code> / <code>medium</code> / <code>hard</code>（审计注解）</td>
+<td><code>easy</code> / <code>medium</code> / <code>hard</code>（体积启发式，旧口径；分层请用 <code>tier</code>）</td>
+</tr>
+<tr>
+<td><code>tier</code></td>
+<td><code>T1</code>..<code>T5</code> 区分度层级（§13.5.2）</td>
+</tr>
+<tr>
+<td><code>capability_axes</code></td>
+<td>该层分离的能力轴，如 <code>["A1","A5","A6"]</code></td>
+</tr>
+<tr>
+<td><code>tier_requested</code> / <code>tier_notes</code></td>
+<td>请求的目标层，以及每层被拒的原因</td>
+</tr>
+<tr>
+<td><code>trace_signals</code></td>
+<td>源 trace 的过程信号（§13.5.3）</td>
+</tr>
+<tr>
+<td><code>calibration</code></td>
+<td><code>select-cases</code> 写回的 <code>p_hat</code> / <code>spread</code> / <code>point_biserial</code></td>
 </tr>
 <tr>
 <td><code>fingerprint</code></td>
@@ -1926,6 +2091,160 @@ runs:
 </table>
 <p>Script 命令白名单限制（<code>pytest</code> / <code>python</code>），防止任意 shell 注入。<br>
 主指标仅统计 <strong>非 infra_error</strong> 的 case。</p>
+<h3 id="131">13.1 隐藏测试与保护路径</h3>
+<p>实现：<code>src/aibench/grading.py</code>。判分前依次执行两步：</p>
+<ol>
+<li><strong>保护路径校验</strong> —— <code>grader.protected_paths</code> 里每个路径在工作区的字节必须与 <code>context.files</code>
+   一致。被改判 <code>reward_hack=true</code>、成绩 0；路径在 <code>context.files</code> 里找不到则记 <code>infra_error</code>
+   （用例配置错误，不算 agent 失败）。</li>
+<li><strong>隐藏测试注入</strong> —— <code>grader.hidden_tests</code> 的文件此时才写入工作区（仅 <code>script</code> / <code>composite</code>）。
+   Agent 全程看不到它们。</li>
+</ol>
+<p>因此 <code>grader.command</code> 对 T3+ 用例应为 <code>python -m pytest -q</code>（收集整个目录），而不是指定单个测试文件。
+<code>GradeResult.test_pass_ratio</code> 记录测试函数级通过比例，用于并列打散，不改变二值主指标。</p>
+<hr>
+<h2 id="135-tier">13.5 区分度分层（Tier）与校准</h2>
+<p>实现：<code>src/aibench/tiers.py</code>、<code>src/aibench/extract/trace_signals.py</code>、
+<code>src/aibench/extract/tier_shaping.py</code>、<code>src/aibench/calibrate.py</code>。</p>
+<h3 id="1351">13.5.1 为什么不用体积启发式</h3>
+<p><code>estimate_difficulty</code> 按文件数/LOC 打分，在首个自动集上把 <strong>93.8% 判为 medium</strong>，而那批用例
+平均 2 步即被解出 —— 它度量的是文件体积，不是所需能力。Tier 改为声明「用例结构上强迫求解者
+做什么」，每层配机器可检不变量。</p>
+<h3 id="1352">13.5.2 层级契约</h3>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>名称</th>
+<th>结构不变量（<code>check_tier_invariants</code> 逐条校验）</th>
+<th>分离的能力轴</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>T1</td>
+<td>直接修复</td>
+<td>≤3 文件；允许题面/注释给出缺陷位置</td>
+<td>地板锚（几乎全过）</td>
+</tr>
+<tr>
+<td>T2</td>
+<td>定位修复</td>
+<td>2–4 文件；题面<strong>无</strong>机制泄露；stub <strong>无</strong> BUG/FIXME 标记</td>
+<td>A1 定位诊断</td>
+</tr>
+<tr>
+<td>T3</td>
+<td>隐藏规格</td>
+<td>T2 + ≥2 个隐藏测试函数 + 参考解 + 保护可见测试</td>
+<td>A5 规格遵从、A6 抗过拟合</td>
+</tr>
+<tr>
+<td>T4</td>
+<td>跨文件检索</td>
+<td>T3 + ≥5 文件 + ≥1 干扰文件 + 参考解触及 ≥2 文件 + ≥3 隐藏测试</td>
+<td>A2 检索、A4 跨文件一致性</td>
+</tr>
+<tr>
+<td>T5</td>
+<td>迭代自修复</td>
+<td>T4 + ≥4 个隐藏测试函数</td>
+<td>A3 迭代自修复</td>
+</tr>
+</tbody>
+</table>
+<p>能力轴：<code>A1</code> 定位诊断、<code>A2</code> 上下文检索、<code>A3</code> 迭代自修复、<code>A4</code> 跨文件一致性、
+<code>A5</code> 规格遵从、<code>A6</code> 抗过拟合。</p>
+<h3 id="1353-trace">13.5.3 层级从 trace 推导</h3>
+<p><code>trace_signals.signals_from_messages</code> 从 <code>full_history</code> 解析过程信号：
+<code>read_ops</code> / <code>search_ops</code> / <code>edit_ops</code> / <code>exec_ops</code> / <code>test_runs</code> / <code>files_touched</code> /
+<code>repair_rounds</code>（test→edit→test 循环次数）/ <code>error_signals</code>。
+<code>suggest_tier</code> 自上而下取第一条命中的规则：</p>
+<table>
+<thead>
+<tr>
+<th>条件</th>
+<th>建议层</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repair_rounds ≥ 2</code> 且 <code>files_touched ≥ 3</code></td>
+<td>T5</td>
+</tr>
+<tr>
+<td><code>files_touched ≥ 3</code>，或 <code>search_ops ≥ 3</code> 且 <code>files_read ≥ 5</code></td>
+<td>T4</td>
+</tr>
+<tr>
+<td><code>test_runs ≥ 1</code> 且 <code>error_signals ≥ 1</code>，或 <code>repair_rounds ≥ 1</code></td>
+<td>T3</td>
+</tr>
+<tr>
+<td>有报错 / <code>files_read ≥ 2</code> / 有检索</td>
+<td>T2</td>
+</tr>
+<tr>
+<td>其余</td>
+<td>T1</td>
+</tr>
+</tbody>
+</table>
+<p>结果写入草稿 <code>metadata.tier</code> / <code>tier_reasons</code> / <code>trace_signals</code>，层级分布因此继承真实生产任务
+的难度分布，而非人工配额。</p>
+<h3 id="1354">13.5.4 消毒与定级</h3>
+<p><code>tier_shaping.settle_tier</code> 从 T5 逐层下探，每层用该层所需的变换塑形一份副本，取<strong>第一层不变量
+成立</strong>的作为标签：</p>
+<ul>
+<li><code>strip_defect_markers</code> —— 去掉实现文件里的 <code># BUG</code> / <code># FIXME</code>（bugfix 任务另含 <code># TODO</code>）。</li>
+<li><code>split_tests_for_hiding</code> —— 保留 1 个冒烟测试可见，其余测试函数移入 <code>hidden_tests</code>
+  （装饰器与紧贴的注释随测试一起移动，避免留下悬空 <code>@parametrize</code>）。</li>
+<li><code>protect_visible_tests</code> / <code>use_whole_suite_command</code>。</li>
+</ul>
+<p><strong>标签描述的是产物，不是请求</strong>：请求 T5 但材料只够 T3 会落到 T3；请求 T2 而材料够 T3 会升到 T3。
+无任何层成立时返回空并由调用方丢弃。</p>
+<p>题面机制泄露由 <code>find_disclosures</code> 检测（中英双语，对「当前实现用了 X 而不是 Y」这类<strong>描述现有
+实现</strong>的句式判为泄露；对「应该返回 X」这类<strong>规格陈述</strong>不判）。检出后 <code>generate-cases</code> 会做一次
+「只保留现象」的改写，仍失败则降级。</p>
+<h3 id="1355">13.5.5 经验校准</h3>
+<p>结构不变量保证用例「看起来该有区分度」，只有跑起来才知道有没有。
+<code>aibench calibrate-cases</code> 用锚点面板（<code>configs/runs/anchor-panel.yaml</code>）跑 <code>anchors × repeats</code> 次，
+按 case 统计：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>淘汰规则（默认）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>p_hat</code></td>
+<td>全部尝试的通过率</td>
+<td><code>&gt; 0.9</code> 送分题；<code>&lt; 0.05</code> 无人能过（多半是坏题）</td>
+</tr>
+<tr>
+<td><code>spread</code></td>
+<td>最强锚点通过率 − 最弱锚点通过率</td>
+<td>越大越能分离配置</td>
+</tr>
+<tr>
+<td><code>point_biserial</code></td>
+<td>该 case 结果与总体能力的相关</td>
+<td><code>&lt; 0.15</code> 判为噪声题</td>
+</tr>
+<tr>
+<td><code>flaky</code></td>
+<td>同一锚点多次重复结果不一致</td>
+<td>标记，供人工复核</td>
+</tr>
+</tbody>
+</table>
+<p>锚点面板<strong>必须跨越</strong>要区分的能力带（至少一个弱锚、一个强锚，且同时变化模型与 agent 两条轴），
+否则 <code>spread</code> 恒为 0，会把所有用例判为无区分度。</p>
+<p><code>aibench select-cases</code> 按 <code>spread</code>、<code>point_biserial</code> 降序把保留的 case 复制成新集合，并把
+<code>metadata.calibration</code> 写回。</p>
 <hr>
 <h2 id="14-scientific-validity">14. 科学效度（Scientific Validity）：定义、门禁与逻辑</h2>
 <p>实现：<code>src/aibench/validity.py</code>。命令：<code>aibench audit-cases</code>。</p>
@@ -1976,11 +2295,25 @@ runs:
 </thead>
 <tbody>
 <tr>
-<td>Stub 必须失败</td>
+<td>Stub 必须失败（下界）</td>
 <td><code>stub_fail_gate</code></td>
 <td>error</td>
 <td>是</td>
 <td>见 §14.3.1</td>
+</tr>
+<tr>
+<td>参考解必须通过（上界）</td>
+<td><code>solvability_gate</code></td>
+<td>error</td>
+<td>是</td>
+<td>见 §14.3.3</td>
+</tr>
+<tr>
+<td>分层不变量</td>
+<td><code>tier_&lt;violation&gt;</code></td>
+<td>error</td>
+<td>是</td>
+<td>§13.5.2，逐条来自 <code>check_tier_invariants</code></td>
 </tr>
 <tr>
 <td>Gold 污染</td>
@@ -2018,6 +2351,13 @@ runs:
 <td>script 却标 weak_grader</td>
 </tr>
 <tr>
+<td>未定级</td>
+<td><code>tier_missing</code></td>
+<td>warn</td>
+<td>否</td>
+<td><code>metadata.tier</code> 缺失</td>
+</tr>
+<tr>
 <td>重复指纹</td>
 <td><code>duplicate_fingerprint</code></td>
 <td>warn</td>
@@ -2029,7 +2369,7 @@ runs:
 <td>（写入 checks/metadata）</td>
 <td>注解</td>
 <td>—</td>
-<td>easy/medium/hard</td>
+<td>easy/medium/hard（旧口径，保留兼容）</td>
 </tr>
 <tr>
 <td>指纹</td>
@@ -2054,6 +2394,19 @@ runs:
     否则:                  通过 stub_failed_as_expected
 </code></pre>
 <p><strong>意图</strong>：Agent 必须做出有效修改才能得分。</p>
+<h4 id="1433-reference-solution">14.3.3 Reference-solution（可解性上界）</h4>
+<pre><code class="language-text">若 grader.mode != &quot;script&quot; 或无 gold_files:
+    → 跳过（无参考解可验）
+
+否则:
+    materialize_workspace(case)          # 初始现场
+    覆盖 grader.gold_files 到工作区        # 参考解
+    grade_case(...)                      # 注入隐藏测试后判分
+    必须 passed，否则 solvability_gate 失败
+</code></pre>
+<p><strong>意图</strong>：与 stub-fail 成对，构成难度的上下界。没有它，一个写坏的隐藏测试会让所有配置都失败，
+在报告里看起来像「难题」，实际是<strong>坏题</strong> —— 这正是加了隐藏测试之后最容易踩的坑。
+T3 及以上层级因此强制要求参考解。</p>
 <h4 id="1432-contamination">14.3.2 Contamination（答案污染）</h4>
 <pre><code class="language-text">blob = 拼接 context.files 的 path + content
 
@@ -2427,6 +2780,39 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 <li>可计算相对基线成功率收益（百分点）</li>
 <li>可并行实验行、导出 CSV/XLSX</li>
 </ul>
+<h3 id="174-mcnemar">17.4 配对显著性检验（McNemar）</h3>
+<p><code>ablation_report.md</code> 除综述表外，还输出<strong>分层成功率（按 tier）</strong>与<strong>配对显著性检验</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>列</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>b</code></td>
+<td>仅基线通过的 case 数</td>
+</tr>
+<tr>
+<td><code>c</code></td>
+<td>仅候选通过的 case 数</td>
+</tr>
+<tr>
+<td>不一致数</td>
+<td><code>b + c</code>，即两者结论不同的 case 数</td>
+</tr>
+<tr>
+<td>p 值</td>
+<td>精确二项双侧检验；<code>p &lt; 0.05</code> 判显著</td>
+</tr>
+</tbody>
+</table>
+<p><strong>为什么不看各自的 Wilson CI</strong>：两组跑的是同一个 case 集，属于配对数据。各自算独立区间会
+丢掉配对信息 —— 例如 56/64 与 62/64 的 Wilson 区间大幅重叠、看起来「无差异」，而配对检验
+在 6 个不一致 case 上给出 <code>p≈0.03</code>，判定显著。两者都通过或都失败的 case 不携带「谁更强」的
+信息，配对检验按构造把它们排除，灵敏度因此高得多。</p>
+<p><code>ablation_summary.json</code> 对应字段：<code>pairwise_comparisons</code>、<code>tier_matrix</code>。</p>
 <hr>
 <h2 id="18">18. 与初始设计文件的关系</h2>
 <table>
