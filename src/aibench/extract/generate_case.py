@@ -161,6 +161,18 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return data
 
 
+def _coerce_scalar_fields(data: dict[str, Any]) -> None:
+    """Normalise the scalar fields generators get the JSON type wrong on.
+
+    `"schema_version": 0.1` arrives as a number often enough that rejecting the case over it
+    cost 9 of 69 in one batch — a version field's quoting says nothing about case quality.
+    """
+    data["task_type"] = _normalize_task_type(data.get("task_type"))
+    data["language"] = str(data.get("language") or "python")
+    data["schema_version"] = str(data.get("schema_version") or "0.1")
+    data["case_id"] = str(data.get("case_id") or "")
+
+
 def _normalize_task_type(value: Any) -> str:
     s = str(value or "feature").strip().lower().replace("-", "_").replace(" ", "_")
     if s in {"bugfix", "feature", "refactor", "explain_to_edit", "test_gen", "pairwise"}:
@@ -382,9 +394,7 @@ def generate_case_with_llm(
             max_tokens=4096,
         )
         data = _extract_json_object(raw_text)
-    data["task_type"] = _normalize_task_type(data.get("task_type"))
-    data["language"] = data.get("language") or "python"
-    data.setdefault("schema_version", "0.1")
+    _coerce_scalar_fields(data)
     data.setdefault("metadata", {})
     data["metadata"]["generation"] = "llm"
     data["metadata"]["review_status"] = "needs_review"
