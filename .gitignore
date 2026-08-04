@@ -34,3 +34,5 @@ benchmarks/ai_coding/cases/.ablation-filtered-*/
 
 # calibration working set (subset materialized for incremental re-runs)
 benchmarks/ai_coding/cases/.calibrating-*/
+
+benchmarks/ai_coding/cases/_t4probe*/
