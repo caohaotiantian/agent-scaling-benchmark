@@ -120,11 +120,32 @@ MySQL 生产 trace ──► 草稿（含过程信号 → 建议层级 T1–T5�
 |------|------|
 | **分层** | T1 直接修复 / T2 定位修复 / T3 隐藏规格 / T4 跨文件检索 / T5 迭代自修复 |
 | **区分度** | 隐藏测试 + 保护路径消灭捷径；校准淘汰送分题与噪声题 |
-| **消融** | 同一 case 集上对比多组 Agent/模型，不是删网络层 |
+| **消融** | 同一 case 集上对比多组 Agent/模型，每行只变一条轴 |
+| **四条轴** | 基线 / 模型（glm51 vs glm52）/ Agent（单轮 vs tool_loop）/ 采样（k=1 vs k=5） |
+| **采样扩展** | `pass@k − pass@1` 是重复采样暴露的上限，`成功率 − pass@1` 是策略实际吃到的部分 |
+| **成本轴** | `success_rate @ token budget` 曲线 + 相对基线 token 倍数 —— 5 倍 token 换来的提升不等于等成本提升 |
 | **显著性** | 同一 case 集上用 McNemar 配对检验，比各自的 Wilson CI 灵敏 |
+| **样本量** | `plan-sample-size` 反推所需题量（按实测不一致率，不是拍脑袋） |
+| **多语言** | Python(pytest) 与 JavaScript(`node --test`)，只注册本机能真跑的语言 |
 | **生产配置** | 见 `configs/`（无 mock；mock 仅在 `tests/fixtures`） |
-| **与设计表** | `tables.json` / `ablation_report.md` 填设计报告与字段字典定义的列 |
-| **主指标** | `task_success_rate`（半确定性） |
+| **主指标** | `task_success_rate`（半确定性），口径不变；pass@k 等并列新增 |
+
+### 采样扩展与成本（pass@k）
+
+```bash
+uv run python -m aibench run --run-config configs/runs/passk.yaml --case-set disc-v0
+```
+
+`temperature: 0` 下 k 次采样是同一个样本，pass@k 恒等于 pass@1 —— runner 会告警并写进 manifest。
+采样实验请用 `configs/models/glm52-sampling.yaml`。
+
+### 要多少题才能得出结论
+
+```bash
+uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablation_<ts>/ablation_summary.json
+```
+
+配对检验只从「两个配置结论不同」的 case 学到东西，所以不一致率和效应量同样决定题量。
 
 `--limit` / `--max-cases` 有默认值，**不传也不会全库无限扫**。详见 [参考手册](docs/html/reference.html)。
 
