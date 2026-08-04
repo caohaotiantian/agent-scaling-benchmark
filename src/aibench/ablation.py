@@ -77,8 +77,13 @@ def run_ablation(
     skip_weak = (
         skip_weak_grader and not allow_weak_grader and not matrix.get("allow_weak_grader", False)
     )
-    # Per-row case sets may differ; filter default set once
-    filtered_default = _filter_weak_grader_case_set(case_set, skip_weak=skip_weak)
+    # Every distinct case set is filtered up front, never inside a worker. Filtering rmtree's
+    # and repopulates a shared `.ablation-filtered-<set>` directory, so two rows filtering the
+    # same set concurrently would let one of them run against a half-copied case set — a wrong
+    # result, not a crash.
+    filtered: dict[str, str] = {}
+    for row_case in {item.get("case_set") or case_set for item in matrix["runs"]} | {case_set}:
+        filtered[row_case] = _filter_weak_grader_case_set(row_case, skip_weak=skip_weak)
 
     out_root = output_root or (root / "runs")
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -97,11 +102,7 @@ def run_ablation(
         model = item.get("model_config") or "configs/models/glm52.yaml"
         run_cfg = item.get("run_config")
         run_id = item.get("run_id") or f"ablation-{exp}"
-        row_case = item.get("case_set") or case_set
-        if row_case == case_set:
-            use_set = filtered_default
-        else:
-            use_set = _filter_weak_grader_case_set(row_case, skip_weak=skip_weak)
+        use_set = filtered[item.get("case_set") or case_set]
 
         agent_path = Path(agent)
         model_path = Path(model)

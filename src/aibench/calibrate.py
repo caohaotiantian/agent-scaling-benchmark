@@ -21,6 +21,7 @@ import hashlib
 import json
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -286,6 +287,7 @@ def calibrate_case_set(
     policy: SelectionPolicy | None = None,
     case_workers: int | None = None,
     reuse_from: Path | None = None,
+    parallel: int = 1,
 ) -> tuple[Path, dict[str, Any]]:
     """Run the anchor panel ``repeats`` times over ``case_set`` and write ``calibration.json``.
 
@@ -320,24 +322,33 @@ def calibrate_case_set(
 
     runs: list[dict[str, Any]] = []
     if run_set is not None:
-        for anchor in anchors:
-            for rep in range(1, repeats + 1):
-                run_dir = run_benchmark(
-                    run_config_path=_abs(root, anchor.run_config),
-                    agent_config_path=_abs(root, anchor.agent_config),
-                    model_config_path=_abs(root, anchor.model_config),
-                    case_set=run_set,
-                    run_id=f"cal-{anchor.name}-r{rep}",
-                    output_root=cal_dir,
-                    case_workers=case_workers,
-                )
-                runs.append(
-                    {
-                        "anchor": anchor.name,
-                        "repeat": rep,
-                        "rows": read_result_rows(run_dir / "results.jsonl"),
-                    }
-                )
+        jobs = [(a, rep) for a in anchors for rep in range(1, repeats + 1)]
+
+        def _one_pass(job: tuple[AnchorSpec, int]) -> dict[str, Any]:
+            anchor, rep = job
+            run_dir = run_benchmark(
+                run_config_path=_abs(root, anchor.run_config),
+                agent_config_path=_abs(root, anchor.agent_config),
+                model_config_path=_abs(root, anchor.model_config),
+                case_set=run_set,
+                run_id=f"cal-{anchor.name}-r{rep}",
+                output_root=cal_dir,
+                case_workers=case_workers,
+            )
+            return {
+                "anchor": anchor.name,
+                "repeat": rep,
+                "rows": read_result_rows(run_dir / "results.jsonl"),
+            }
+
+        # Passes are independent — separate run directories, separate workspaces — so the only
+        # reason to serialise them is upstream capacity. Each pass already runs `case_workers`
+        # cases at once, so the concurrency the gateway actually sees is the product.
+        if parallel <= 1:
+            runs = [_one_pass(j) for j in jobs]
+        else:
+            with ThreadPoolExecutor(max_workers=parallel) as ex:
+                runs = list(ex.map(_one_pass, jobs))
 
     report = aggregate_calibration(runs, policy=policy)
     if reused:

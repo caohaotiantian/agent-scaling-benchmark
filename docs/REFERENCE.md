@@ -515,7 +515,7 @@ runs:
 | `--output-root` | Path | `runs/` | 生成 `ablation_<timestamp>/` |
 | `--case-set` | str | 矩阵 `case_set` | CLI 覆盖矩阵默认集 |
 | `--allow-weak-grader` | flag | 关 | 默认 **剥离** `metadata.weak_grader=true` 的 case 再跑 |
-| `--parallel` | int | `1` | 矩阵行（实验）并行度 |
+| `--parallel` | int | `1` | 矩阵行（实验）并行度。各行的 case 集会在开跑前一次性过滤好，不在 worker 里做 —— 否则两行共用同一集合时会互相 rmtree，输家跑在半拷贝的集合上 |
 | `--baseline-experiment` | str | 矩阵字段或无 | 用于计算「相对基线收益」百分点 |
 | `--export-csv` | flag | 关 | 写 `ablation_overview.csv` |
 | `--export-xlsx` | flag | 关 | 写 xlsx（依赖 openpyxl） |
@@ -578,7 +578,8 @@ runs:
 | `--anchors` | Path | `configs/runs/anchor-panel.yaml` | `anchors:` 列表（name/agent_config/model_config/run_config） |
 | `--repeats` | int | `3` | 每个锚点独立重复次数（用于识别 flaky） |
 | `--output-root` | Path | `runs/` | 生成 `calibration_<timestamp>/` |
-| `--workers` | int | run 配置 | case 并行度 |
+| `--workers` | int | run 配置 | 单个 pass 内同时跑的 case 数 |
+| `--parallel` | int | `1` | 锚点 pass 并发数。对网关的实际并发 ≈ `--parallel × --workers`；本网关实测在 16 并发下延迟仍平（4.7s→5.0s），吞吐 0.21→2.74/s |
 | `--p-max` | float | `0.9` | 高于此通过率判送分题 |
 | `--p-min` | float | `0.05` | 低于此通过率判无人能过 |
 | `--min-rpb` | float | `0.15` | 点二列相关低于此判噪声题 |

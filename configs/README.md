@@ -49,6 +49,10 @@ uv run python -m aibench run --run-config configs/runs/baseline.yaml
 # 同上，并加入经验校准与按区分度选题（成本 = 锚点数 × repeats 次全量跑测）
 ./scripts/e2e_pipeline.sh --limit 100 --max-cases 8 --calibrate --repeats 3
 
+# 并行：对网关的实际并发 ≈ parallel × case_workers，本网关实测 16 并发仍线性
+uv run python -m aibench calibrate-cases --case-set auto-v0 --repeats 2 \
+  --parallel 3 --workers 5
+
 # Ablation only
 uv run python -m aibench ablation \
   --matrix configs/runs/ablation-matrix.yaml \
