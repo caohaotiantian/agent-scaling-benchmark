@@ -35,3 +35,13 @@ runs:
     model_config: configs/models/glm52.yaml
     run_id: prod-tl-glm52
     run_config: configs/runs/baseline-tool-loop.yaml
+
+  # Sampling axis: same model and scaffold, 5 independent draws instead of 1. Its
+  # pass@k - pass@1 gap is the headroom repeated sampling exposes, and its cost is ~5x the
+  # baseline's tokens — the point of the cost curve is to make that trade visible.
+  - experiment_name: passk-glm52
+    algorithm_name: Sampling-scaling
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm52-sampling.yaml
+    run_id: prod-passk-glm52
+    run_config: configs/runs/passk.yaml

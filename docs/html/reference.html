@@ -2246,6 +2246,88 @@ runs:
 <p><code>aibench select-cases</code> 按 <code>spread</code>、<code>point_biserial</code> 降序把保留的 case 复制成新集合，并把
 <code>metadata.calibration</code> 写回。</p>
 <hr>
+<h2 id="136-passk">13.6 采样扩展（pass@k）与成本轴</h2>
+<p>实现：<code>src/aibench/runner.py</code>（<code>_run_one_case</code> / <code>_aggregate_attempts</code>）、
+<code>src/aibench/report.py</code>（<code>_scaling_metrics</code>）、<code>src/aibench/stats.py</code>（<code>cost_curve</code>）。</p>
+<h3 id="1361">13.6.1 三个必须分开的量</h3>
+<p>单次采样时 <code>pass@1</code>、<code>pass@k</code>、成功率三者恒等，因此<strong>单次采样的 run 说明不了任何采样扩展收益</strong>。
+<code>max_attempts &gt; 1</code> 后：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>定义</th>
+<th>回答什么问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pass_at_1</code></td>
+<td>每 case 在 k 次中的通过比例，再对 case 求均值</td>
+<td>单次抽样的期望结果 = 模型+Agent 原始能力</td>
+</tr>
+<tr>
+<td><code>pass_at_k</code></td>
+<td>至少一次成功的 case 比例（= <code>oracle_success_rate</code>）</td>
+<td>重复采样暴露出的<strong>上限</strong></td>
+</tr>
+<tr>
+<td><code>pass_pow_k</code></td>
+<td>k 次全部成功的 case 比例</td>
+<td>稳定性</td>
+</tr>
+<tr>
+<td><code>success_rate</code></td>
+<td><strong>选择策略实际提交的</strong>结果</td>
+<td>主指标口径不变</td>
+</tr>
+<tr>
+<td><code>selection_hit_rate</code></td>
+<td>有解可选时策略选中成功解的比例</td>
+<td>上限中有多少被策略吃到</td>
+</tr>
+</tbody>
+</table>
+<p><code>pass@k − pass@1</code> 是采样暴露的空间，<code>成功率 − pass@1</code> 是策略实际拿到的部分。</p>
+<h3 id="1362">13.6.2 落盘布局</h3>
+<p><code>results.jsonl</code> 仍是<strong>一 case 一行</strong>（<code>ablation.paired_outcomes</code>、<code>calibrate.aggregate_calibration</code>、
+<code>report.build_summary</code> 都依赖这一点），新增 <code>attempts[]</code> 明细与聚合字段。
+<code>total_tokens</code> / <code>wall_time_s</code> / <code>step_count</code> 等按 k 次<strong>求和</strong> —— 跑 k 次就是花了 k 次的预算。
+<code>k=1</code> 时行为与单次采样逐字节一致。</p>
+<p><code>k &gt; 1</code> 时每次尝试落在 <code>cases/&lt;case_id&gt;/attempt-&lt;n&gt;/</code>，聚合行写在 <code>cases/&lt;case_id&gt;/result.json</code>。</p>
+<h3 id="1363">13.6.3 选择策略</h3>
+<table>
+<thead>
+<tr>
+<th>值</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>first-submit</code>（默认）</td>
+<td>提交第 1 次尝试</td>
+</tr>
+<tr>
+<td><code>best-of-k</code></td>
+<td>提交第一个通过的尝试</td>
+</tr>
+</tbody>
+</table>
+<p>两者都会<strong>跳过 infra_error 的尝试</strong>：没跑起来的尝试不算一次提交，否则聚合行会带着基础设施失败的
+<code>grade</code> / <code>failure_category</code>，却把自己报告成正常结果。</p>
+<h3 id="1364-0">13.6.4 温度不为 0 是前提</h3>
+<p><code>temperature: 0</code> 下 k 次采样是同一个样本，<code>pass@k ≡ pass@1</code>，指标看起来正常但恒为零收益。
+<code>max_attempts &gt; 1</code> 且温度为 0 时，runner 会在 stdout 告警并在 <code>run_manifest.json</code> 写入
+<code>sampling_warning</code>。生产采样配置：<code>configs/models/glm52-sampling.yaml</code>（temperature 0.7）+
+<code>configs/runs/passk.yaml</code>。</p>
+<h3 id="1365">13.6.5 成本轴</h3>
+<p><code>cost_curve</code> = 若干 token 预算档位上「在该预算内解出的 case 数 / 有效 case 数」。
+档位由该 run 的 per-case token 分布分位数产生（<code>budget_quantiles</code>），不是人工拍板。</p>
+<p><strong>跨配置比较时必须用同一组档位</strong>，否则每条曲线各有各的 x 轴，无法横向对比。
+消融报告另给 <code>token_amplification</code>（相对基线的 token 倍数）：准确率提升若是用 5 倍 token 买来的，
+和等成本下的同等提升不是同一个结论。</p>
+<hr>
 <h2 id="14-scientific-validity">14. 科学效度（Scientific Validity）：定义、门禁与逻辑</h2>
 <p>实现：<code>src/aibench/validity.py</code>。命令：<code>aibench audit-cases</code>。</p>
 <h3 id="141">14.1 「科学效度」在本项目中的含义</h3>

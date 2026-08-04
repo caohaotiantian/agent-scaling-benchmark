@@ -878,6 +878,63 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 
 ---
 
+## 13.6 采样扩展（pass@k）与成本轴
+
+实现：`src/aibench/runner.py`（`_run_one_case` / `_aggregate_attempts`）、
+`src/aibench/report.py`（`_scaling_metrics`）、`src/aibench/stats.py`（`cost_curve`）。
+
+### 13.6.1 三个必须分开的量
+
+单次采样时 `pass@1`、`pass@k`、成功率三者恒等，因此**单次采样的 run 说明不了任何采样扩展收益**。
+`max_attempts > 1` 后：
+
+| 指标 | 定义 | 回答什么问题 |
+|------|------|--------------|
+| `pass_at_1` | 每 case 在 k 次中的通过比例，再对 case 求均值 | 单次抽样的期望结果 = 模型+Agent 原始能力 |
+| `pass_at_k` | 至少一次成功的 case 比例（= `oracle_success_rate`） | 重复采样暴露出的**上限** |
+| `pass_pow_k` | k 次全部成功的 case 比例 | 稳定性 |
+| `success_rate` | **选择策略实际提交的**结果 | 主指标口径不变 |
+| `selection_hit_rate` | 有解可选时策略选中成功解的比例 | 上限中有多少被策略吃到 |
+
+`pass@k − pass@1` 是采样暴露的空间，`成功率 − pass@1` 是策略实际拿到的部分。
+
+### 13.6.2 落盘布局
+
+`results.jsonl` 仍是**一 case 一行**（`ablation.paired_outcomes`、`calibrate.aggregate_calibration`、
+`report.build_summary` 都依赖这一点），新增 `attempts[]` 明细与聚合字段。
+`total_tokens` / `wall_time_s` / `step_count` 等按 k 次**求和** —— 跑 k 次就是花了 k 次的预算。
+`k=1` 时行为与单次采样逐字节一致。
+
+`k > 1` 时每次尝试落在 `cases/<case_id>/attempt-<n>/`，聚合行写在 `cases/<case_id>/result.json`。
+
+### 13.6.3 选择策略
+
+| 值 | 含义 |
+|----|------|
+| `first-submit`（默认） | 提交第 1 次尝试 |
+| `best-of-k` | 提交第一个通过的尝试 |
+
+两者都会**跳过 infra_error 的尝试**：没跑起来的尝试不算一次提交，否则聚合行会带着基础设施失败的
+`grade` / `failure_category`，却把自己报告成正常结果。
+
+### 13.6.4 温度不为 0 是前提
+
+`temperature: 0` 下 k 次采样是同一个样本，`pass@k ≡ pass@1`，指标看起来正常但恒为零收益。
+`max_attempts > 1` 且温度为 0 时，runner 会在 stdout 告警并在 `run_manifest.json` 写入
+`sampling_warning`。生产采样配置：`configs/models/glm52-sampling.yaml`（temperature 0.7）+
+`configs/runs/passk.yaml`。
+
+### 13.6.5 成本轴
+
+`cost_curve` = 若干 token 预算档位上「在该预算内解出的 case 数 / 有效 case 数」。
+档位由该 run 的 per-case token 分布分位数产生（`budget_quantiles`），不是人工拍板。
+
+**跨配置比较时必须用同一组档位**，否则每条曲线各有各的 x 轴，无法横向对比。
+消融报告另给 `token_amplification`（相对基线的 token 倍数）：准确率提升若是用 5 倍 token 买来的，
+和等成本下的同等提升不是同一个结论。
+
+---
+
 ## 14. 科学效度（Scientific Validity）：定义、门禁与逻辑
 
 实现：`src/aibench/validity.py`。命令：`aibench audit-cases`。
