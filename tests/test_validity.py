@@ -18,7 +18,11 @@ def _case(**kwargs) -> Case:
                 },
             ]
         },
-        "grader": {"mode": "script", "command": "python -m pytest -q test_add.py"},
+        "grader": {
+            "mode": "script",
+            "command": "python -m pytest -q test_add.py",
+            "gold_files": [{"path": "add.py", "content": "def add(a, b):\n    return a + b\n"}],
+        },
         "metadata": {},
     }
     base.update(kwargs)
@@ -163,3 +167,32 @@ def test_audit_reports_tier_violations_as_errors():
     r = audit_case(Case.from_dict(raw))
     assert r.ok is False
     assert any(i.code == "tier_prompt_discloses_defect" for i in r.issues)
+
+
+def test_a_script_case_without_a_reference_solution_is_refused():
+    """Measured on a 59-case set: of the 18 cases no configuration could solve, 16 shipped
+    without a reference solution, against 2 of 31 among cases that had one. Skipping the check
+    for cases that cannot support it is precisely what let those 16 through — in the report
+    they look like hard cases and are simply broken."""
+    from aibench.validity import check_reference_solution
+
+    raw = _t3_case_dict()
+    raw["grader"].pop("gold_files")
+    ok, detail = check_reference_solution(Case.from_dict(raw))
+    assert ok is False
+    assert "no_reference_solution" in detail
+
+    report = audit_case(Case.from_dict(raw))
+    assert report.ok is False
+    assert any(i.code == "solvability_gate" for i in report.issues)
+
+
+def test_non_script_graders_are_still_exempt():
+    """A gold or llm_judge case has no command to run a reference solution against."""
+    from aibench.validity import check_reference_solution
+
+    raw = _t3_case_dict()
+    raw["grader"] = {"mode": "gold", "match": "contains_key_lines", "key_lines": ["def clamp"]}
+    ok, detail = check_reference_solution(Case.from_dict(raw))
+    assert ok is True
+    assert detail == "skipped_non_script"

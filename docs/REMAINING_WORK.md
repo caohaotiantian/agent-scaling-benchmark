@@ -30,7 +30,9 @@
 - [x] **确定性消毒定级**：去缺陷标记、去题面泄露、拆隐藏测试（`extract/tier_shaping.py`）
 - [x] **隐藏测试** `grader.hidden_tests`（判分时注入）
 - [x] **防作弊** `grader.protected_paths` + `reward_hack` 归因
-- [x] **可解性门禁** `solvability_gate`（参考解必须通过，与 stub-fail 成对）
+- [x] **可解性门禁** `solvability_gate`（参考解必须通过，与 stub-fail 成对）。
+      **2026-08-04 收紧**：原先「无参考解则跳过」，实测 18 条无人能解的用例里 16 条正是走了这条豁免。
+      现在 script 模式下没有参考解即判失败
 - [x] **经验校准** `calibrate-cases`（p_hat / spread / point_biserial / flaky）
 - [x] **按区分度选题** `select-cases`
 - [x] **McNemar 配对显著性检验** + 按 tier 分层的消融报告

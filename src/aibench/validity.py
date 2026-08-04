@@ -152,7 +152,11 @@ def check_reference_solution(case: Case, *, case_set: str | None = None) -> tupl
     if case.grader.mode != "script" or not case.grader.command:
         return True, "skipped_non_script"
     if not case.grader.gold_files:
-        return True, "skipped_no_reference_solution"
+        # Measured: of 18 cases no configuration could solve, 16 had no reference solution,
+        # while cases that shipped one were unsolvable only 2 times in 31. Skipping the check
+        # for cases that cannot support it is what let those 16 ship — they look like hard
+        # cases in the report and are simply broken.
+        return False, "no_reference_solution: solvability cannot be verified"
     tmp = Path(tempfile.mkdtemp(prefix="aibench_solve_"))
     try:
         ws = tmp / "workspace"
