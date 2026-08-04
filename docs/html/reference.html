@@ -1404,6 +1404,52 @@ runs:
 </tbody>
 </table>
 <p>报告含 <code>tier_distribution</code>；每条 case 的 <code>checks</code> 含 <code>stub_fail</code>、<code>reference_solution</code>、<code>tier</code>。</p>
+<h3 id="891-compose-cases-t4">8.9.1 <code>compose-cases</code> — 合成 T4 检索用例</h3>
+<p><strong>作用</strong>：把已验证用例的实现文件植入另一条已验证用例作为干扰文件，凑齐 T4 的广度要求。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>默认</th>
+<th>作用说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--from-set</code></td>
+<td>str</td>
+<td>必填</td>
+<td>已通过审计的源集合</td>
+</tr>
+<tr>
+<td><code>--to-set</code></td>
+<td>str</td>
+<td>必填</td>
+<td>输出集合</td>
+</tr>
+<tr>
+<td><code>--target-files</code></td>
+<td>int</td>
+<td><code>6</code></td>
+<td>每条合成用例的文件总数</td>
+</tr>
+<tr>
+<td><code>--donors-per-case</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td>每条用例取几条其他用例作为干扰来源</td>
+</tr>
+<tr>
+<td><code>--max-cases</code></td>
+<td>int</td>
+<td>无</td>
+<td>上限</td>
+</tr>
+</tbody>
+</table>
+<p><strong>两道门禁由构造保持</strong>：宿主的 stub、测试与参考解一字未改，只新增与解无关的文件；干扰文件放在 <code>vendor/&lt;donor_id&gt;/</code> 子目录，不会 shadow 宿主的导入，且都不是测试文件，pytest / node 都不会收集。捐赠方的<strong>参考解文件与测试文件被排除</strong>——前者会让干扰文件参与解，后者会被运行器收集并跑起来。</p>
+<p>捐赠者按固定顺序轮转而非随机：集合内容每次都变的话，就无法和之前的校准结果对比。</p>
 <h3 id="8101-calibrate-cases">8.10.1 <code>calibrate-cases</code> — 经验校准（区分度实测）</h3>
 <p><strong>作用</strong>：用锚点面板跑 <code>anchors × repeats</code> 次，按 case 统计 <code>p_hat</code> / <code>spread</code> /
 <code>point_biserial</code> / <code>flaky</code>，给出 keep/drop 判定。见 §13.5.5。</p>

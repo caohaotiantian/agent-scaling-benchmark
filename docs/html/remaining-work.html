@@ -129,8 +129,14 @@
 </thead>
 <tbody>
 <tr>
+<td>5</td>
+<td><strong>T5 仍产出为 0</strong></td>
+<td>A4 跨文件一致性（一个缺陷跨 2 文件）生成器造不出来；T4 已拆分并可由 <code>compose-cases</code> 产出</td>
+<td>仓库快照裁剪 / 多轮生成，仍是独立工作量</td>
+</tr>
+<tr>
 <td>4</td>
-<td><strong>T4 / T5 当前产出率为 0（已实测）</strong></td>
+<td>~~T4 产出率为 0~~（已解决：拆分 + 合成）<strong>原始实测记录</strong></td>
 <td>强制 <code>--tier T4</code> 跑 10 条：<strong>0 条达标</strong>，全部落到 T3(7)/T1(2)/无(1)。60 条的大规模生成同样 T4=0。失败原因按频次：<code>too_few_solution_files</code> 10/10、<code>too_few_files</code> 9/10、<code>too_few_distractors</code> 8/10。即<strong>生成器不会凭空造出「多文件项目 + 缺陷跨 2 个文件」</strong>，改 brief 无效</td>
 <td>换路子：用 <code>context.workspace</code> 已有的 snapshot/git 通路，从<strong>真实仓库快照</strong>裁剪出 T4 场景，而不是让 LLM 凭空发明；或改多轮生成（先要项目骨架，再植入跨文件缺陷，最后要测试）。干扰文件已可机械派生，不再是瓶颈</td>
 </tr>
