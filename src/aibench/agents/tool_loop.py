@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from aibench.agents.base import AgentAdapter
+from aibench.agents.base import AgentAdapter, request_timeout_s
 from aibench.models import AgentRunResult, Case, StepRecord, UsageRecord
 
 
@@ -137,7 +137,7 @@ class ToolLoopAgent(AgentAdapter):
             try:
 
                 def _llm() -> dict[str, Any]:
-                    with httpx.Client(timeout=min(90.0, max_wall_time_s)) as client:
+                    with httpx.Client(timeout=request_timeout_s(max_wall_time_s)) as client:
                         resp = client.post(
                             f"{base_url}/chat/completions",
                             headers={
