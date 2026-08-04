@@ -47,6 +47,7 @@
 - [x] 采样扩展 pass@k / 成本轴（原 P0 全部）
 - [x] **评分干扰检测**：conftest / pytest.ini / 跳过标记等绕过 `protected_paths` 的路子
 - [x] **`select-cases --tier-quota`**：按层配额选题，避免整批落在同一能力带
+- [x] **`plan-sample-size`**：按 McNemar 反推所需题量，可用 `--from-ablation` 实测不一致率
 
 ---
 
@@ -77,7 +78,6 @@
 |---|----|------|----------|
 | 10 | **校准无增量/断点续跑** | 每次 `calibrate-cases` 全量重跑，成本 = 锚点数 × repeats × 全集 | 按 case fingerprint 缓存历史结果，只跑新增/变更的 case |
 | 11 | **锚点漂移无策略** | 校准结论绑定当时的锚点面板；模型升级后 `p_hat` 失效，但没有失效标记 | `calibration.json` 记录锚点指纹；case 元数据带上校准时间与锚点版本，过期即提示重校准 |
-| 12 | **样本量规划无工具** | 「要分辨 10pp 需要多少题」只在文档里给了估算 | 加 `plan-sample-size` 子命令：给定目标效应量与 p 分布，反推所需题量 |
 
 ### P3 — 既有遗留（未变）
 

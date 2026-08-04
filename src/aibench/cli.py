@@ -37,6 +37,7 @@ from aibench.promote import promote_cases
 from aibench.report import check_summary
 from aibench.runner import run_benchmark
 from aibench.secrets_scan import scan_case_dir
+from aibench.stats import mcnemar_sample_size, observed_discordance
 from aibench.tiers import TIER_ORDER
 
 
@@ -252,6 +253,32 @@ def main(argv: list[str] | None = None) -> int:
         "selection ranks purely by discrimination and can land entirely in one tier.",
     )
     p_sel.add_argument("--dry-run", action="store_true")
+
+    p_plan = sub.add_parser(
+        "plan-sample-size",
+        help="How many cases a paired comparison needs to detect a given difference",
+    )
+    p_plan.add_argument(
+        "--delta",
+        type=float,
+        required=True,
+        help="Success-rate difference to detect, in percentage points (e.g. 10)",
+    )
+    p_plan.add_argument(
+        "--discordance",
+        type=float,
+        default=None,
+        help="Expected %% of cases the two configs disagree on. Omit with --from-ablation "
+        "to measure it from a previous run.",
+    )
+    p_plan.add_argument(
+        "--from-ablation",
+        type=Path,
+        default=None,
+        help="ablation_summary.json to read the observed discordance from",
+    )
+    p_plan.add_argument("--alpha", type=float, default=0.05)
+    p_plan.add_argument("--power", type=float, default=0.8)
 
     p_exp = sub.add_parser("export-ablation", help="Export ablation_summary to CSV/XLSX")
     p_exp.add_argument("--ablation-dir", type=Path, required=True)
@@ -644,6 +671,41 @@ def main(argv: list[str] | None = None) -> int:
                 "reasons column) or --from-set does not match the calibrated set."
             )
         return 0 if report["selected_count"] else 1
+
+    if args.cmd == "plan-sample-size":
+        discordance = args.discordance / 100.0 if args.discordance is not None else None
+        if discordance is None and args.from_ablation:
+            observed = observed_discordance(
+                load_json(args.from_ablation).get("pairwise_comparisons") or []
+            )
+            if observed is None:
+                print(f"no pairwise comparisons in {args.from_ablation}; pass --discordance")
+                return 1
+            discordance = observed
+            print(f"observed discordance from {args.from_ablation}: {discordance * 100:.1f}%")
+        if discordance is None:
+            print("provide --discordance PCT, or --from-ablation to measure it")
+            return 1
+        try:
+            plan = mcnemar_sample_size(
+                delta=args.delta / 100.0,
+                discordance=discordance,
+                alpha=args.alpha,
+                power=args.power,
+            )
+        except ValueError as e:
+            print(str(e))
+            return 1
+        print(
+            f"To detect a {args.delta:g}pp difference at alpha={args.alpha}, power={args.power}, "
+            f"with {discordance * 100:.1f}% discordance:\n"
+            f"  required cases          {plan['required_cases']}\n"
+            f"  expected discordant     {plan['expected_discordant_pairs']}\n"
+            "Only discordant cases carry information. Measure --discordance from a real "
+            "ablation (--from-ablation) rather than guessing: it drives the answer as much "
+            "as the effect size does."
+        )
+        return 0
 
     if args.cmd == "export-ablation":
         if args.csv:
