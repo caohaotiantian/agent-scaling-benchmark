@@ -194,7 +194,8 @@ _TIER_BRIEFS: dict[str, str] = {
         "TIER T1 (floor anchor — every model should solve this):\n"
         "- One implementation file with a single localized defect, marked `# BUG: ...`.\n"
         "- The prompt may name the defective mechanism directly.\n"
-        "- One visible pytest file, 2-4 test functions."
+        "- One visible pytest file, 2-4 test functions.\n"
+        "- `grader.gold_files`: the corrected implementation file."
     ),
     "T2": (
         "TIER T2 (the solver must locate the defect itself):\n"
@@ -204,7 +205,8 @@ _TIER_BRIEFS: dict[str, str] = {
         "  report it (what was expected, what happened). It must NOT name the mechanism\n"
         "  ('inverted comparison', 'wrong offset', 'uses X instead of Y'), a line number, or\n"
         "  the fix. Writing 'the tests fail' is fine; writing why they fail is not.\n"
-        "- One visible pytest file, 3-5 test functions."
+        "- One visible pytest file, 3-5 test functions.\n"
+        "- `grader.gold_files`: the corrected implementation file."
     ),
     "T3": (
         "TIER T3 (hidden specification):\n"
@@ -254,6 +256,9 @@ def _system_prompt_for_tier(tier: str) -> str:
         "wrong, and a pytest file that fails on the stub and passes on a correct fix.\n"
         f"{_ROLE_HINT}\n"
         'grader: {"mode":"script","command":"python -m pytest -q"}\n'
+        "REQUIRED for every tier: `grader.gold_files` holds the corrected full content of each\n"
+        "implementation file the fix changes. A case whose solvability cannot be demonstrated\n"
+        "is discarded, however good the task is.\n"
         "Keep each file under 120 lines. No secrets. No private paths.\n\n"
         f"{_TIER_BRIEFS[tier]}"
     )
@@ -391,7 +396,7 @@ def generate_case_with_llm(
                         "grader={mode:script,command,gold_files},\n"
                         "metadata={}.\n"
                         "Include a broken stub .py plus test_*.py with 5 test functions covering "
-                        "boundaries; gold_files holds the corrected stub. No BUG/TODO comments; "
+                        "boundaries; gold_files MUST hold the corrected stub. No BUG/TODO comments; "
                         "the prompt states only the symptom.\n"
                         "Command: python -m pytest -q\n"
                         f"Inspired by: {prompt[:400]}"
@@ -459,6 +464,13 @@ def generate_case_with_llm(
 
     if not data.get("case_id"):
         data["case_id"] = f"auto-{task_fingerprint(data['prompt'], [f['path'] for f in cleaned])}"
+
+    # Refuse here rather than letting the audit find it later: without a reference solution the
+    # solvability gate cannot run, and cases that took that exemption were 16 of the 18 no
+    # configuration could solve in a calibrated 59-case set. Raising lets the caller retry the
+    # generation, which is far cheaper than shipping a case that dies in a paid sweep.
+    if data["grader"].get("mode") == "script" and not data["grader"].get("gold_files"):
+        raise ValueError("generated case has no reference solution; solvability is unverifiable")
 
     settled, notes = settle_tier(data, target_tier)
     data["metadata"]["generation"] = "llm"
