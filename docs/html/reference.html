@@ -2559,8 +2559,11 @@ runs:
 </code></pre>
 <p><strong>意图</strong>：Agent 必须做出有效修改才能得分。</p>
 <h4 id="1433-reference-solution">14.3.3 Reference-solution（可解性上界）</h4>
-<pre><code class="language-text">若 grader.mode != &quot;script&quot; 或无 gold_files:
-    → 跳过（无参考解可验）
+<pre><code class="language-text">若 grader.mode != &quot;script&quot;:
+    → 跳过（无命令可跑）
+
+若无 gold_files:
+    → 失败 no_reference_solution   # 没有参考解就无法验证可解性
 
 否则:
     materialize_workspace(case)          # 初始现场
@@ -2569,8 +2572,12 @@ runs:
     必须 passed，否则 solvability_gate 失败
 </code></pre>
 <p><strong>意图</strong>：与 stub-fail 成对，构成难度的上下界。没有它，一个写坏的隐藏测试会让所有配置都失败，
-在报告里看起来像「难题」，实际是<strong>坏题</strong> —— 这正是加了隐藏测试之后最容易踩的坑。
-T3 及以上层级因此强制要求参考解。</p>
+在报告里看起来像「难题」，实际是<strong>坏题</strong>。</p>
+<p><strong>实测证据（59 条集合，3 锚点 × 2 重复）</strong>：18 条无人能解的用例里 <strong>16 条没有参考解</strong>；
+而带参考解的 31 条里只有 2 条无人能解。因此「没有参考解就跳过检查」这一条豁免，
+正是那 16 条坏题得以出厂的原因 —— 现在改为<strong>没有参考解即判失败</strong>。
+代价是 41 条实测可解的用例里有 11 条因缺参考解被一并拒掉；正确的修法在上游：
+让生成器始终产出参考解（T3 brief 已要求，59 条里 32 条做到了）。</p>
 <h4 id="1432-contamination">14.3.2 Contamination（答案污染）</h4>
 <pre><code class="language-text">blob = 拼接 context.files 的 path + content
 
