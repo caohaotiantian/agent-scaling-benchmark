@@ -7,6 +7,7 @@ from pathlib import Path
 
 from aibench.languages import pass_ratio
 from aibench.models import Case, GradeResult
+from aibench.workspace import safe_relpath as _safe_relpath
 
 
 def _normalize(text: str) -> str:
@@ -88,13 +89,6 @@ def inject_hidden_tests(case: Case, workspace: Path) -> list[str]:
         path.write_text(fb.content, encoding="utf-8")
         written.append(rel)
     return written
-
-
-def _safe_relpath(path: str) -> str:
-    rel = path.replace("\\", "/").lstrip("/")
-    if ".." in Path(rel).parts:
-        raise ValueError(f"hidden test path escapes workspace: {path}")
-    return rel
 
 
 def grade_case(case: Case, workspace: Path) -> GradeResult:
