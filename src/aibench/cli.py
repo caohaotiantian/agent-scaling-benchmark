@@ -236,6 +236,13 @@ def main(argv: list[str] | None = None) -> int:
     p_cal.add_argument("--p-max", type=float, default=DEFAULT_P_MAX)
     p_cal.add_argument("--p-min", type=float, default=DEFAULT_P_MIN)
     p_cal.add_argument("--min-rpb", type=float, default=DEFAULT_MIN_RPB)
+    p_cal.add_argument(
+        "--reuse-from",
+        type=Path,
+        default=None,
+        help="Earlier calibration.json. Cases whose content and anchor panel are unchanged "
+        "keep their previous result instead of being re-run.",
+    )
 
     p_sel = sub.add_parser(
         "select-cases",
@@ -635,8 +642,14 @@ def main(argv: list[str] | None = None) -> int:
             output_root=args.output_root,
             policy=SelectionPolicy(p_max=args.p_max, p_min=args.p_min, min_rpb=args.min_rpb),
             case_workers=args.workers,
+            reuse_from=args.reuse_from,
         )
         print(f"calibration_dir={cal_dir}")
+        if report.get("reused_case_count"):
+            print(
+                f"reused={report['reused_case_count']} "
+                f"recalibrated={report['recalibrated_case_count']}"
+            )
         print(f"report={cal_dir / 'calibration_report.md'}")
         print(
             f"kept={report['kept_count']}/{report['total_cases']} "

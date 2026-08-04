@@ -71,6 +71,8 @@
 <li>[x] <strong>评分干扰检测</strong>：conftest / pytest.ini / 跳过标记等绕过 <code>protected_paths</code> 的路子</li>
 <li>[x] <strong><code>select-cases --tier-quota</code></strong>：按层配额选题，避免整批落在同一能力带</li>
 <li>[x] <strong><code>plan-sample-size</code></strong>：按 McNemar 反推所需题量，可用 <code>--from-ablation</code> 实测不一致率</li>
+<li>[x] <strong>增量校准</strong> <code>calibrate-cases --reuse-from</code>：case 内容与锚点面板都未变才复用旧结果</li>
+<li>[x] <strong>锚点漂移检测</strong>：<code>anchor_fingerprint</code> 计入配置文件<strong>内容</strong>，改了 YAML 里的模型即整体失效</li>
 </ul>
 <hr>
 <h2 id="_4">未做（按优先级，待未来实现）</h2>
@@ -151,16 +153,10 @@
 </thead>
 <tbody>
 <tr>
-<td>10</td>
-<td><strong>校准无增量/断点续跑</strong></td>
-<td>每次 <code>calibrate-cases</code> 全量重跑，成本 = 锚点数 × repeats × 全集</td>
-<td>按 case fingerprint 缓存历史结果，只跑新增/变更的 case</td>
-</tr>
-<tr>
-<td>11</td>
-<td><strong>锚点漂移无策略</strong></td>
-<td>校准结论绑定当时的锚点面板；模型升级后 <code>p_hat</code> 失效，但没有失效标记</td>
-<td><code>calibration.json</code> 记录锚点指纹；case 元数据带上校准时间与锚点版本，过期即提示重校准</td>
+<td></td>
+<td></td>
+<td></td>
+<td></td>
 </tr>
 </tbody>
 </table>

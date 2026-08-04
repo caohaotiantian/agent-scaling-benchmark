@@ -1453,6 +1453,12 @@ runs:
 <td><code>0.15</code></td>
 <td>点二列相关低于此判噪声题</td>
 </tr>
+<tr>
+<td><code>--reuse-from</code></td>
+<td>Path</td>
+<td>无</td>
+<td>上一次的 <code>calibration.json</code>；case 内容与锚点面板<strong>都</strong>未变的沿用旧结果，只跑变更/新增的</td>
+</tr>
 </tbody>
 </table>
 <p>产物：<code>calibration.json</code> + <code>calibration_report.md</code>。<strong>成本 = 锚点数 × repeats 次全量跑测</strong>，
@@ -2252,6 +2258,7 @@ runs:
 </tr>
 </tbody>
 </table>
+<p><code>anchor_fingerprint</code> 计入每个引用配置文件的<strong>内容</strong>而非路径：改了 <code>glm52.yaml</code> 里的 model 字段，路径全都没变但锚点含义已变，旧的 <code>p_hat</code> 必须整体失效，不能继续沿用。</p>
 <p>锚点面板<strong>必须跨越</strong>要区分的能力带（至少一个弱锚、一个强锚，且同时变化模型与 agent 两条轴），
 否则 <code>spread</code> 恒为 0，会把所有用例判为无区分度。</p>
 <p><code>aibench select-cases</code> 按 <code>spread</code>、<code>point_biserial</code> 降序把保留的 case 复制成新集合，并把
