@@ -18,7 +18,7 @@ from aibench.report import (
     render_report_md,
     render_summary_tables_json,
 )
-from aibench.validity import case_fingerprint, estimate_difficulty
+from aibench.validity import case_fingerprint, estimate_difficulty, set_fingerprint
 from aibench.workspace import materialize_workspace
 
 
@@ -102,6 +102,7 @@ def _run_one_case(
             "task_type": case.task_type,
             "language": case.language,
             "difficulty": difficulty,
+            "tier": case.tier,
             "fingerprint": case.metadata.get("fingerprint") or case_fingerprint(case),
             "agent_status": agent_result.status,
             "passed": passed,
@@ -114,6 +115,8 @@ def _run_one_case(
             "wall_time_s": agent_result.wall_time_s,
             "step_count": len(agent_result.steps),
             "judge_score": judge_score,
+            "test_pass_ratio": grade.test_pass_ratio if grade else None,
+            "reward_hack": bool(grade and grade.reward_hack),
             "grade": grade.to_dict() if grade else None,
             "error_message": agent_result.error_message,
             "failure_category": _failure_category(infra, passed, agent_result.status, grade),
@@ -178,10 +181,12 @@ def run_benchmark(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     sampling = f"temperature={model_cfg.temperature}, max_tokens={model_cfg.max_tokens}"
-    from aibench.validity import audit_case_set
-
+    # The manifest only needs the content hash. Running the full audit here would re-execute
+    # the stub-fail and reference-solution gates — two pytest invocations per case — on every
+    # run, which a calibration sweep multiplies by anchors x repeats. Gates belong to
+    # `aibench audit-cases`, not to every run.
     try:
-        set_fp = audit_case_set(cs).get("content_fingerprint")
+        set_fp = set_fingerprint(cases)
     except Exception:
         set_fp = None
 
@@ -267,6 +272,8 @@ def _failure_category(
 ) -> str | None:
     if passed:
         return None
+    if grade is not None and getattr(grade, "reward_hack", False):
+        return "评测作弊失败"
     if infra:
         return "沙箱基础设施失败" if agent_status != "infra_error" else "LLM服务失败"
     if agent_status == "timeout":

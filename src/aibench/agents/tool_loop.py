@@ -46,7 +46,8 @@ class ToolLoopAgent(AgentAdapter):
         base_url = (
             model.base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         ).rstrip("/")
-        model_name = os.environ.get("OPENAI_MODEL") or model.model
+        # Config wins over env, same precedence as base_url above (see openai_compat).
+        model_name = model.model or os.environ.get("OPENAI_MODEL")
         max_tokens = int(self.agent_config.options.get("max_tokens", model.max_tokens))
         allow_bash = bool(self.agent_config.options.get("allow_bash", True))
 
@@ -228,5 +229,6 @@ class ToolLoopAgent(AgentAdapter):
                 )
             except Exception as e:
                 return f"error: {e}"
-            return f"exit={proc.returncode}\n{(proc.stdout or '')[-2000]}\n{(proc.stderr or '')[-1000]}"
+            out, err = (proc.stdout or "")[-2000:], (proc.stderr or "")[-1000:]
+            return f"exit={proc.returncode}\n{out}\n{err}"
         return f"error: unknown tool {tool}"
