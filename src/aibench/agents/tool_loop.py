@@ -22,8 +22,57 @@ def _strip_fences(text: str) -> str:
     return m.group(1).strip() if m else text
 
 
+#: Programs a coding agent needs to inspect a workspace and run its tests. Everything else is
+#: refused: the command runs on the host with the harness's own privileges, so this is the only
+#: thing standing between generated text and the developer's machine until the grader runs in a
+#: container. Override per agent with `options.allowed_commands`.
+DEFAULT_ALLOWED_COMMANDS = (
+    "python",
+    "python3",
+    "pytest",
+    "node",
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "grep",
+    "find",
+    "pwd",
+    "echo",
+    "true",
+)
+
+#: Shell syntax that escapes a single-program command: chaining, redirection, substitution.
+_SHELL_ESCAPES = (";", "&&", "||", "|", ">", "<", "`", "$(", "${", "&", "\n")
+
+
+def check_bash_command(cmd: str, *, allowed: tuple[str, ...]) -> str | None:
+    """Refusal message for a command the sandbox will not run, or None to allow it.
+
+    An allowlist rather than a blocklist. The previous blocklist let `curl`, `rm -rf` and
+    `$(...)` substitution through, which on an unsandboxed host means a benchmarked model can
+    reach anything the harness can.
+    """
+    cmd = (cmd or "").strip()
+    if not cmd:
+        return "error: empty command"
+    for token in _SHELL_ESCAPES:
+        if token in cmd:
+            return f"error: shell metacharacter not allowed: {token!r}"
+    program = cmd.split()[0].rsplit("/", 1)[-1]
+    if program not in allowed:
+        return f"error: command not allowed: {program} (allowed: {', '.join(sorted(allowed))})"
+    return None
+
+
 class ToolLoopAgent(AgentAdapter):
     """Agent that may call tools in a loop until submit or max_steps."""
+
+    @property
+    def allowed_commands(self) -> tuple[str, ...]:
+        configured = self.agent_config.options.get("allowed_commands")
+        return tuple(configured) if configured else DEFAULT_ALLOWED_COMMANDS
 
     def run(
         self,
@@ -215,8 +264,9 @@ class ToolLoopAgent(AgentAdapter):
             if not allow_bash:
                 return "error: bash disabled"
             cmd = str(data.get("command") or "")
-            if not cmd or any(x in cmd for x in (";", "&&", "`", "|", ">", "<")):
-                return "error: command not allowed"
+            refusal = check_bash_command(cmd, allowed=self.allowed_commands)
+            if refusal:
+                return refusal
             try:
                 proc = subprocess.run(
                     cmd,
