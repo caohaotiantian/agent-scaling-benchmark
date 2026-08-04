@@ -23,51 +23,179 @@
 <blockquote>
 <p><strong>展示版（推荐）</strong>：<a href="remaining-work.html">docs/html/remaining-work.html</a></p>
 </blockquote>
-<p>更新时间：已完成一轮「遗留任务」落地（见 commit history）。</p>
+<p>更新时间：2026-08-04（分层区分度用例流水线落地后）。</p>
 <h2 id="_2">已完成</h2>
 <h3 id="_3">主路径</h3>
 <ul>
-<li>[x] Case 协议 / schema / workspace 还原  </li>
-<li>[x] mock + openai_compat + <strong>tool_loop</strong> + <strong>shell</strong> Agent  </li>
-<li>[x] 会话抽库 → 规则筛选 → LLM/启发式生成 → validate  </li>
-<li>[x] 一键 e2e、消融矩阵、综述表  </li>
-<li>[x] 用户手册  </li>
+<li>[x] Case 协议 / schema / workspace 还原</li>
+<li>[x] mock + openai_compat + <strong>tool_loop</strong> + <strong>shell</strong> Agent</li>
+<li>[x] 会话抽库 → 规则筛选 → LLM/启发式生成 → validate</li>
+<li>[x] 一键 e2e、消融矩阵、综述表</li>
+<li>[x] 用户手册</li>
 </ul>
-<h3 id="p1">原 P1</h3>
+<h3 id="p1-p2-p3">原 P1 / P2 / P3</h3>
 <ul>
-<li>[x] <strong>promote</strong> CLI（人工门控发布到 <code>prod-v0</code>）  </li>
-<li>[x] <strong>weak_grader</strong> 消融默认剔除（<code>--allow-weak-grader</code> 可关）  </li>
-<li>[x] <strong>失败诊断</strong> 写入 <code>report.md</code> / <code>summary.failure_diagnostics</code>  </li>
-<li>[x] <strong>secrets-scan</strong> CLI + generate <code>--secrets-scan</code>  </li>
-</ul>
-<h3 id="p2">原 P2</h3>
-<ul>
-<li>[x] <strong>LLM 软过滤</strong> <code>filter-drafts --llm-soft</code>  </li>
-<li>[x] <strong>snapshot-skeleton</strong> CLI  </li>
-<li>[x] <strong>llm_judge</strong> 判分实现  </li>
-<li>[x] <strong>tool_loop</strong> 多步工具 Agent  </li>
-<li>[x] <strong>shell</strong> 适配器（可包 mini-swe 等 CLI）  </li>
-<li>[x] <strong>并行消融</strong> <code>--parallel N</code>  </li>
-<li>[x] <strong>相对基线收益</strong>（<code>--baseline-experiment</code> / 矩阵首行）  </li>
-<li>[x] <strong>费用估算</strong>（<code>AIBENCH_USD_PER_MTOK*</code>）  </li>
-</ul>
-<h3 id="p3">原 P3</h3>
-<ul>
-<li>[x] validate-cases 默认 <code>auto-v0</code>  </li>
-<li>[x] <strong>CSV / XLSX</strong> 导出（<code>export-ablation</code> / ablation <code>--export-csv|--export-xlsx</code>）  </li>
-<li>[x] <strong>GitHub Actions CI</strong>（pytest + dry-run）  </li>
-<li>[x] 设计/实现文档状态更新  </li>
+<li>[x] promote CLI、weak_grader 默认剔除、失败诊断、secrets-scan</li>
+<li>[x] LLM 软过滤、snapshot-skeleton、llm_judge、tool_loop、shell 适配器</li>
+<li>[x] 并行消融、相对基线收益、费用估算</li>
+<li>[x] CSV / XLSX 导出、GitHub Actions CI</li>
 </ul>
 <h3 id="2026-07-27">科学效度与并行（2026-07-27）</h3>
 <ul>
-<li>[x] stub-fail / 污染 / 难度 / 指纹审计（<code>audit-cases</code>）  </li>
-<li>[x] Wilson CI + 分层成功率  </li>
-<li>[x] case set fingerprint 入 manifest  </li>
-<li>[x] case 级并行（<code>run --workers</code> / <code>case_workers</code>）  </li>
-<li>[x] generate 并行（<code>generate-cases --workers</code>）  </li>
-<li>[x] promote <code>--require-audit</code>  </li>
+<li>[x] stub-fail / 污染 / 难度 / 指纹审计（<code>audit-cases</code>）</li>
+<li>[x] Wilson CI + 分层成功率、case set fingerprint</li>
+<li>[x] case 级并行、generate 并行、promote <code>--require-audit</code></li>
 </ul>
-<h2 id="_4">仍可增强（非阻塞）</h2>
+<h3 id="2026-08-04">分层区分度（2026-08-04）</h3>
+<ul>
+<li>[x] <strong>T1–T5 分层契约</strong> + 机器可检结构不变量（<code>src/aibench/tiers.py</code>）</li>
+<li>[x] <strong>trace 过程信号</strong> 挖掘与层级推导（<code>extract/trace_signals.py</code>）</li>
+<li>[x] <strong>确定性消毒定级</strong>：去缺陷标记、去题面泄露、拆隐藏测试（<code>extract/tier_shaping.py</code>）</li>
+<li>[x] <strong>隐藏测试</strong> <code>grader.hidden_tests</code>（判分时注入）</li>
+<li>[x] <strong>防作弊</strong> <code>grader.protected_paths</code> + <code>reward_hack</code> 归因</li>
+<li>[x] <strong>可解性门禁</strong> <code>solvability_gate</code>（参考解必须通过，与 stub-fail 成对）</li>
+<li>[x] <strong>经验校准</strong> <code>calibrate-cases</code>（p_hat / spread / point_biserial / flaky）</li>
+<li>[x] <strong>按区分度选题</strong> <code>select-cases</code></li>
+<li>[x] <strong>McNemar 配对显著性检验</strong> + 按 tier 分层的消融报告</li>
+<li>[x] <strong>修复</strong>：agent 的 model 解析改为「配置优先、env 兜底」。此前 <code>OPENAI_MODEL</code> 会覆盖
+      每行 <code>model_config</code>，导致多模型消融静默跑成同一个模型，而报告仍按不同模型标注</li>
+<li>[x] <strong>修复</strong>：<code>tool_loop</code> 执行 bash 时 <code>[-2000]</code> 写成单字符索引而非切片，输出短于 2000 字符
+      即 <code>IndexError</code>。多步 agent 从未真正跑通测试 —— <strong>agent 轴此前从未被测量过</strong>。
+      修复后实测：14 步（list → read → read → write → pytest → submit），成功率 1.000</li>
+<li>[x] <strong>修复</strong>：全部 case 都 infra_error 的实验，报告曾显示 <code>0.0% / -100.0pp</code>（读作能力结论）。
+      现加「有效Case / 基础设施失败」列 + 顶部显式警告</li>
+<li>[x] <strong>修复</strong>：<code>run_benchmark</code> 为算内容哈希跑了完整审计（每 case 两次 pytest），改为直接算哈希</li>
+</ul>
+<hr>
+<h2 id="_4">未做（按优先级，待未来实现）</h2>
+<h3 id="p0">P0 — 直接限制当前区分度结论的强度</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>项</th>
+<th>现状</th>
+<th>为什么重要</th>
+<th>落地建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>多分支执行与 pass@k</strong></td>
+<td><code>RunConfig.branches</code> / <code>max_attempts</code> / <code>selection_strategy</code> 只写进 manifest，<code>runner</code> 从不使用；<code>report.py</code> 的 <code>oracle_success_rate</code> / <code>selection_hit_rate</code> 硬编码 <code>None</code></td>
+<td><code>pass@k − pass@1</code> 正是 agent「重试 / 多分支」能吃到的收益，是区分 agent 脚手架的核心指标，现在完全测不出来</td>
+<td>在 <code>_run_one_case</code> 外层加 k 次独立采样，产出 <code>pass@1</code>(均值) / <code>pass@k</code>(至少一次) / <code>pass^k</code>(全部)；填上已声明的 oracle 字段</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>采样温度</strong></td>
+<td>所有 <code>configs/models/*.yaml</code> 均 <code>temperature: 0</code></td>
+<td>温度为 0 时重复采样退化为同一个样本，<code>--repeats</code> 只能发现环境抖动，发现不了模型自身的方差；pass@k 也失去意义</td>
+<td>校准与 pass@k 场景用 <code>temperature 0.2~0.7</code> 的独立模型配置；保留 0 温配置用于可复现的单次跑测</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>成本轴指标</strong></td>
+<td>只有总 token / 总耗时</td>
+<td>同准确率下 token 更省的组合更强，这是拉开 agent 差距的第二维度</td>
+<td>输出 <code>success_rate @ token budget</code> 曲线与 <code>token_amplification</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="p1">P1 — 分层体系本身的补强</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>项</th>
+<th>现状</th>
+<th>落地建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4</td>
+<td><strong>T4 / T5 真实产出率未知</strong></td>
+<td>分层 brief 已写，但只在单元测试与小样本上验证过；仓库级用例（多包 + 干扰文件）尚未规模化产出</td>
+<td>跑一轮 <code>--tier T4 --min-tier T4</code>，统计实际达标率，按结果调 brief 或放宽不变量</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>干扰文件无法校验</strong></td>
+<td><code>role: distractor</code> 完全由生成器声明，没有任何机制确认它「确实与解无关」</td>
+<td>用参考解 diff 校验：被声明为 distractor 的文件若出现在 gold_files 中即判违规</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>参考解未校验最小性</strong></td>
+<td><code>solvability_gate</code> 只验「参考解能过」，不验「改动最小」</td>
+<td>加最小性检查：参考解触及的文件数/行数超过阈值时告警</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong><code>estimate_difficulty</code> 冗余</strong></td>
+<td>easy/medium/hard 旧口径与 <code>tier</code> 并存，前者已被证明退化（93.8% 判 medium）</td>
+<td>报告与分层统一切到 <code>tier</code>，<code>difficulty</code> 标记为 deprecated 后移除</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>仅支持 Python</strong></td>
+<td>分层不变量、测试函数计数、pytest 输出解析均为 Python 中心</td>
+<td>抽象出 per-language 适配（测试发现、运行命令、通过率解析）</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>泄露检测为正则</strong></td>
+<td><code>find_disclosures</code> 双语正则，保守过判优于漏判，但仍会漏掉改写过的泄露</td>
+<td>在 audit 阶段补一次 LLM 判定作为二审</td>
+</tr>
+</tbody>
+</table>
+<h3 id="p2">P2 — 校准的工程化</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>项</th>
+<th>现状</th>
+<th>落地建议</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10</td>
+<td><strong>校准无增量/断点续跑</strong></td>
+<td>每次 <code>calibrate-cases</code> 全量重跑，成本 = 锚点数 × repeats × 全集</td>
+<td>按 case fingerprint 缓存历史结果，只跑新增/变更的 case</td>
+</tr>
+<tr>
+<td>11</td>
+<td><strong>锚点漂移无策略</strong></td>
+<td>校准结论绑定当时的锚点面板；模型升级后 <code>p_hat</code> 失效，但没有失效标记</td>
+<td><code>calibration.json</code> 记录锚点指纹；case 元数据带上校准时间与锚点版本，过期即提示重校准</td>
+</tr>
+<tr>
+<td>12</td>
+<td><strong>样本量规划无工具</strong></td>
+<td>「要分辨 10pp 需要多少题」只在文档里给了估算</td>
+<td>加 <code>plan-sample-size</code> 子命令：给定目标效应量与 p 分布，反推所需题量</td>
+</tr>
+<tr>
+<td>13</td>
+<td><strong><code>select-cases</code> 不做分层配额</strong></td>
+<td>纯按 <code>spread</code> / <code>r_pb</code> 降序取前 N，可能全部集中在某一层</td>
+<td>增加 <code>--tier-quota T2=0.3,T3=0.4,...</code>，在保证区分度的同时保持层级覆盖</td>
+</tr>
+<tr>
+<td>14</td>
+<td><strong>反作弊面偏窄</strong></td>
+<td>只覆盖 <code>protected_paths</code> 字节比对</td>
+<td>补：<code>conftest.py</code> 注入检测、<code>sys.modules</code> 猴补丁检测、跳过标记（<code>pytest.mark.skip</code>）检测</td>
+</tr>
+</tbody>
+</table>
+<h3 id="p3">P3 — 既有遗留（未变）</h3>
 <table>
 <thead>
 <tr>
@@ -77,12 +205,8 @@
 </thead>
 <tbody>
 <tr>
-<td>人工标定难度真值 / 反作弊红队</td>
-<td>当前难度为启发式</td>
-</tr>
-<tr>
 <td>Bootstrap / 置换检验</td>
-<td>已有 Wilson CI</td>
+<td>已有 Wilson CI 与 McNemar 配对检验</td>
 </tr>
 <tr>
 <td>Git LFS / 远程 snapshot URI</td>
@@ -97,8 +221,8 @@
 <td>当前异常即中断</td>
 </tr>
 <tr>
-<td>Docker/gVisor 沙箱</td>
-<td>生产安全关键差距</td>
+<td><strong>Docker/gVisor 沙箱</strong></td>
+<td>生产安全关键差距：grader 与 tool_loop 的 bash 都在宿主机执行</td>
 </tr>
 <tr>
 <td>tool_loop bash 白名单加严</td>
@@ -112,9 +236,10 @@
 </table>
 <h2 id="_5">明确不做</h2>
 <ul>
-<li>无人审核自动发布正式集  </li>
-<li>Fusion/投机算法本体  </li>
-<li>完整 IDE / 全量 OS 镜像现场  </li>
+<li>无人审核自动发布正式集</li>
+<li>Fusion/投机算法本体</li>
+<li>完整 IDE / 全量 OS 镜像现场</li>
+<li>人工标定难度真值（改由「trace 推导 + 结构不变量 + 经验校准」三段替代）</li>
 </ul>
 </article>
 <footer class="site-footer">

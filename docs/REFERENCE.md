@@ -34,6 +34,7 @@
 11. [Workspace 物化规则](#11-workspace-物化规则)
 12. [Agent 适配器](#12-agent-适配器)
 13. [判分（Grading）](#13-判分grading)
+13.5 [区分度分层（Tier）与校准](#135-区分度分层tier与校准)
 14. [科学效度审计与发布门控](#14-科学效度审计与发布门控)
 15. [重试与并行](#15-重试与并行)
 16. [运行产物与结果表映射](#16-运行产物与结果表映射)
@@ -262,13 +263,14 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 | `DATABASE_URL` | 无 | 可选 | `AIBENCH_DB_URL` 未设时的库连接兜底 |
 | `OPENAI_API_KEY` | 无 | 真 Agent / LLM 生成 | Bearer；兼容 `AIBENCH_API_KEY` |
 | `OPENAI_BASE_URL` | 无 | 同上 | Chat Completions 根，通常含 `/v1` |
-| `OPENAI_MODEL` | 无 | 建议设置 | 运行时覆盖 model YAML 中的 `model` 字段 |
+| `OPENAI_MODEL` | 无 | 可选 | **兜底**：仅当 model YAML 的 `model` 为空时生效（配置优先） |
 | `AIBENCH_API_KEY` | 无 | 可选 | 与 `OPENAI_API_KEY` 二选一 |
 | `AIBENCH_BASE_URL` | 无 | 可选 | 与 `OPENAI_BASE_URL` 同义兜底 |
 | `AIBENCH_MODEL` | 无 | 可选 | 与 `OPENAI_MODEL` 同义兜底 |
 | `AIBENCH_RETRY_MAX` | `3` | 可选 | HTTP/DB 最大尝试次数（含首次） |
 | `AIBENCH_RETRY_BACKOFF` | `1.0` | 可选 | 指数退避基数（秒）+ jitter |
 | `AIBENCH_RETRY_BACKOFF_MAX` | `20.0` | 可选 | 退避上限（秒） |
+| `AIBENCH_GENERATE_TIMEOUT` | `300` | 可选 | `generate-cases` 单次 LLM 请求超时（秒）；推理模型出整份 case JSON 常需 2 分钟以上 |
 | `AIBENCH_CASE_RETRY` | `2` | 可选 | case 因 **infra_error** 整 case 重跑次数 |
 | `AIBENCH_USD_PER_MTOK` | 无 | 可选 | 统一 $/百万 tokens 估算成本 |
 | `AIBENCH_USD_PER_MTOK_INPUT` | `0.5` | 可选 | 分项时 input 单价 |
@@ -302,7 +304,7 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 |------|------|------|
 | `name` | string | 人类可读名称 |
 | `provider` | string | 如 `openai_compat` |
-| `model` | string | 模型 ID；可被 `OPENAI_MODEL` 覆盖 |
+| `model` | string | 模型 ID；**优先于** `OPENAI_MODEL`（后者仅在此处为空时兜底） |
 | `base_url` | string \| null | `null` 时用 `OPENAI_BASE_URL` / `AIBENCH_BASE_URL` |
 | `api_key_env` | string | 读 Key 的环境变量名，默认 `OPENAI_API_KEY` |
 | `temperature` | number | 采样温度，生产常用 `0` |
@@ -413,7 +415,7 @@ runs:
 |------|------|------|----------|
 | `--run-config` | Path | `configs/runs/baseline.yaml` | 实验元数据 + 预算（max_steps、wall time）+ 默认 case_set/agent/model + `case_workers` |
 | `--agent` | Path | run-config 的 `agent_config` | 覆盖 Agent YAML；决定 adapter 与 options（如 system_prompt） |
-| `--model` | Path | run-config 的 `model_config` | 覆盖模型 YAML；`model` 可再被 `OPENAI_MODEL` 覆盖 |
+| `--model` | Path | run-config 的 `model_config` | 覆盖模型 YAML；其 `model` 字段优先于 `OPENAI_MODEL` |
 | `--case-set` | str | run-config.case_set 或 `auto-v0` | 测评集名称 |
 | `--run-id` | str | `{experiment_name}-{uuid8}` | 本次 run 唯一 ID，进入目录名与 summary |
 | `--output-root` | Path | `runs/` | 结果根；实际目录为 `{benchmark}__{timestamp}_{run_id}` |
@@ -493,8 +495,14 @@ runs:
 | `--workers` | int | `1` | 并行生成；内部会对最多约 `max_cases×3` 个草稿尝试 |
 | `--secrets-scan` | flag | 关 | 生成后 `scan_case_dir`，写 `_secrets_scan.json` |
 | `--audit` | flag | 关 | 生成后对每条 `audit_case` + `annotate` metadata |
+| `--tier` | `T1..T5` | 草稿 `metadata.tier` | 强制目标层；不传则用 trace 推导的层（§13.5.3） |
+| `--min-tier` | `T1..T5` | 无 | 定级低于此层的 case 直接丢弃 |
 
 **行为细节**：默认 LLM 最多尝试 2 次，失败则 print fallback 并启发式；schema 非法则 skip；最终 `n_ok==0` 时 exit 1。元数据常含 `generation=llm|heuristic`、`review_status=needs_review`。
+
+按目标层选用不同的生成 brief（`_TIER_BRIEFS`），产物再经 `settle_tier` 消毒定级，
+`metadata` 记录 `tier` / `tier_requested` / `tier_notes` / `capability_axes` / `tier_facts`。
+命令结束会打印实际定级分布，例如 `tier distribution: T2=31, T3=12`。
 
 ### 8.8 `ablation` — 矩阵消融
 
@@ -536,8 +544,43 @@ runs:
 |------|------|------|----------|
 | `--case-set` | str | 必填 | 目标集 |
 | `--report` | Path | 无 | 完整审计 JSON（含每 case issues） |
-| `--annotate` | flag | 关 | 写入 `difficulty`、`fingerprint`、`validity_ok`、`validity_issues` |
+| `--annotate` | flag | 关 | 写入 `difficulty`、`tier`、`fingerprint`、`validity_ok`、`validity_issues` |
 | `--fail-on-error` | flag | 关 | `failed>0` 时 exit **2**（便于 CI） |
+
+报告含 `tier_distribution`；每条 case 的 `checks` 含 `stub_fail`、`reference_solution`、`tier`。
+
+### 8.10.1 `calibrate-cases` — 经验校准（区分度实测）
+
+**作用**：用锚点面板跑 `anchors × repeats` 次，按 case 统计 `p_hat` / `spread` /
+`point_biserial` / `flaky`，给出 keep/drop 判定。见 §13.5.5。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--case-set` | str | 必填 | 待校准集合 |
+| `--anchors` | Path | `configs/runs/anchor-panel.yaml` | `anchors:` 列表（name/agent_config/model_config/run_config） |
+| `--repeats` | int | `3` | 每个锚点独立重复次数（用于识别 flaky） |
+| `--output-root` | Path | `runs/` | 生成 `calibration_<timestamp>/` |
+| `--workers` | int | run 配置 | case 并行度 |
+| `--p-max` | float | `0.9` | 高于此通过率判送分题 |
+| `--p-min` | float | `0.05` | 低于此通过率判无人能过 |
+| `--min-rpb` | float | `0.15` | 点二列相关低于此判噪声题 |
+
+产物：`calibration.json` + `calibration_report.md`。**成本 = 锚点数 × repeats 次全量跑测**，
+按需预算。`kept_count==0` 时 exit 1。
+
+### 8.10.2 `select-cases` — 按区分度选题
+
+**作用**：把校准保留的 case 复制成新集合，按 `spread`、`point_biserial` 降序。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--calibration` | Path | 必填 | `calibration.json` |
+| `--from-set` | str | 必填 | 源集合 |
+| `--to-set` | str | 必填 | 目标集合 |
+| `--max-cases` | int | 无 | 只取区分度最高的前 N 条 |
+| `--dry-run` | flag | 关 | 不写盘，只回报选择结果 |
+
+写入时把 `metadata.calibration`（`p_hat` / `spread` / `point_biserial` / `attempts`）落到 case 上。
 
 ### 8.11 `secrets-scan`
 
@@ -635,7 +678,8 @@ runs:
 
 | 字段 | 说明 |
 |------|------|
-| `files[]` | `{path, content}` 列表；inline 工作区文件 |
+| `files[]` | `{path, content, role?}` 列表；inline 工作区文件 |
+| `files[].role` | `impl`（默认）\| `test` 可见测试 \| `distractor` 干扰文件 \| `spec` 规格说明 |
 | `notes` | 可选备注 |
 | `workspace` | 见 §11 |
 
@@ -645,10 +689,12 @@ runs:
 |------|------|
 | `mode` | `script` \| `gold` \| `llm_judge` \| `composite` |
 | `command` | script 模式命令（白名单：`pytest` / `python`） |
-| `gold_files` | gold 模式期望文件 |
+| `gold_files` | gold 模式期望文件；对 T3+ 同时充当**参考解**（§14.3.3） |
 | `match` | `exact` \| `normalized` \| `contains_key_lines` |
 | `key_lines` | 关键行列表 |
 | `judge_rubric` / `judge_threshold` | llm_judge 用 |
+| `hidden_tests` | `{path, content}` 列表；**判分时才写入工作区**，Agent 看不到（§13.1） |
+| `protected_paths` | 判分前字节必须与 `context.files` 一致的路径；被改判 `reward_hack` |
 
 ### 10.4 `metadata`（常用扩展）
 
@@ -659,7 +705,12 @@ runs:
 | `generation` | `llm` / `heuristic` |
 | `review_status` | 如 `needs_review` |
 | `weak_grader` | bool |
-| `difficulty` | `easy` / `medium` / `hard`（审计注解） |
+| `difficulty` | `easy` / `medium` / `hard`（体积启发式，旧口径；分层请用 `tier`） |
+| `tier` | `T1`..`T5` 区分度层级（§13.5.2） |
+| `capability_axes` | 该层分离的能力轴，如 `["A1","A5","A6"]` |
+| `tier_requested` / `tier_notes` | 请求的目标层，以及每层被拒的原因 |
+| `trace_signals` | 源 trace 的过程信号（§13.5.3） |
+| `calibration` | `select-cases` 写回的 `p_hat` / `spread` / `point_biserial` |
 | `fingerprint` | case 指纹 |
 | `validity_ok` | 审计是否通过 |
 | `tags` / `split` | 标签与划分 |
@@ -732,6 +783,99 @@ runs:
 Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注入。  
 主指标仅统计 **非 infra_error** 的 case。
 
+### 13.1 隐藏测试与保护路径
+
+实现：`src/aibench/grading.py`。判分前依次执行两步：
+
+1. **保护路径校验** —— `grader.protected_paths` 里每个路径在工作区的字节必须与 `context.files`
+   一致。被改判 `reward_hack=true`、成绩 0；路径在 `context.files` 里找不到则记 `infra_error`
+   （用例配置错误，不算 agent 失败）。
+2. **隐藏测试注入** —— `grader.hidden_tests` 的文件此时才写入工作区（仅 `script` / `composite`）。
+   Agent 全程看不到它们。
+
+因此 `grader.command` 对 T3+ 用例应为 `python -m pytest -q`（收集整个目录），而不是指定单个测试文件。
+`GradeResult.test_pass_ratio` 记录测试函数级通过比例，用于并列打散，不改变二值主指标。
+
+---
+
+## 13.5 区分度分层（Tier）与校准
+
+实现：`src/aibench/tiers.py`、`src/aibench/extract/trace_signals.py`、
+`src/aibench/extract/tier_shaping.py`、`src/aibench/calibrate.py`。
+
+### 13.5.1 为什么不用体积启发式
+
+`estimate_difficulty` 按文件数/LOC 打分，在首个自动集上把 **93.8% 判为 medium**，而那批用例
+平均 2 步即被解出 —— 它度量的是文件体积，不是所需能力。Tier 改为声明「用例结构上强迫求解者
+做什么」，每层配机器可检不变量。
+
+### 13.5.2 层级契约
+
+| 层 | 名称 | 结构不变量（`check_tier_invariants` 逐条校验） | 分离的能力轴 |
+|----|------|-----------------------------------------------|--------------|
+| T1 | 直接修复 | ≤3 文件；允许题面/注释给出缺陷位置 | 地板锚（几乎全过） |
+| T2 | 定位修复 | 2–4 文件；题面**无**机制泄露；stub **无** BUG/FIXME 标记 | A1 定位诊断 |
+| T3 | 隐藏规格 | T2 + ≥2 个隐藏测试函数 + 参考解 + 保护可见测试 | A5 规格遵从、A6 抗过拟合 |
+| T4 | 跨文件检索 | T3 + ≥5 文件 + ≥1 干扰文件 + 参考解触及 ≥2 文件 + ≥3 隐藏测试 | A2 检索、A4 跨文件一致性 |
+| T5 | 迭代自修复 | T4 + ≥4 个隐藏测试函数 | A3 迭代自修复 |
+
+能力轴：`A1` 定位诊断、`A2` 上下文检索、`A3` 迭代自修复、`A4` 跨文件一致性、
+`A5` 规格遵从、`A6` 抗过拟合。
+
+### 13.5.3 层级从 trace 推导
+
+`trace_signals.signals_from_messages` 从 `full_history` 解析过程信号：
+`read_ops` / `search_ops` / `edit_ops` / `exec_ops` / `test_runs` / `files_touched` /
+`repair_rounds`（test→edit→test 循环次数）/ `error_signals`。
+`suggest_tier` 自上而下取第一条命中的规则：
+
+| 条件 | 建议层 |
+|------|--------|
+| `repair_rounds ≥ 2` 且 `files_touched ≥ 3` | T5 |
+| `files_touched ≥ 3`，或 `search_ops ≥ 3` 且 `files_read ≥ 5` | T4 |
+| `test_runs ≥ 1` 且 `error_signals ≥ 1`，或 `repair_rounds ≥ 1` | T3 |
+| 有报错 / `files_read ≥ 2` / 有检索 | T2 |
+| 其余 | T1 |
+
+结果写入草稿 `metadata.tier` / `tier_reasons` / `trace_signals`，层级分布因此继承真实生产任务
+的难度分布，而非人工配额。
+
+### 13.5.4 消毒与定级
+
+`tier_shaping.settle_tier` 从 T5 逐层下探，每层用该层所需的变换塑形一份副本，取**第一层不变量
+成立**的作为标签：
+
+- `strip_defect_markers` —— 去掉实现文件里的 `# BUG` / `# FIXME`（bugfix 任务另含 `# TODO`）。
+- `split_tests_for_hiding` —— 保留 1 个冒烟测试可见，其余测试函数移入 `hidden_tests`
+  （装饰器与紧贴的注释随测试一起移动，避免留下悬空 `@parametrize`）。
+- `protect_visible_tests` / `use_whole_suite_command`。
+
+**标签描述的是产物，不是请求**：请求 T5 但材料只够 T3 会落到 T3；请求 T2 而材料够 T3 会升到 T3。
+无任何层成立时返回空并由调用方丢弃。
+
+题面机制泄露由 `find_disclosures` 检测（中英双语，对「当前实现用了 X 而不是 Y」这类**描述现有
+实现**的句式判为泄露；对「应该返回 X」这类**规格陈述**不判）。检出后 `generate-cases` 会做一次
+「只保留现象」的改写，仍失败则降级。
+
+### 13.5.5 经验校准
+
+结构不变量保证用例「看起来该有区分度」，只有跑起来才知道有没有。
+`aibench calibrate-cases` 用锚点面板（`configs/runs/anchor-panel.yaml`）跑 `anchors × repeats` 次，
+按 case 统计：
+
+| 指标 | 含义 | 淘汰规则（默认） |
+|------|------|------------------|
+| `p_hat` | 全部尝试的通过率 | `> 0.9` 送分题；`< 0.05` 无人能过（多半是坏题） |
+| `spread` | 最强锚点通过率 − 最弱锚点通过率 | 越大越能分离配置 |
+| `point_biserial` | 该 case 结果与总体能力的相关 | `< 0.15` 判为噪声题 |
+| `flaky` | 同一锚点多次重复结果不一致 | 标记，供人工复核 |
+
+锚点面板**必须跨越**要区分的能力带（至少一个弱锚、一个强锚，且同时变化模型与 agent 两条轴），
+否则 `spread` 恒为 0，会把所有用例判为无区分度。
+
+`aibench select-cases` 按 `spread`、`point_biserial` 降序把保留的 case 复制成新集合，并把
+`metadata.calibration` 写回。
+
 ---
 
 ## 14. 科学效度（Scientific Validity）：定义、门禁与逻辑
@@ -758,14 +902,17 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 
 | 门禁 | issue code | 级别 | 阻断 ok | 说明 |
 |------|------------|------|---------|------|
-| Stub 必须失败 | `stub_fail_gate` | error | 是 | 见 §14.3.1 |
+| Stub 必须失败（下界） | `stub_fail_gate` | error | 是 | 见 §14.3.1 |
+| 参考解必须通过（上界） | `solvability_gate` | error | 是 | 见 §14.3.3 |
+| 分层不变量 | `tier_<violation>` | error | 是 | §13.5.2，逐条来自 `check_tier_invariants` |
 | Gold 污染 | `contamination_gold_in_context` | error | 是 | gold 全文已在 context |
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
 | 弱 grader 标记 | `weak_grader_flag` | warn | 否 | script 却标 weak_grader |
+| 未定级 | `tier_missing` | warn | 否 | `metadata.tier` 缺失 |
 | 重复指纹 | `duplicate_fingerprint` | warn | 否 | 集内 fingerprint 冲突 |
-| 难度 | （写入 checks/metadata） | 注解 | — | easy/medium/hard |
+| 难度 | （写入 checks/metadata） | 注解 | — | easy/medium/hard（旧口径，保留兼容） |
 | 指纹 | fingerprint / content_fingerprint | 注解 | — | 去重与复现 |
 
 ### 14.3 门禁逻辑详解
@@ -786,6 +933,23 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 ```
 
 **意图**：Agent 必须做出有效修改才能得分。
+
+#### 14.3.3 Reference-solution（可解性上界）
+
+```text
+若 grader.mode != "script" 或无 gold_files:
+    → 跳过（无参考解可验）
+
+否则:
+    materialize_workspace(case)          # 初始现场
+    覆盖 grader.gold_files 到工作区        # 参考解
+    grade_case(...)                      # 注入隐藏测试后判分
+    必须 passed，否则 solvability_gate 失败
+```
+
+**意图**：与 stub-fail 成对，构成难度的上下界。没有它，一个写坏的隐藏测试会让所有配置都失败，
+在报告里看起来像「难题」，实际是**坏题** —— 这正是加了隐藏测试之后最容易踩的坑。
+T3 及以上层级因此强制要求参考解。
 
 #### 14.3.2 Contamination（答案污染）
 
@@ -985,6 +1149,24 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 - 剔除 `weak_grader=true` 的 case（除非 `--allow-weak-grader`）
 - 可计算相对基线成功率收益（百分点）
 - 可并行实验行、导出 CSV/XLSX
+
+### 17.4 配对显著性检验（McNemar）
+
+`ablation_report.md` 除综述表外，还输出**分层成功率（按 tier）**与**配对显著性检验**：
+
+| 列 | 含义 |
+|----|------|
+| `b` | 仅基线通过的 case 数 |
+| `c` | 仅候选通过的 case 数 |
+| 不一致数 | `b + c`，即两者结论不同的 case 数 |
+| p 值 | 精确二项双侧检验；`p < 0.05` 判显著 |
+
+**为什么不看各自的 Wilson CI**：两组跑的是同一个 case 集，属于配对数据。各自算独立区间会
+丢掉配对信息 —— 例如 56/64 与 62/64 的 Wilson 区间大幅重叠、看起来「无差异」，而配对检验
+在 6 个不一致 case 上给出 `p≈0.03`，判定显著。两者都通过或都失败的 case 不携带「谁更强」的
+信息，配对检验按构造把它们排除，灵敏度因此高得多。
+
+`ablation_summary.json` 对应字段：`pairwise_comparisons`、`tier_matrix`。
 
 ---
 
