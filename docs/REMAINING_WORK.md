@@ -50,6 +50,7 @@
 - [x] **`plan-sample-size`**：按 McNemar 反推所需题量，可用 `--from-ablation` 实测不一致率
 - [x] **增量校准** `calibrate-cases --reuse-from`：case 内容与锚点面板都未变才复用旧结果
 - [x] **锚点漂移检测**：`anchor_fingerprint` 计入配置文件**内容**，改了 YAML 里的模型即整体失效
+- [x] **tool_loop bash 收紧为白名单**：原先只挡元字符，`rm -rf` / `curl` / `$(...)` 命令替换全都放行。改为程序名白名单 + 补上 `$(` `${` `&` 换行等逃逸语法，可用 `options.allowed_commands` 覆盖
 - [x] **多语言适配** `src/aibench/languages.py`：测试文件识别 / 测试计数 / 拆分 / 通过率解析 /
       运行命令集中到 `LanguageSpec`。目前注册 Python(pytest) 与 JavaScript(`node --test`)，
       两者均有端到端判分测试。**只注册本机能真跑的语言** —— 注册一个装不上的工具链，
@@ -92,8 +93,7 @@
 | Bootstrap / 置换检验 | 已有 Wilson CI 与 McNemar 配对检验 |
 | Git LFS / 远程 snapshot URI | 大体量现场 |
 | Fusion 时间拆解全字段 | 无 Fusion 时 null |
-| **Docker/gVisor 沙箱** | 生产安全关键差距：grader 与 tool_loop 的 bash 都在宿主机执行 |
-| tool_loop bash 白名单加严 | 已有基础限制 |
+| **Docker/gVisor 沙箱** | **仍是最大的安全缺口**：grader 命令与 tool_loop 的 bash 都在宿主机以 harness 权限执行。命令白名单（见已完成）只是缓解，不是隔离 —— 允许的 `python` 本身就能做任意事 |
 | 真机 CI 连 DB/API | 默认 dry-run |
 
 ## 明确不做

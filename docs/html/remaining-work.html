@@ -73,6 +73,7 @@
 <li>[x] <strong><code>plan-sample-size</code></strong>：按 McNemar 反推所需题量，可用 <code>--from-ablation</code> 实测不一致率</li>
 <li>[x] <strong>增量校准</strong> <code>calibrate-cases --reuse-from</code>：case 内容与锚点面板都未变才复用旧结果</li>
 <li>[x] <strong>锚点漂移检测</strong>：<code>anchor_fingerprint</code> 计入配置文件<strong>内容</strong>，改了 YAML 里的模型即整体失效</li>
+<li>[x] <strong>tool_loop bash 收紧为白名单</strong>：原先只挡元字符，<code>rm -rf</code> / <code>curl</code> / <code>$(...)</code> 命令替换全都放行。改为程序名白名单 + 补上 <code>$(</code> <code>${</code> <code>&amp;</code> 换行等逃逸语法，可用 <code>options.allowed_commands</code> 覆盖</li>
 <li>[x] <strong>多语言适配</strong> <code>src/aibench/languages.py</code>：测试文件识别 / 测试计数 / 拆分 / 通过率解析 /
       运行命令集中到 <code>LanguageSpec</code>。目前注册 Python(pytest) 与 JavaScript(<code>node --test</code>)，
       两者均有端到端判分测试。<strong>只注册本机能真跑的语言</strong> —— 注册一个装不上的工具链，
@@ -179,11 +180,7 @@
 </tr>
 <tr>
 <td><strong>Docker/gVisor 沙箱</strong></td>
-<td>生产安全关键差距：grader 与 tool_loop 的 bash 都在宿主机执行</td>
-</tr>
-<tr>
-<td>tool_loop bash 白名单加严</td>
-<td>已有基础限制</td>
+<td><strong>仍是最大的安全缺口</strong>：grader 命令与 tool_loop 的 bash 都在宿主机以 harness 权限执行。命令白名单（见已完成）只是缓解，不是隔离 —— 允许的 <code>python</code> 本身就能做任意事</td>
 </tr>
 <tr>
 <td>真机 CI 连 DB/API</td>

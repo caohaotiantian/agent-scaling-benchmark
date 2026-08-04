@@ -53,7 +53,7 @@ def test_bash_can_be_disabled(tmp_path: Path):
 
 def test_bash_rejects_shell_metacharacters(tmp_path: Path):
     for cmd in ("echo a; rm -rf /", "echo a && echo b", "echo a | tee f", "echo a > f"):
-        assert _run("bash", {"command": cmd}, tmp_path) == "error: command not allowed"
+        assert "metacharacter" in _run("bash", {"command": cmd}, tmp_path), cmd
 
 
 def test_read_write_list_round_trip(tmp_path: Path):
@@ -69,3 +69,45 @@ def test_path_escape_is_refused(tmp_path: Path):
 
 def test_unknown_tool_is_reported(tmp_path: Path):
     assert _run("teleport", {}, tmp_path).startswith("error: unknown tool")
+
+
+def test_only_allowlisted_programs_run(tmp_path: Path):
+    """The command runs on the host with the harness's privileges; an allowlist is what
+    stands between generated text and the developer's machine until grading is containerised."""
+    assert "exit=0" in _run("bash", {"command": "echo hi"}, tmp_path)
+    for blocked in ("curl http://example.com", "rm -rf /tmp/x", "pip install evil", "ssh host"):
+        obs = _run("bash", {"command": blocked}, tmp_path)
+        assert obs.startswith("error: command not allowed"), blocked
+
+
+def test_command_substitution_is_refused(tmp_path: Path):
+    """`$(...)` was not in the old blocklist, so exfiltration via an allowed program worked."""
+    for evil in (
+        "echo $(whoami)",
+        "echo ${HOME}",
+        "cat `ls`",
+        "echo a & echo b",
+        "echo a\necho b",
+    ):
+        obs = _run("bash", {"command": evil}, tmp_path)
+        assert "metacharacter" in obs, evil
+
+
+def test_the_allowlist_is_configurable_per_agent(tmp_path: Path):
+    agent = _agent(allowed_commands=["echo"])
+    assert agent.allowed_commands == ("echo",)
+    obs = agent._run_tool(
+        "bash", {"command": "python -c pass"}, tmp_path, allow_bash=True, written=[]
+    )
+    assert obs.startswith("error: command not allowed")
+
+
+def test_an_empty_command_is_refused(tmp_path: Path):
+    assert _run("bash", {"command": "   "}, tmp_path) == "error: empty command"
+
+
+def test_a_path_qualified_allowed_program_still_runs(tmp_path: Path):
+    from aibench.agents.tool_loop import DEFAULT_ALLOWED_COMMANDS, check_bash_command
+
+    assert check_bash_command("/usr/bin/echo hi", allowed=DEFAULT_ALLOWED_COMMANDS) is None
+    assert check_bash_command("/usr/bin/curl x", allowed=DEFAULT_ALLOWED_COMMANDS) is not None

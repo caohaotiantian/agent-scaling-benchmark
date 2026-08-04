@@ -759,6 +759,7 @@ runs:
 
 | 选项 | 说明 |
 |------|------|
+| `allowed_commands` | list | 见 `DEFAULT_ALLOWED_COMMANDS` | bash 允许的程序名白名单。命令在宿主机以 harness 权限执行，这是容器化之前唯一的防线 |
 | `allow_bash` | 是否允许 bash 工具 |
 | `max_tokens` | 每步请求上限 |
 | `system_prompt` | 工具调用 JSON 协议说明 |
