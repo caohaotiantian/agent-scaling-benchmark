@@ -55,3 +55,29 @@ def test_generation_honours_the_tier_the_trace_suggested():
     assert draft_tier(draft) == "T4"
     assert draft_tier({"metadata": {}}) == "T2"
     assert draft_tier({"metadata": {"tier": "nonsense"}}, default="T1") == "T1"
+
+
+def test_generator_type_slips_are_coerced_not_rejected():
+    """A batch of 69 lost 9 cases to `"schema_version": 0.1` arriving as a JSON number."""
+    from aibench.extract.generate_case import _coerce_scalar_fields
+
+    data = {"schema_version": 0.1, "language": None, "case_id": None, "task_type": "bug"}
+    _coerce_scalar_fields(data)
+    assert data["schema_version"] == "0.1"
+    assert data["language"] == "python"
+    assert data["case_id"] == ""
+    assert data["task_type"] == "bugfix"
+
+    validator = load_schema_validator()
+    case = {
+        "case_id": "x",
+        "schema_version": 0.1,
+        "task_type": "bugfix",
+        "language": "python",
+        "prompt": "p",
+        "context": {"files": [{"path": "a.py", "content": "x=1\n"}]},
+        "grader": {"mode": "script", "command": "python -m pytest -q"},
+    }
+    assert list(validator.iter_errors(case)), "a numeric schema_version must be invalid"
+    _coerce_scalar_fields(case)
+    assert sorted(validator.iter_errors(case), key=lambda e: list(e.path)) == []
