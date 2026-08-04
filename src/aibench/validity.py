@@ -15,7 +15,7 @@ from aibench.grading import grade_case
 from aibench.io_util import load_json, write_json
 from aibench.models import Case
 from aibench.tiers import check_tier_invariants
-from aibench.workspace import materialize_workspace
+from aibench.workspace import materialize_workspace, safe_relpath
 
 
 @dataclass
@@ -163,7 +163,14 @@ def check_reference_solution(case: Case, *, case_set: str | None = None) -> tupl
         csd = case_set_dir(case_set) if case_set else None
         materialize_workspace(case, ws, case_set_dir=csd, allow_network=False)
         for gf in case.grader.gold_files:
-            target = ws / gf.path
+            # Generated paths are untrusted input. `ws / "/home/code/x.py"` resolves to the
+            # absolute path, so an unsanitised join writes the reference solution onto the
+            # host filesystem instead of into the throwaway workspace.
+            try:
+                rel = safe_relpath(gf.path)
+            except ValueError as e:
+                return False, f"reference_solution_path_escapes_workspace: {e}"
+            target = ws / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(gf.content, encoding="utf-8")
         grade = grade_case(case, ws)
