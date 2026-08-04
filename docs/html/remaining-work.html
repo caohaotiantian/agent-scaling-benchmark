@@ -128,9 +128,9 @@
 <tbody>
 <tr>
 <td>4</td>
-<td><strong>T4 / T5 真实产出率未知</strong></td>
-<td>分层 brief 已写，但只在单元测试与小样本上验证过；仓库级用例（多包 + 干扰文件）尚未规模化产出</td>
-<td>跑一轮 <code>--tier T4 --min-tier T4</code>，统计实际达标率，按结果调 brief 或放宽不变量</td>
+<td><strong>T4 / T5 当前产出率为 0（已实测）</strong></td>
+<td>强制 <code>--tier T4</code> 跑 10 条：<strong>0 条达标</strong>，全部落到 T3(7)/T1(2)/无(1)。60 条的大规模生成同样 T4=0。失败原因按频次：<code>too_few_solution_files</code> 10/10、<code>too_few_files</code> 9/10、<code>too_few_distractors</code> 8/10。即<strong>生成器不会凭空造出「多文件项目 + 缺陷跨 2 个文件」</strong>，改 brief 无效</td>
+<td>换路子：用 <code>context.workspace</code> 已有的 snapshot/git 通路，从<strong>真实仓库快照</strong>裁剪出 T4 场景，而不是让 LLM 凭空发明；或改多轮生成（先要项目骨架，再植入跨文件缺陷，最后要测试）。干扰文件已可机械派生，不再是瓶颈</td>
 </tr>
 <tr>
 <td>7</td>
