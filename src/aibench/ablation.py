@@ -153,17 +153,47 @@ def run_ablation(
             "index": i,
         }
 
+    def _one_guarded(job: dict[str, Any]) -> dict[str, Any]:
+        """One matrix row, surviving its own failure.
+
+        A matrix is hours of paid work. Letting a bad gateway on row 3 discard rows 1 and 2 —
+        which is what an uncaught exception did — is the most expensive failure mode here.
+        """
+        exp = job["item"].get("experiment_name") or f"run-{job['index']}"
+        try:
+            return _one(job)
+        except Exception as e:
+            print(f"[error] experiment {exp!r} failed: {e}")
+            return {
+                "experiment_name": exp,
+                "index": job["index"],
+                "run_id": None,
+                "run_dir": None,
+                "failed": True,
+                "error": str(e),
+                "success_rate": None,
+                "total_tokens": 0,
+                "overview_row": {},
+                "general_row": {},
+            }
+
     rows: list[dict[str, Any]] = []
     parallel = max(1, int(parallel or matrix.get("parallel") or 1))
     if parallel == 1:
-        for job in jobs:
-            rows.append(_one(job))
+        rows = [_one_guarded(job) for job in jobs]
     else:
         with ThreadPoolExecutor(max_workers=parallel) as ex:
-            futs = [ex.submit(_one, job) for job in jobs]
-            for fut in as_completed(futs):
-                rows.append(fut.result())
-        rows.sort(key=lambda r: r.get("index", 0))
+            futs = [ex.submit(_one_guarded, job) for job in jobs]
+            rows = [fut.result() for fut in as_completed(futs)]
+    rows.sort(key=lambda r: r.get("index", 0))
+
+    failed_rows = [r for r in rows if r.get("failed")]
+    rows = [r for r in rows if not r.get("failed")]
+    if not rows:
+        raise RuntimeError(
+            "every ablation experiment failed: "
+            + "; ".join(f"{r['experiment_name']}: {r['error']}" for r in failed_rows)
+        )
 
     # baseline relative lift
     base_name = (
@@ -196,12 +226,17 @@ def run_ablation(
             "baseline_experiment": base_name,
             "parallel": parallel,
             "runs": slim_rows,
+            "failed_runs": failed_rows,
             "pairwise_comparisons": pairwise,
             "tier_matrix": tier_matrix,
         },
     )
     report = _render_ablation_report(
-        slim_rows, baseline=base_name, pairwise=pairwise, tier_matrix=tier_matrix
+        slim_rows,
+        baseline=base_name,
+        pairwise=pairwise,
+        tier_matrix=tier_matrix,
+        failed=failed_rows,
     )
     (abl_dir / "ablation_report.md").write_text(report, encoding="utf-8")
     return abl_dir
@@ -263,12 +298,22 @@ def _render_ablation_report(
     baseline: str | None,
     pairwise: list[dict[str, Any]] | None = None,
     tier_matrix: dict[str, dict[str, Any]] | None = None,
+    failed: list[dict[str, Any]] | None = None,
 ) -> str:
     lines = [
         "# Ablation Report",
         "",
         f"- Baseline experiment: `{baseline}`",
         "",
+        *(
+            [
+                "> **警告**：以下实验执行失败，未计入下表——",
+                *[f"> - `{r['experiment_name']}`：{r.get('error')}" for r in failed],
+                "",
+            ]
+            if failed
+            else []
+        ),
         "## 项目效果综述表",
         "",
         "| 算法名称 | Agent与模型 | 基础/主模型 | Benchmark | Case数 | 主指标名称 | 主指标值 | 总体耗时(h) | 总体Token消耗 | 相对基线收益 |",
