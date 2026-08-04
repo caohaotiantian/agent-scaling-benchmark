@@ -1274,7 +1274,7 @@ runs:
 <td><code>--parallel</code></td>
 <td>int</td>
 <td><code>1</code></td>
-<td>矩阵行（实验）并行度</td>
+<td>矩阵行（实验）并行度。各行的 case 集会在开跑前一次性过滤好，不在 worker 里做 —— 否则两行共用同一集合时会互相 rmtree，输家跑在半拷贝的集合上</td>
 </tr>
 <tr>
 <td><code>--baseline-experiment</code></td>
@@ -1491,7 +1491,13 @@ runs:
 <td><code>--workers</code></td>
 <td>int</td>
 <td>run 配置</td>
-<td>case 并行度</td>
+<td>单个 pass 内同时跑的 case 数</td>
+</tr>
+<tr>
+<td><code>--parallel</code></td>
+<td>int</td>
+<td><code>1</code></td>
+<td>锚点 pass 并发数。对网关的实际并发 ≈ <code>--parallel × --workers</code>；本网关实测在 16 并发下延迟仍平（4.7s→5.0s），吞吐 0.21→2.74/s</td>
 </tr>
 <tr>
 <td><code>--p-max</code></td>

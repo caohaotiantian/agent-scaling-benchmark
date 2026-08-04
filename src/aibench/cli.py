@@ -238,7 +238,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_cal.add_argument("--repeats", type=int, default=3, help="Independent runs per anchor")
     p_cal.add_argument("--output-root", type=Path, default=None)
-    p_cal.add_argument("--workers", type=int, default=None)
+    p_cal.add_argument("--workers", type=int, default=None, help="Cases in flight per pass")
+    p_cal.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help="Anchor passes run concurrently. Total concurrency against the gateway is "
+        "roughly --parallel x --workers; measured headroom on this gateway is ~16.",
+    )
     p_cal.add_argument("--p-max", type=float, default=DEFAULT_P_MAX)
     p_cal.add_argument("--p-min", type=float, default=DEFAULT_P_MIN)
     p_cal.add_argument("--min-rpb", type=float, default=DEFAULT_MIN_RPB)
@@ -659,6 +666,7 @@ def main(argv: list[str] | None = None) -> int:
             policy=SelectionPolicy(p_max=args.p_max, p_min=args.p_min, min_rpb=args.min_rpb),
             case_workers=args.workers,
             reuse_from=args.reuse_from,
+            parallel=args.parallel,
         )
         print(f"calibration_dir={cal_dir}")
         if report.get("reused_case_count"):
