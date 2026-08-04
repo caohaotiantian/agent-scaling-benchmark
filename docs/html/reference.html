@@ -519,6 +519,12 @@ set -a &amp;&amp; source .env &amp;&amp; set +a
 <td>退避上限（秒）</td>
 </tr>
 <tr>
+<td><code>AIBENCH_REQUEST_TIMEOUT</code></td>
+<td><code>240</code></td>
+<td>可选</td>
+<td>Agent 单次 LLM 请求超时（秒），上限为该 case 的 <code>max_wall_time_s</code>。默认 120 时慢网关下实测 5–9% infra 错误</td>
+</tr>
+<tr>
 <td><code>AIBENCH_GENERATE_TIMEOUT</code></td>
 <td><code>300</code></td>
 <td>可选</td>

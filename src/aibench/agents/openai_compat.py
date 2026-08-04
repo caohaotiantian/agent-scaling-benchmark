@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from aibench.agents.base import AgentAdapter
+from aibench.agents.base import AgentAdapter, request_timeout_s
 from aibench.models import AgentRunResult, Case, StepRecord, UsageRecord
 
 
@@ -94,7 +94,7 @@ class OpenAICompatAgent(AgentAdapter):
         from aibench.retry import is_retryable_error, retry_call
 
         def _request_and_parse() -> tuple[dict[str, Any], list[dict[str, str]], str]:
-            with httpx.Client(timeout=min(max_wall_time_s, 120.0)) as client:
+            with httpx.Client(timeout=request_timeout_s(max_wall_time_s)) as client:
                 resp = client.post(
                     f"{base_url}/chat/completions",
                     headers={

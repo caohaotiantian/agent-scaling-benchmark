@@ -53,3 +53,21 @@ def test_agent_adapters_accept_distinct_model_configs():
     b = OpenAICompatAgent(agent_cfg, _model("GLM-5.2"))
     assert a.model_config.model == "GLM-5.1"
     assert b.model_config.model == "GLM-5.2"
+
+
+def test_request_timeout_respects_the_case_budget_and_env(monkeypatch):
+    """A 120s cap against a slow gateway produced 5-9% infra errors in a calibration sweep —
+    excluded from the rates, but each one still costs a full retry of the case."""
+    from aibench.agents.base import request_timeout_s
+
+    monkeypatch.delenv("AIBENCH_REQUEST_TIMEOUT", raising=False)
+    assert request_timeout_s(600) == 240.0
+    # Never longer than the case's own deadline.
+    assert request_timeout_s(90) == 90.0
+
+    monkeypatch.setenv("AIBENCH_REQUEST_TIMEOUT", "400")
+    assert request_timeout_s(600) == 400.0
+    monkeypatch.setenv("AIBENCH_REQUEST_TIMEOUT", "5")
+    assert request_timeout_s(600) == 30.0, "a floor keeps a typo from failing every call"
+    monkeypatch.setenv("AIBENCH_REQUEST_TIMEOUT", "not-a-number")
+    assert request_timeout_s(600) == 240.0
