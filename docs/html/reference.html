@@ -1884,7 +1884,7 @@ runs:
 </tr>
 <tr>
 <td><code>difficulty</code></td>
-<td><code>easy</code> / <code>medium</code> / <code>hard</code>（体积启发式，旧口径；分层请用 <code>tier</code>）</td>
+<td><code>easy</code> / <code>medium</code> / <code>hard</code>（<strong>已废弃</strong>：体积启发式，实测 93.8% 落在 medium。保留仅为兼容既有 <code>summary.json</code> 消费者，分层一律用 <code>tier</code>）</td>
 </tr>
 <tr>
 <td><code>tier</code></td>
@@ -2396,6 +2396,27 @@ runs:
 <td>error</td>
 <td>是</td>
 <td>§13.5.2，逐条来自 <code>check_tier_invariants</code></td>
+</tr>
+<tr>
+<td>干扰文件自相矛盾</td>
+<td><code>tier_distractor_in_solution</code></td>
+<td>error</td>
+<td>是</td>
+<td>声明 <code>role=distractor</code> 却被参考解改动</td>
+</tr>
+<tr>
+<td>参考解无改动</td>
+<td><code>tier_solution_file_unchanged</code></td>
+<td>error</td>
+<td>是</td>
+<td>某个 gold file 与初始文件完全相同，是凑数项</td>
+</tr>
+<tr>
+<td>参考解疑似重写</td>
+<td><code>tier_solution_rewrites_file</code></td>
+<td>warn</td>
+<td>否</td>
+<td>改动行占比 &gt; 60%，无法定位缺陷</td>
 </tr>
 <tr>
 <td>Gold 污染</td>

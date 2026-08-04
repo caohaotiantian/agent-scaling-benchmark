@@ -42,6 +42,9 @@
 - [x] **修复**：全部 case 都 infra_error 的实验，报告曾显示 `0.0% / -100.0pp`（读作能力结论）。
       现加「有效Case / 基础设施失败」列 + 顶部显式警告
 - [x] **修复**：`run_benchmark` 为算内容哈希跑了完整审计（每 case 两次 pytest），改为直接算哈希
+- [x] **干扰文件反证校验**：`role=distractor` 却出现在参考解里即判违规（`distractor_in_solution`）
+- [x] **参考解最小性**：与初始文件完全相同判 error，改动行占比 >60% 告警
+- [x] 采样扩展 pass@k / 成本轴（原 P0 全部）
 
 ---
 
@@ -62,9 +65,7 @@
 | # | 项 | 现状 | 落地建议 |
 |---|----|------|----------|
 | 4 | **T4 / T5 真实产出率未知** | 分层 brief 已写，但只在单元测试与小样本上验证过；仓库级用例（多包 + 干扰文件）尚未规模化产出 | 跑一轮 `--tier T4 --min-tier T4`，统计实际达标率，按结果调 brief 或放宽不变量 |
-| 5 | **干扰文件无法校验** | `role: distractor` 完全由生成器声明，没有任何机制确认它「确实与解无关」 | 用参考解 diff 校验：被声明为 distractor 的文件若出现在 gold_files 中即判违规 |
-| 6 | **参考解未校验最小性** | `solvability_gate` 只验「参考解能过」，不验「改动最小」 | 加最小性检查：参考解触及的文件数/行数超过阈值时告警 |
-| 7 | **`estimate_difficulty` 冗余** | easy/medium/hard 旧口径与 `tier` 并存，前者已被证明退化（93.8% 判 medium） | 报告与分层统一切到 `tier`，`difficulty` 标记为 deprecated 后移除 |
+| 7 | **`estimate_difficulty` 冗余** | 已在文档标记 deprecated；**不移除** —— `stratified_by_difficulty` 在已发布的 `summary.json` 里，删除属破坏性变更 | 待下一次 schema 大版本一并清理 |
 | 8 | **仅支持 Python** | 分层不变量、测试函数计数、pytest 输出解析均为 Python 中心 | 抽象出 per-language 适配（测试发现、运行命令、通过率解析） |
 | 9 | **泄露检测为正则** | `find_disclosures` 双语正则，保守过判优于漏判，但仍会漏掉改写过的泄露 | 在 audit 阶段补一次 LLM 判定作为二审 |
 

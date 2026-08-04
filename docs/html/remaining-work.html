@@ -65,6 +65,9 @@
 <li>[x] <strong>修复</strong>：全部 case 都 infra_error 的实验，报告曾显示 <code>0.0% / -100.0pp</code>（读作能力结论）。
       现加「有效Case / 基础设施失败」列 + 顶部显式警告</li>
 <li>[x] <strong>修复</strong>：<code>run_benchmark</code> 为算内容哈希跑了完整审计（每 case 两次 pytest），改为直接算哈希</li>
+<li>[x] <strong>干扰文件反证校验</strong>：<code>role=distractor</code> 却出现在参考解里即判违规（<code>distractor_in_solution</code>）</li>
+<li>[x] <strong>参考解最小性</strong>：与初始文件完全相同判 error，改动行占比 &gt;60% 告警</li>
+<li>[x] 采样扩展 pass@k / 成本轴（原 P0 全部）</li>
 </ul>
 <hr>
 <h2 id="_4">未做（按优先级，待未来实现）</h2>
@@ -114,22 +117,10 @@
 <td>跑一轮 <code>--tier T4 --min-tier T4</code>，统计实际达标率，按结果调 brief 或放宽不变量</td>
 </tr>
 <tr>
-<td>5</td>
-<td><strong>干扰文件无法校验</strong></td>
-<td><code>role: distractor</code> 完全由生成器声明，没有任何机制确认它「确实与解无关」</td>
-<td>用参考解 diff 校验：被声明为 distractor 的文件若出现在 gold_files 中即判违规</td>
-</tr>
-<tr>
-<td>6</td>
-<td><strong>参考解未校验最小性</strong></td>
-<td><code>solvability_gate</code> 只验「参考解能过」，不验「改动最小」</td>
-<td>加最小性检查：参考解触及的文件数/行数超过阈值时告警</td>
-</tr>
-<tr>
 <td>7</td>
 <td><strong><code>estimate_difficulty</code> 冗余</strong></td>
-<td>easy/medium/hard 旧口径与 <code>tier</code> 并存，前者已被证明退化（93.8% 判 medium）</td>
-<td>报告与分层统一切到 <code>tier</code>，<code>difficulty</code> 标记为 deprecated 后移除</td>
+<td>已在文档标记 deprecated；<strong>不移除</strong> —— <code>stratified_by_difficulty</code> 在已发布的 <code>summary.json</code> 里，删除属破坏性变更</td>
+<td>待下一次 schema 大版本一并清理</td>
 </tr>
 <tr>
 <td>8</td>
