@@ -486,6 +486,13 @@ def main(argv: list[str] | None = None) -> int:
                 if errors:
                     print(f"skip invalid {path.name}: {errors[0].message}")
                     return None
+                grader = case.get("grader") or {}
+                if grader.get("mode") == "script" and not grader.get("gold_files"):
+                    # The LLM path refuses this, but the heuristic fallback cannot invent a
+                    # reference solution and was quietly producing what the LLM path had just
+                    # rejected: all 21 unverifiable cases in a 126-case build came from it.
+                    print(f"skip {path.name}: no reference solution, solvability unverifiable")
+                    return None
                 settled = (case.get("metadata") or {}).get("tier")
                 if min_tier_rank >= 0 and (
                     not settled or TIER_ORDER.index(settled) < min_tier_rank

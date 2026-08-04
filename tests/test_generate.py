@@ -5,7 +5,7 @@ from aibench.extract.generate_case import (
     is_safe_grader_command,
 )
 from aibench.extract.sessions import filter_and_draft, load_sessions_from_export
-from aibench.io_util import load_json, repo_root
+from aibench.io_util import load_json, repo_root, write_json
 from aibench.tiers import axes_for_tier
 
 
@@ -92,3 +92,41 @@ def test_every_tier_brief_asks_for_a_reference_solution():
         prompt = _system_prompt_for_tier(tier)
         assert "gold_files" in prompt, tier
         assert "solvability" in prompt.lower(), tier
+
+
+def test_the_heuristic_fallback_cannot_smuggle_in_an_unverifiable_case(tmp_path, capsys):
+    """The LLM path rejects a script case with no reference solution, then the fallback
+    produced exactly that: all 21 unverifiable cases in a 126-case build came from it."""
+    from aibench.cli import main
+
+    drafts = tmp_path / "drafts"
+    drafts.mkdir()
+    write_json(
+        drafts / "d.json",
+        {
+            "case_id": "d",
+            "schema_version": "0.1",
+            "task_type": "bugfix",
+            "language": "python",
+            "prompt": "Fix the helper so the suite passes.",
+            "context": {"files": [{"path": "m.py", "content": "def f():\n    return 0\n"}]},
+            "grader": {"mode": "script", "command": "python -m pytest -q"},
+            "metadata": {},
+        },
+    )
+    out = tmp_path / "cases"
+    rc = main(
+        [
+            "generate-cases",
+            "--input-dir",
+            str(drafts),
+            "--output-dir",
+            str(out),
+            "--heuristic-only",
+            "--max-cases",
+            "5",
+        ]
+    )
+    assert rc == 1, "nothing verifiable should have been written"
+    assert "no reference solution" in capsys.readouterr().out
+    assert not list(out.glob("*.json"))
