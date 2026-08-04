@@ -14,6 +14,7 @@ from aibench.cases import case_set_dir, load_cases
 from aibench.grading import grade_case
 from aibench.io_util import load_json, write_json
 from aibench.models import Case
+from aibench.tiers import check_tier_invariants
 from aibench.workspace import materialize_workspace
 
 
@@ -35,12 +36,14 @@ class CaseValidityReport:
     difficulty: str | None = None
     fingerprint: str | None = None
     checks: dict[str, Any] = field(default_factory=dict)
+    tier: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "case_id": self.case_id,
             "ok": self.ok,
             "difficulty": self.difficulty,
+            "tier": self.tier,
             "fingerprint": self.fingerprint,
             "checks": self.checks,
             "issues": [i.to_dict() for i in self.issues],
@@ -140,6 +143,35 @@ def check_stub_fails(case: Case, *, case_set: str | None = None) -> tuple[bool, 
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_reference_solution(case: Case, *, case_set: str | None = None) -> tuple[bool, str]:
+    """Return (ok, detail). ok=True means the shipped reference solution passes the grader.
+
+    The complement of :func:`check_stub_fails`. Without it a case with a broken hidden test
+    fails every configuration and reads as a hard case when it is simply an unsolvable one.
+    """
+    if case.grader.mode != "script" or not case.grader.command:
+        return True, "skipped_non_script"
+    if not case.grader.gold_files:
+        return True, "skipped_no_reference_solution"
+    tmp = Path(tempfile.mkdtemp(prefix="aibench_solve_"))
+    try:
+        ws = tmp / "workspace"
+        csd = case_set_dir(case_set) if case_set else None
+        materialize_workspace(case, ws, case_set_dir=csd, allow_network=False)
+        for gf in case.grader.gold_files:
+            target = ws / gf.path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(gf.content, encoding="utf-8")
+        grade = grade_case(case, ws)
+        if grade.infra_error:
+            return False, f"infra: {grade.detail}"
+        if not grade.passed:
+            return False, f"reference_solution_failed: {grade.detail[:300]}"
+        return True, "reference_solution_passed"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def audit_case(case: Case, *, case_set: str | None = None) -> CaseValidityReport:
     issues: list[ValidityIssue] = []
     fp = case_fingerprint(case)
@@ -154,6 +186,25 @@ def audit_case(case: Case, *, case_set: str | None = None) -> CaseValidityReport
         issues.append(
             ValidityIssue("stub_fail_gate", "error", f"stub must fail grader: {stub_detail}")
         )
+
+    ref_ok, ref_detail = check_reference_solution(case, case_set=case_set)
+    checks["reference_solution"] = {"ok": ref_ok, "detail": ref_detail}
+    if not ref_ok:
+        issues.append(
+            ValidityIssue("solvability_gate", "error", f"case must be solvable: {ref_detail}")
+        )
+
+    tier = case.tier
+    if tier:
+        tier_check = check_tier_invariants(case)
+        checks["tier"] = tier_check.to_dict()
+        for violation in tier_check.violations:
+            issues.append(
+                ValidityIssue(f"tier_{violation.code}", violation.severity, violation.message)
+            )
+    else:
+        checks["tier"] = None
+        issues.append(ValidityIssue("tier_missing", "warn", "metadata.tier is not set"))
 
     if case.grader.mode == "script" and case.metadata.get("weak_grader"):
         issues.append(
@@ -172,6 +223,7 @@ def audit_case(case: Case, *, case_set: str | None = None) -> CaseValidityReport
         difficulty=difficulty,
         fingerprint=fp,
         checks=checks,
+        tier=tier,
     )
 
 
@@ -193,18 +245,23 @@ def audit_case_set(case_set: str) -> dict[str, Any]:
             )
             # duplicates are warn only unless exact same id
     ok_n = sum(1 for r in reports if r.ok)
+    by_tier: dict[str, int] = {}
+    for r in reports:
+        by_tier[r.tier or "unset"] = by_tier.get(r.tier or "unset", 0) + 1
     return {
         "case_set": case_set,
         "total": len(reports),
         "passed": ok_n,
         "failed": len(reports) - ok_n,
         "duplicates": dupes,
+        "tier_distribution": dict(sorted(by_tier.items())),
         "reports": [r.to_dict() for r in reports],
-        "content_fingerprint": _set_fingerprint(cases),
+        "content_fingerprint": set_fingerprint(cases),
     }
 
 
-def _set_fingerprint(cases: list[Case]) -> str:
+def set_fingerprint(cases: list[Case]) -> str:
+    """Content hash of a case set: stable across reordering, changes when any case changes."""
     parts = sorted(f"{c.case_id}:{case_fingerprint(c)}" for c in cases)
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
 
@@ -216,5 +273,7 @@ def annotate_case_metadata(case_path: Path, report: CaseValidityReport) -> None:
     meta["fingerprint"] = report.fingerprint
     meta["validity_ok"] = report.ok
     meta["validity_issues"] = [i.to_dict() for i in report.issues]
+    if report.tier:
+        meta["tier"] = report.tier
     raw["metadata"] = meta
     write_json(case_path, raw)

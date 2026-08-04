@@ -66,7 +66,10 @@ class OpenAICompatAgent(AgentAdapter):
             or os.environ.get("AIBENCH_BASE_URL")
             or "https://api.openai.com/v1"
         ).rstrip("/")
-        model_name = os.environ.get("OPENAI_MODEL") or model.model
+        # Config wins over env, same precedence as base_url above. The other way round, every
+        # row of a multi-model ablation would silently run whatever OPENAI_MODEL happens to be
+        # while the report still labels them apart.
+        model_name = model.model or os.environ.get("OPENAI_MODEL")
         system = self.agent_config.options.get("system_prompt") or (
             'Return JSON {"files":[...],"message":"..."} only.'
         )
