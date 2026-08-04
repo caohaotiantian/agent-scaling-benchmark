@@ -81,3 +81,14 @@ def test_generator_type_slips_are_coerced_not_rejected():
     assert list(validator.iter_errors(case)), "a numeric schema_version must be invalid"
     _coerce_scalar_fields(case)
     assert sorted(validator.iter_errors(case), key=lambda e: list(e.path)) == []
+
+
+def test_every_tier_brief_asks_for_a_reference_solution():
+    """T1 and T2 did not, which is why cases at those tiers shipped unverifiable: 16 of the
+    18 cases no configuration could solve had taken the missing-reference-solution exemption."""
+    from aibench.extract.generate_case import _TIER_BRIEFS, _system_prompt_for_tier
+
+    for tier in _TIER_BRIEFS:
+        prompt = _system_prompt_for_tier(tier)
+        assert "gold_files" in prompt, tier
+        assert "solvability" in prompt.lower(), tier
