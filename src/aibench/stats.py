@@ -87,6 +87,57 @@ def point_biserial(item: list[float], total: list[float]) -> float | None:
     return cov / math.sqrt(var_i * var_t)
 
 
+def budget_quantiles(
+    case_results: list[dict[str, Any]],
+    *,
+    fractions: tuple[float, ...] = (0.25, 0.5, 0.75, 0.9, 1.0),
+) -> list[int]:
+    """Token-budget rungs taken from the observed per-case spend.
+
+    Derived from the data rather than hard-coded so the rungs stay meaningful across case sets
+    of different sizes. Callers comparing configurations must pass one shared rung list —
+    per-configuration rungs would put each curve on its own x-axis and make them incomparable.
+    """
+    spends = sorted(
+        int(r.get("total_tokens") or 0) for r in case_results if not r.get("infra_error")
+    )
+    if not spends:
+        return []
+    rungs = []
+    for f in fractions:
+        idx = min(len(spends) - 1, max(0, math.ceil(f * len(spends)) - 1))
+        rungs.append(spends[idx])
+    return sorted(set(rungs))
+
+
+def cost_curve(
+    case_results: list[dict[str, Any]],
+    *,
+    budgets: list[int],
+) -> list[dict[str, Any]]:
+    """Success rate achievable if each case were capped at a per-case token budget.
+
+    Two configurations at the same accuracy are not equally good: the one that got there on
+    fewer tokens is stronger. A single total-token number hides that, because it mixes cases
+    solved cheaply with cases that burned budget and failed anyway.
+    """
+    effective = [r for r in case_results if not r.get("infra_error")]
+    n = len(effective)
+    out: list[dict[str, Any]] = []
+    for b in budgets:
+        solved = sum(
+            1 for r in effective if r.get("passed") and int(r.get("total_tokens") or 0) <= b
+        )
+        out.append(
+            {
+                "budget_tokens": b,
+                "solved": solved,
+                "success_rate": (solved / n) if n else 0.0,
+            }
+        )
+    return out
+
+
 def stratify_results(
     case_results: list[dict[str, Any]],
     *,

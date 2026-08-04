@@ -68,41 +68,34 @@
 </ul>
 <hr>
 <h2 id="_4">未做（按优先级，待未来实现）</h2>
-<h3 id="p0">P0 — 直接限制当前区分度结论的强度</h3>
+<h3 id="p0-2026-08-04">~~P0 — 直接限制当前区分度结论的强度~~（2026-08-04 已完成）</h3>
 <table>
 <thead>
 <tr>
 <th>#</th>
 <th>项</th>
-<th>现状</th>
-<th>为什么重要</th>
-<th>落地建议</th>
+<th>落地</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>1</td>
-<td><strong>多分支执行与 pass@k</strong></td>
-<td><code>RunConfig.branches</code> / <code>max_attempts</code> / <code>selection_strategy</code> 只写进 manifest，<code>runner</code> 从不使用；<code>report.py</code> 的 <code>oracle_success_rate</code> / <code>selection_hit_rate</code> 硬编码 <code>None</code></td>
-<td><code>pass@k − pass@1</code> 正是 agent「重试 / 多分支」能吃到的收益，是区分 agent 脚手架的核心指标，现在完全测不出来</td>
-<td>在 <code>_run_one_case</code> 外层加 k 次独立采样，产出 <code>pass@1</code>(均值) / <code>pass@k</code>(至少一次) / <code>pass^k</code>(全部)；填上已声明的 oracle 字段</td>
+<td><strong>多次采样与 pass@k</strong></td>
+<td><code>_run_one_case</code> 外层做 k 次独立采样，<code>_aggregate_attempts</code> 折成一行（保持一 case 一行，下游三个消费者无需改动）。产出 <code>pass_at_1</code> / <code>pass_at_k</code> / <code>pass_pow_k</code> / <code>selection_hit_rate</code>，并填上此前硬编码 <code>None</code> 的 <code>oracle_success_count</code> / <code>oracle_success_rate</code>。<code>success_rate</code> 口径不变 —— 它是「选择策略实际提交的结果」，<code>k=1</code> 时与旧行为逐字节一致</td>
 </tr>
 <tr>
 <td>2</td>
 <td><strong>采样温度</strong></td>
-<td>所有 <code>configs/models/*.yaml</code> 均 <code>temperature: 0</code></td>
-<td>温度为 0 时重复采样退化为同一个样本，<code>--repeats</code> 只能发现环境抖动，发现不了模型自身的方差；pass@k 也失去意义</td>
-<td>校准与 pass@k 场景用 <code>temperature 0.2~0.7</code> 的独立模型配置；保留 0 温配置用于可复现的单次跑测</td>
+<td><code>configs/models/glm52-sampling.yaml</code>（temperature 0.7）+ <code>configs/runs/passk.yaml</code>；<code>max_attempts&gt;1</code> 且温度为 0 时 runner 告警并写入 <code>run_manifest.sampling_warning</code></td>
 </tr>
 <tr>
 <td>3</td>
 <td><strong>成本轴指标</strong></td>
-<td>只有总 token / 总耗时</td>
-<td>同准确率下 token 更省的组合更强，这是拉开 agent 差距的第二维度</td>
-<td>输出 <code>success_rate @ token budget</code> 曲线与 <code>token_amplification</code></td>
+<td><code>stats.cost_curve</code> + <code>budget_quantiles</code>（档位取自实测 token 分布），进 <code>summary.cost_curve</code> 与运行报告；消融报告加 <code>token_amplification</code>（相对基线 token 倍数）与「采样扩展与成本」表</td>
 </tr>
 </tbody>
 </table>
+<p>消融矩阵新增第 4 行 <code>passk-glm52</code>（采样轴），与模型轴、Agent 轴并列，每行仍只变一条轴。</p>
 <h3 id="p1">P1 — 分层体系本身的补强</h3>
 <table>
 <thead>

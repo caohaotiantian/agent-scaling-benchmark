@@ -47,13 +47,15 @@
 
 ## 未做（按优先级，待未来实现）
 
-### P0 — 直接限制当前区分度结论的强度
+### ~~P0 — 直接限制当前区分度结论的强度~~（2026-08-04 已完成）
 
-| # | 项 | 现状 | 为什么重要 | 落地建议 |
-|---|----|------|------------|----------|
-| 1 | **多分支执行与 pass@k** | `RunConfig.branches` / `max_attempts` / `selection_strategy` 只写进 manifest，`runner` 从不使用；`report.py` 的 `oracle_success_rate` / `selection_hit_rate` 硬编码 `None` | `pass@k − pass@1` 正是 agent「重试 / 多分支」能吃到的收益，是区分 agent 脚手架的核心指标，现在完全测不出来 | 在 `_run_one_case` 外层加 k 次独立采样，产出 `pass@1`(均值) / `pass@k`(至少一次) / `pass^k`(全部)；填上已声明的 oracle 字段 |
-| 2 | **采样温度** | 所有 `configs/models/*.yaml` 均 `temperature: 0` | 温度为 0 时重复采样退化为同一个样本，`--repeats` 只能发现环境抖动，发现不了模型自身的方差；pass@k 也失去意义 | 校准与 pass@k 场景用 `temperature 0.2~0.7` 的独立模型配置；保留 0 温配置用于可复现的单次跑测 |
-| 3 | **成本轴指标** | 只有总 token / 总耗时 | 同准确率下 token 更省的组合更强，这是拉开 agent 差距的第二维度 | 输出 `success_rate @ token budget` 曲线与 `token_amplification` |
+| # | 项 | 落地 |
+|---|----|------|
+| 1 | **多次采样与 pass@k** | `_run_one_case` 外层做 k 次独立采样，`_aggregate_attempts` 折成一行（保持一 case 一行，下游三个消费者无需改动）。产出 `pass_at_1` / `pass_at_k` / `pass_pow_k` / `selection_hit_rate`，并填上此前硬编码 `None` 的 `oracle_success_count` / `oracle_success_rate`。`success_rate` 口径不变 —— 它是「选择策略实际提交的结果」，`k=1` 时与旧行为逐字节一致 |
+| 2 | **采样温度** | `configs/models/glm52-sampling.yaml`（temperature 0.7）+ `configs/runs/passk.yaml`；`max_attempts>1` 且温度为 0 时 runner 告警并写入 `run_manifest.sampling_warning` |
+| 3 | **成本轴指标** | `stats.cost_curve` + `budget_quantiles`（档位取自实测 token 分布），进 `summary.cost_curve` 与运行报告；消融报告加 `token_amplification`（相对基线 token 倍数）与「采样扩展与成本」表 |
+
+消融矩阵新增第 4 行 `passk-glm52`（采样轴），与模型轴、Agent 轴并列，每行仍只变一条轴。
 
 ### P1 — 分层体系本身的补强
 

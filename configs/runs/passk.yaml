@@ -1,0 +1,25 @@
+# Repeated-sampling run: the budget axis is attempts, not steps.
+#
+# Reads as: sample each case 5 times independently, submit the first attempt that passes.
+# The report then separates three quantities that a single-sample run cannot tell apart:
+#   pass@1     expected result of one draw          (raw model+agent capability)
+#   pass@k     any of the 5 draws succeeded         (the headroom sampling exposes)
+#   成功率      what best-of-k actually submitted    (how much of that headroom was captured)
+#
+# Requires a sampling model config; at temperature 0 the runner warns and the three collapse.
+experiment_name: prod-passk
+algorithm_name: Sampling-scaling
+algorithm_version: v1.0
+budget_axis: attempts
+budget_value: "max_attempts=5, max_steps=40"
+branches: 1
+max_attempts: 5
+max_steps: 40
+max_wall_time_s: 300
+selection_strategy: best-of-k
+case_set: auto-v0
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: configs/agents/openai_compat.yaml
+model_config: configs/models/glm52-sampling.yaml
+case_workers: 4

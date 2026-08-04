@@ -1,0 +1,17 @@
+# Test-only: exercises repeated sampling with the deterministic mock agent.
+experiment_name: mock-attempts
+algorithm_name: Baseline
+algorithm_version: v0
+budget_axis: attempts
+budget_value: "max_attempts=3"
+branches: 1
+max_attempts: 3
+max_steps: 4
+max_wall_time_s: 60
+selection_strategy: best-of-k
+case_set: seed-v0
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: tests/fixtures/configs/agents/mock.yaml
+model_config: tests/fixtures/configs/models/mock-model.yaml
+case_workers: 2

@@ -11,7 +11,7 @@ from typing import Any
 from aibench.calibrate import read_result_rows
 from aibench.cases import case_set_dir
 from aibench.io_util import load_json, load_yaml, repo_root, write_json
-from aibench.report import render_summary_tables_json
+from aibench.report import format_pct, render_summary_tables_json
 from aibench.runner import run_benchmark
 from aibench.stats import mcnemar_test, paired_outcomes
 
@@ -137,6 +137,10 @@ def run_ablation(
             "success_rate": summary.get("success_rate"),
             "success_count": summary.get("success_count"),
             "case_count": summary.get("case_count"),
+            "pass_at_1": summary.get("pass_at_1"),
+            "pass_at_k": summary.get("pass_at_k"),
+            "attempts_per_case": summary.get("attempts_per_case"),
+            "cost_curve": summary.get("cost_curve"),
             "effective_case_count": summary.get("effective_case_count"),
             "infra_error_count": summary.get("infra_error_count"),
             "infra_error_rate": summary.get("infra_error_rate"),
@@ -178,6 +182,7 @@ def run_ablation(
             r["relative_success_lift"] = lift
             r["overview_row"]["相对基线收益"] = f"{lift * 100:+.1f}pp"
 
+    attach_token_amplification(rows, baseline=base_name)
     pairwise = compare_runs_pairwise(rows, baseline=base_name)
     tier_matrix = {r["experiment_name"]: r.get("stratified_by_tier") or {} for r in rows}
 
@@ -200,6 +205,21 @@ def run_ablation(
     )
     (abl_dir / "ablation_report.md").write_text(report, encoding="utf-8")
     return abl_dir
+
+
+def attach_token_amplification(rows: list[dict[str, Any]], *, baseline: str | None) -> None:
+    """Record each run's token spend as a multiple of the baseline's.
+
+    An accuracy gain bought with 5x the tokens is a different result from the same gain at
+    equal cost, and the overview table's absolute token column does not make that comparison
+    for the reader.
+    """
+    base = next((r for r in rows if r["experiment_name"] == baseline), None)
+    base_tokens = int((base or {}).get("total_tokens") or 0)
+    for r in rows:
+        r["token_amplification"] = (
+            (int(r.get("total_tokens") or 0) / base_tokens) if base_tokens else None
+        )
 
 
 def compare_runs_pairwise(
@@ -309,6 +329,28 @@ def _render_ablation_report(
                         else "-"
                     )
                 lines.append(f"| {exp} | " + " | ".join(cells) + " |")
+
+    if any(r.get("token_amplification") is not None for r in rows):
+        lines.extend(
+            [
+                "",
+                "## 采样扩展与成本",
+                "",
+                "`pass@k − pass@1` 是重复采样暴露出的上限空间；token 倍数是买到它的代价。",
+                "两列要一起读：准确率相同而 token 少的组合更强。",
+                "",
+                "| experiment | 采样次数/case | pass@1 | pass@k | 成功率 | token | 相对基线 token |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for r in rows:
+            amp = r.get("token_amplification")
+            lines.append(
+                f"| {r['experiment_name']} | {r.get('attempts_per_case') or 1} "
+                f"| {format_pct(r.get('pass_at_1'))} | {format_pct(r.get('pass_at_k'))} "
+                f"| {format_pct(r.get('success_rate'))} | {r.get('total_tokens')} "
+                f"| {'-' if amp is None else f'{amp:.2f}x'} |"
+            )
 
     if pairwise:
         lines.extend(
