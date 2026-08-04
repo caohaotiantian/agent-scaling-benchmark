@@ -2215,6 +2215,33 @@ runs:
 </table>
 <p>结果写入草稿 <code>metadata.tier</code> / <code>tier_reasons</code> / <code>trace_signals</code>，层级分布因此继承真实生产任务
 的难度分布，而非人工配额。</p>
+<h3 id="13535">13.5.35 多语言</h3>
+<p><code>src/aibench/languages.py</code> 的 <code>LanguageSpec</code> 收拢了所有 per-language 知识：</p>
+<table>
+<thead>
+<tr>
+<th>语言</th>
+<th>测试文件</th>
+<th>运行命令</th>
+<th>通过率解析</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>python</td>
+<td><code>test_*.py</code> / <code>*_test.py</code></td>
+<td><code>python -m pytest -q</code></td>
+<td><code>N passed/failed/error</code></td>
+</tr>
+<tr>
+<td>javascript / typescript</td>
+<td><code>*.test.mjs</code> / <code>*.spec.ts</code> 等</td>
+<td><code>node --test</code>（内置，零依赖）</td>
+<td><code>ℹ pass N</code> / <code># pass N</code></td>
+</tr>
+</tbody>
+</table>
+<p>隐藏测试文件名由 <code>hidden_test_name</code> 生成，<strong>必须仍被运行器识别为测试</strong>：<code>clamp.test.mjs</code> 拆出的隐藏半边是 <code>clamp_spec.test.mjs</code> 而不是 <code>clamp.test_spec.mjs</code> ——后者不匹配 node 的发现规则，会被静默跳过，用例就只靠冒烟测试通过了，正是隐藏测试要防的那件事。</p>
 <h3 id="1354">13.5.4 消毒与定级</h3>
 <p><code>tier_shaping.settle_tier</code> 从 T5 逐层下探，每层用该层所需的变换塑形一份副本，取<strong>第一层不变量
 成立</strong>的作为标签：</p>

@@ -73,6 +73,10 @@
 <li>[x] <strong><code>plan-sample-size</code></strong>：按 McNemar 反推所需题量，可用 <code>--from-ablation</code> 实测不一致率</li>
 <li>[x] <strong>增量校准</strong> <code>calibrate-cases --reuse-from</code>：case 内容与锚点面板都未变才复用旧结果</li>
 <li>[x] <strong>锚点漂移检测</strong>：<code>anchor_fingerprint</code> 计入配置文件<strong>内容</strong>，改了 YAML 里的模型即整体失效</li>
+<li>[x] <strong>多语言适配</strong> <code>src/aibench/languages.py</code>：测试文件识别 / 测试计数 / 拆分 / 通过率解析 /
+      运行命令集中到 <code>LanguageSpec</code>。目前注册 Python(pytest) 与 JavaScript(<code>node --test</code>)，
+      两者均有端到端判分测试。<strong>只注册本机能真跑的语言</strong> —— 注册一个装不上的工具链，
+      用例会一路通过生成/分层/发布，直到判分时对所有配置一起失败，看起来像难题而不是坏题</li>
 <li>[x] <strong>消融行级容错</strong>：单行失败不再中止整个矩阵，失败行进 <code>failed_runs</code> 并在报告顶部告警；
       全部失败才报错</li>
 <li>[x] <strong>泄露检测 LLM 二审</strong> <code>audit-cases --llm-disclosure-check</code>：正则仍是唯一阻断判据，
@@ -130,12 +134,6 @@
 <td><strong><code>estimate_difficulty</code> 冗余</strong></td>
 <td>已在文档标记 deprecated；<strong>不移除</strong> —— <code>stratified_by_difficulty</code> 在已发布的 <code>summary.json</code> 里，删除属破坏性变更</td>
 <td>待下一次 schema 大版本一并清理</td>
-</tr>
-<tr>
-<td>8</td>
-<td><strong>仅支持 Python</strong></td>
-<td>分层不变量、测试函数计数、pytest 输出解析均为 Python 中心</td>
-<td>抽象出 per-language 适配（测试发现、运行命令、通过率解析）</td>
 </tr>
 </tbody>
 </table>

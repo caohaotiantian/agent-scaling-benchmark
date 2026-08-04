@@ -5,9 +5,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from aibench.languages import pass_ratio
 from aibench.models import Case, GradeResult
-
-_PYTEST_TALLY = re.compile(r"(\d+)\s+(passed|failed|error|errors)\b")
 
 
 def _normalize(text: str) -> str:
@@ -98,16 +97,6 @@ def _safe_relpath(path: str) -> str:
     return rel
 
 
-def _pytest_pass_ratio(output: str) -> float | None:
-    """Fraction of executed tests that passed, from a pytest summary line."""
-    tally = {"passed": 0, "failed": 0, "error": 0}
-    for count, label in _PYTEST_TALLY.findall(output or ""):
-        key = "error" if label.startswith("error") else label
-        tally[key] = max(tally[key], int(count))
-    total = tally["passed"] + tally["failed"] + tally["error"]
-    return (tally["passed"] / total) if total else None
-
-
 def grade_case(case: Case, workspace: Path) -> GradeResult:
     mode = case.grader.mode
 
@@ -182,7 +171,9 @@ def _grade_script(case: Case, workspace: Path) -> GradeResult:
         mode="script",
         score=1.0 if ok else 0.0,
         detail=f"exit={proc.returncode}\n{tail}".strip(),
-        test_pass_ratio=_pytest_pass_ratio(f"{proc.stdout or ''}\n{proc.stderr or ''}"),
+        test_pass_ratio=pass_ratio(
+            f"{proc.stdout or ''}\n{proc.stderr or ''}", language=case.language
+        ),
     )
 
 
