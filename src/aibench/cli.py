@@ -203,6 +203,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Write difficulty/fingerprint/validity into case metadata",
     )
     p_aud.add_argument(
+        "--llm-disclosure-check",
+        action="store_true",
+        help="Second-pass LLM review for paraphrased defect disclosure the patterns miss "
+        "(warn only; costs one call per non-T1 case)",
+    )
+    p_aud.add_argument(
         "--fail-on-error",
         action="store_true",
         help="Exit 2 if any case fails error-level gates",
@@ -558,7 +564,7 @@ def main(argv: list[str] | None = None) -> int:
         from aibench.models import Case
         from aibench.validity import annotate_case_metadata, audit_case, audit_case_set
 
-        rep = audit_case_set(args.case_set)
+        rep = audit_case_set(args.case_set, llm_disclosure_check=args.llm_disclosure_check)
         if args.annotate:
             from aibench.cases import case_set_dir
 

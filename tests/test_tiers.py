@@ -247,3 +247,41 @@ def test_a_wholesale_rewrite_is_warned_but_not_blocking():
 
 def test_a_targeted_one_line_fix_passes_minimality():
     assert check_tier_invariants(_t3_case()).ok is True
+
+
+def test_the_regex_stays_authoritative_over_the_llm_reviewer():
+    """A reviewer that is unavailable, unparseable or simply wrong must never fail a case on
+    its own, and must never soften a pattern that did fire."""
+    from aibench.tiers import merge_disclosure_findings
+
+    # Pattern fired: blocking, and the reviewer's opinion cannot downgrade it.
+    for verdict in (True, False, None):
+        (v,) = merge_disclosure_findings(["off_by_one"], verdict)
+        assert v.code == "prompt_discloses_defect"
+        assert v.severity == "error"
+
+    # Pattern silent, reviewer flags it: advisory only.
+    (v,) = merge_disclosure_findings([], True, "paraphrased the root cause")
+    assert v.code == "prompt_discloses_defect_llm"
+    assert v.severity == "warn"
+
+    # Reviewer unavailable or clean: nothing at all.
+    assert merge_disclosure_findings([], None) == []
+    assert merge_disclosure_findings([], False) == []
+
+
+def test_llm_disclosure_verdict_is_none_without_credentials(monkeypatch):
+    from aibench.extract.llm_soft_filter import llm_disclosure_verdict
+
+    for var in (
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL",
+        "OPENAI_MODEL",
+        "AIBENCH_API_KEY",
+        "AIBENCH_BASE_URL",
+        "AIBENCH_MODEL",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    disclosed, reason = llm_disclosure_verdict("anything")
+    assert disclosed is None
+    assert "no_api" in reason

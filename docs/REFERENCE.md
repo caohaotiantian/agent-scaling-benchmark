@@ -545,6 +545,7 @@ runs:
 | `--case-set` | str | 必填 | 目标集 |
 | `--report` | Path | 无 | 完整审计 JSON（含每 case issues） |
 | `--annotate` | flag | 关 | 写入 `difficulty`、`tier`、`fingerprint`、`validity_ok`、`validity_issues` |
+| `--llm-disclosure-check` | flag | 关 | 对非 T1 用例补一次 LLM 泄露二审（每条一次调用）。正则仍是唯一阻断判据，LLM 只能加 warn |
 | `--fail-on-error` | flag | 关 | `failed>0` 时 exit **2**（便于 CI） |
 
 报告含 `tier_distribution`；每条 case 的 `checks` 含 `stub_fail`、`reference_solution`、`tier`。

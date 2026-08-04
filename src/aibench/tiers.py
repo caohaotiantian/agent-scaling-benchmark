@@ -211,6 +211,35 @@ def find_disclosures(prompt: str) -> list[str]:
     return [name for name, pat in _DISCLOSURE_PATTERNS if pat.search(prompt or "")]
 
 
+def merge_disclosure_findings(
+    regex_hits: list[str],
+    llm_disclosed: bool | None,
+    llm_reason: str = "",
+) -> list[TierViolation]:
+    """Combine the deterministic detector with an optional LLM second opinion.
+
+    The regex is authoritative and blocking; the reviewer can only add a warning. An LLM that
+    is unavailable, unparseable, or simply wrong must never be able to fail a case on its own,
+    and it must never override a pattern that did fire.
+    """
+    if regex_hits:
+        return [
+            TierViolation(
+                "prompt_discloses_defect",
+                f"prompt names the defect rather than the symptom: {regex_hits}",
+            )
+        ]
+    if llm_disclosed:
+        return [
+            TierViolation(
+                "prompt_discloses_defect_llm",
+                f"reviewer flagged paraphrased disclosure the patterns missed: {llm_reason[:200]}",
+                severity="warn",
+            )
+        ]
+    return []
+
+
 def find_bug_markers(content: str, *, flag_todo: bool = False) -> bool:
     if _BUG_MARKER.search(content or ""):
         return True

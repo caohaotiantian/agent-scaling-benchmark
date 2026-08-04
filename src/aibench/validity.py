@@ -172,7 +172,12 @@ def check_reference_solution(case: Case, *, case_set: str | None = None) -> tupl
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def audit_case(case: Case, *, case_set: str | None = None) -> CaseValidityReport:
+def audit_case(
+    case: Case,
+    *,
+    case_set: str | None = None,
+    llm_disclosure_check: bool = False,
+) -> CaseValidityReport:
     issues: list[ValidityIssue] = []
     fp = case_fingerprint(case)
     difficulty = estimate_difficulty(case)
@@ -206,6 +211,16 @@ def audit_case(case: Case, *, case_set: str | None = None) -> CaseValidityReport
         checks["tier"] = None
         issues.append(ValidityIssue("tier_missing", "warn", "metadata.tier is not set"))
 
+    if llm_disclosure_check and tier and tier != "T1":
+        from aibench.extract.llm_soft_filter import llm_disclosure_verdict
+        from aibench.tiers import find_disclosures, merge_disclosure_findings
+
+        disclosed, reason = llm_disclosure_verdict(case.prompt)
+        checks["llm_disclosure"] = {"disclosed": disclosed, "reason": reason}
+        for v in merge_disclosure_findings(find_disclosures(case.prompt), disclosed, reason):
+            if v.code == "prompt_discloses_defect_llm":
+                issues.append(ValidityIssue(f"tier_{v.code}", v.severity, v.message))
+
     if case.grader.mode == "script" and case.metadata.get("weak_grader"):
         issues.append(
             ValidityIssue("weak_grader_flag", "warn", "metadata.weak_grader=true with script mode")
@@ -227,9 +242,11 @@ def audit_case(case: Case, *, case_set: str | None = None) -> CaseValidityReport
     )
 
 
-def audit_case_set(case_set: str) -> dict[str, Any]:
+def audit_case_set(case_set: str, *, llm_disclosure_check: bool = False) -> dict[str, Any]:
     cases = load_cases(case_set, validate=True)
-    reports = [audit_case(c, case_set=case_set) for c in cases]
+    reports = [
+        audit_case(c, case_set=case_set, llm_disclosure_check=llm_disclosure_check) for c in cases
+    ]
     fps: dict[str, list[str]] = {}
     for r in reports:
         fps.setdefault(r.fingerprint or "", []).append(r.case_id)

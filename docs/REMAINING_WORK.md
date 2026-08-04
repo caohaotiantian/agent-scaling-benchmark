@@ -50,6 +50,8 @@
 - [x] **`plan-sample-size`**：按 McNemar 反推所需题量，可用 `--from-ablation` 实测不一致率
 - [x] **增量校准** `calibrate-cases --reuse-from`：case 内容与锚点面板都未变才复用旧结果
 - [x] **锚点漂移检测**：`anchor_fingerprint` 计入配置文件**内容**，改了 YAML 里的模型即整体失效
+- [x] **泄露检测 LLM 二审** `audit-cases --llm-disclosure-check`：正则仍是唯一阻断判据，
+      LLM 只能加 warn —— 不可用/解析失败/判错都不能单独否掉一条用例
 
 ---
 
@@ -72,7 +74,6 @@
 | 4 | **T4 / T5 真实产出率未知** | 分层 brief 已写，但只在单元测试与小样本上验证过；仓库级用例（多包 + 干扰文件）尚未规模化产出 | 跑一轮 `--tier T4 --min-tier T4`，统计实际达标率，按结果调 brief 或放宽不变量 |
 | 7 | **`estimate_difficulty` 冗余** | 已在文档标记 deprecated；**不移除** —— `stratified_by_difficulty` 在已发布的 `summary.json` 里，删除属破坏性变更 | 待下一次 schema 大版本一并清理 |
 | 8 | **仅支持 Python** | 分层不变量、测试函数计数、pytest 输出解析均为 Python 中心 | 抽象出 per-language 适配（测试发现、运行命令、通过率解析） |
-| 9 | **泄露检测为正则** | `find_disclosures` 双语正则，保守过判优于漏判，但仍会漏掉改写过的泄露 | 在 audit 阶段补一次 LLM 判定作为二审 |
 
 ### P2 — 校准的工程化
 
