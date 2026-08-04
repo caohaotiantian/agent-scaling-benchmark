@@ -73,6 +73,8 @@
 <li>[x] <strong><code>plan-sample-size</code></strong>：按 McNemar 反推所需题量，可用 <code>--from-ablation</code> 实测不一致率</li>
 <li>[x] <strong>增量校准</strong> <code>calibrate-cases --reuse-from</code>：case 内容与锚点面板都未变才复用旧结果</li>
 <li>[x] <strong>锚点漂移检测</strong>：<code>anchor_fingerprint</code> 计入配置文件<strong>内容</strong>，改了 YAML 里的模型即整体失效</li>
+<li>[x] <strong>消融行级容错</strong>：单行失败不再中止整个矩阵，失败行进 <code>failed_runs</code> 并在报告顶部告警；
+      全部失败才报错</li>
 <li>[x] <strong>泄露检测 LLM 二审</strong> <code>audit-cases --llm-disclosure-check</code>：正则仍是唯一阻断判据，
       LLM 只能加 warn —— 不可用/解析失败/判错都不能单独否掉一条用例</li>
 </ul>
@@ -176,10 +178,6 @@
 <tr>
 <td>Fusion 时间拆解全字段</td>
 <td>无 Fusion 时 null</td>
-</tr>
-<tr>
-<td>消融 run 级失败继续/汇总</td>
-<td>当前异常即中断</td>
 </tr>
 <tr>
 <td><strong>Docker/gVisor 沙箱</strong></td>

@@ -50,6 +50,8 @@
 - [x] **`plan-sample-size`**：按 McNemar 反推所需题量，可用 `--from-ablation` 实测不一致率
 - [x] **增量校准** `calibrate-cases --reuse-from`：case 内容与锚点面板都未变才复用旧结果
 - [x] **锚点漂移检测**：`anchor_fingerprint` 计入配置文件**内容**，改了 YAML 里的模型即整体失效
+- [x] **消融行级容错**：单行失败不再中止整个矩阵，失败行进 `failed_runs` 并在报告顶部告警；
+      全部失败才报错
 - [x] **泄露检测 LLM 二审** `audit-cases --llm-disclosure-check`：正则仍是唯一阻断判据，
       LLM 只能加 warn —— 不可用/解析失败/判错都不能单独否掉一条用例
 
@@ -87,7 +89,6 @@
 | Bootstrap / 置换检验 | 已有 Wilson CI 与 McNemar 配对检验 |
 | Git LFS / 远程 snapshot URI | 大体量现场 |
 | Fusion 时间拆解全字段 | 无 Fusion 时 null |
-| 消融 run 级失败继续/汇总 | 当前异常即中断 |
 | **Docker/gVisor 沙箱** | 生产安全关键差距：grader 与 tool_loop 的 bash 都在宿主机执行 |
 | tool_loop bash 白名单加严 | 已有基础限制 |
 | 真机 CI 连 DB/API | 默认 dry-run |
