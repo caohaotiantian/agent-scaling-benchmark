@@ -14,8 +14,15 @@ from aibench.extract.sessions import redact_secrets, task_fingerprint
 from aibench.extract.tier_shaping import settle_tier
 from aibench.tiers import find_disclosures, tier_spec
 
+# Whitelist, not a blacklist: the grader command runs on the host, so anything not explicitly
+# a known test runner is refused. Kept in step with aibench.languages.default_command.
 _SAFE_GRADER_CMD = re.compile(
-    r"^(python(\d+(\.\d+)?)?\s+-m\s+pytest\b|python(\d+(\.\d+)?)?\s+\S+\.py\b|true\b)",
+    r"^("
+    r"python(\d+(\.\d+)?)?\s+-m\s+pytest\b"
+    r"|python(\d+(\.\d+)?)?\s+\S+\.py\b"
+    r"|node\s+--test(\s+\S+)?\s*$"
+    r"|true\b"
+    r")",
     re.I,
 )
 

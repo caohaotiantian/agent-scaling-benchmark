@@ -25,6 +25,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from aibench import languages
 from aibench.models import Case
 
 AXES: dict[str, str] = {
@@ -170,7 +171,6 @@ _BUG_MARKER = re.compile(
     r"(?m)^\s*(?:#|//|/\*|\*)\s*(?:BUG|FIXME|XXX|HACK|WRONG|INCORRECT)\b", re.I
 )
 _TODO_MARKER = re.compile(r"(?m)^\s*(?:#|//|/\*|\*)\s*TODO\b", re.I)
-_TEST_FN = re.compile(r"^\s*(?:async\s+)?def\s+test_\w+|^\s*(?:it|test)\s*\(", re.M)
 
 
 @dataclass
@@ -261,8 +261,9 @@ def strip_bug_markers(content: str, *, strip_todo: bool = False) -> str:
     return text + "\n" if (content or "").endswith("\n") and not text.endswith("\n") else text
 
 
-def count_test_functions(content: str) -> int:
-    return len(_TEST_FN.findall(content or ""))
+def count_test_functions(content: str, *, language: str | None = None) -> int:
+    """Tests declared in a file, per the language registry."""
+    return languages.count_test_functions(content, language=language)
 
 
 #: Above this share of changed lines a reference solution reads as a rewrite rather than a fix.
@@ -333,7 +334,9 @@ def check_tier_invariants(case: Case) -> TierCheck:
     context_paths = [fb.path for fb in case.files]
     impl_files = [fb for fb in case.files if fb.role in {"impl", "spec"}]
     distractors = [fb for fb in case.files if fb.role == "distractor"]
-    hidden_fns = sum(count_test_functions(fb.content) for fb in g.hidden_tests)
+    hidden_fns = sum(
+        count_test_functions(fb.content, language=case.language) for fb in g.hidden_tests
+    )
     disclosures = find_disclosures(case.prompt)
     marked = [
         fb.path

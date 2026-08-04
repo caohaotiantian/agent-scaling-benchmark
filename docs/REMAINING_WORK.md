@@ -50,6 +50,10 @@
 - [x] **`plan-sample-size`**：按 McNemar 反推所需题量，可用 `--from-ablation` 实测不一致率
 - [x] **增量校准** `calibrate-cases --reuse-from`：case 内容与锚点面板都未变才复用旧结果
 - [x] **锚点漂移检测**：`anchor_fingerprint` 计入配置文件**内容**，改了 YAML 里的模型即整体失效
+- [x] **多语言适配** `src/aibench/languages.py`：测试文件识别 / 测试计数 / 拆分 / 通过率解析 /
+      运行命令集中到 `LanguageSpec`。目前注册 Python(pytest) 与 JavaScript(`node --test`)，
+      两者均有端到端判分测试。**只注册本机能真跑的语言** —— 注册一个装不上的工具链，
+      用例会一路通过生成/分层/发布，直到判分时对所有配置一起失败，看起来像难题而不是坏题
 - [x] **消融行级容错**：单行失败不再中止整个矩阵，失败行进 `failed_runs` 并在报告顶部告警；
       全部失败才报错
 - [x] **泄露检测 LLM 二审** `audit-cases --llm-disclosure-check`：正则仍是唯一阻断判据，
@@ -75,7 +79,6 @@
 |---|----|------|----------|
 | 4 | **T4 / T5 真实产出率未知** | 分层 brief 已写，但只在单元测试与小样本上验证过；仓库级用例（多包 + 干扰文件）尚未规模化产出 | 跑一轮 `--tier T4 --min-tier T4`，统计实际达标率，按结果调 brief 或放宽不变量 |
 | 7 | **`estimate_difficulty` 冗余** | 已在文档标记 deprecated；**不移除** —— `stratified_by_difficulty` 在已发布的 `summary.json` 里，删除属破坏性变更 | 待下一次 schema 大版本一并清理 |
-| 8 | **仅支持 Python** | 分层不变量、测试函数计数、pytest 输出解析均为 Python 中心 | 抽象出 per-language 适配（测试发现、运行命令、通过率解析） |
 
 ### P2 — 校准的工程化
 

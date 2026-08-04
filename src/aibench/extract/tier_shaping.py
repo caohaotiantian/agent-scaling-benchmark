@@ -11,14 +11,13 @@ into a smoke subset the agent sees and a hidden remainder it does not.
 
 from __future__ import annotations
 
-import re
 from copy import deepcopy
 from typing import Any
 
+from aibench import languages
 from aibench.models import Case
 from aibench.tiers import TIER_ORDER, axes_for_tier, check_tier_invariants, strip_bug_markers
 
-_TEST_DEF = re.compile(r"^(?:async\s+)?def\s+(test_\w+)\s*\(")
 _SPEC_SUFFIXES = (".md", ".rst", ".txt")
 
 
@@ -46,8 +45,8 @@ _ROLE_ALIASES = {
 
 
 def infer_role(path: str) -> str:
-    name = path.rsplit("/", 1)[-1]
-    if name.startswith("test_") or name.endswith(("_test.py", ".test.js", ".spec.ts")):
+    spec = languages.spec_for_path(path)
+    if spec and spec.is_test_path(path):
         return "test"
     if path.lower().endswith(_SPEC_SUFFIXES):
         return "spec"
@@ -89,23 +88,26 @@ def strip_defect_markers(case_dict: dict[str, Any]) -> list[str]:
     return changed
 
 
-def _split_test_body(content: str) -> tuple[str, list[tuple[str, str]]]:
+def _split_test_body(
+    content: str, *, language: str | None = None
+) -> tuple[str, list[tuple[str, str]]]:
     """Split a pytest file into (prelude, [(test_name, source), ...]).
 
     A test's decorators and the comments attached above it belong to that test: leaving a
     dangling ``@pytest.mark.parametrize`` behind in the visible file would make it unparseable,
     and a case that cannot even be collected fails every configuration equally.
     """
+    test_def = languages.spec_for(language).test_def
     lines = content.splitlines(keepends=True)
     starts: list[tuple[int, str]] = []
     for i, line in enumerate(lines):
-        m = _TEST_DEF.match(line)
+        m = test_def.match(line)
         if not m:
             continue
         start = i
         while start > 0:
             prev = lines[start - 1].strip()
-            if prev.startswith(("@", "#")):
+            if prev.startswith(("@", "#", "//")):
                 start -= 1
             else:
                 break
@@ -138,17 +140,20 @@ def split_tests_for_hiding(case_dict: dict[str, Any], *, keep_visible: int = 1) 
     for f in ctx.get("files") or []:
         if f.get("role") != "test":
             continue
-        prelude, blocks = _split_test_body(f.get("content") or "")
+        prelude, blocks = _split_test_body(
+            f.get("content") or "", language=case_dict.get("language")
+        )
         if len(blocks) <= keep_visible:
             continue
         visible, hidden = blocks[:keep_visible], blocks[keep_visible:]
         f["content"] = prelude.rstrip() + "\n\n\n" + "\n\n".join(src for _, src in visible)
-        stem = str(f.get("path")).rsplit("/", 1)[-1].removesuffix(".py")
-        hidden_path = f"{stem}_spec.py"
-        suffix = 2
+        spec = languages.spec_for(case_dict.get("language"))
+        name = str(f.get("path")).rsplit("/", 1)[-1]
+        hidden_path = spec.hidden_test_name(name)
+        n = 2
         while hidden_path in taken_paths:
-            hidden_path = f"{stem}_spec{suffix}.py"
-            suffix += 1
+            hidden_path = spec.hidden_test_name(name, marker=f"spec{n}")
+            n += 1
         taken_paths.add(hidden_path)
         existing_hidden.append(
             {
@@ -179,7 +184,7 @@ def use_whole_suite_command(case_dict: dict[str, Any]) -> None:
     """Point the grader at the whole workspace so injected hidden tests are collected too."""
     grader = case_dict.setdefault("grader", {})
     if grader.get("mode") == "script" and grader.get("hidden_tests"):
-        grader["command"] = "python -m pytest -q"
+        grader["command"] = languages.spec_for(case_dict.get("language")).default_command
 
 
 def shape_for_tier(case_dict: dict[str, Any], tier: str) -> dict[str, Any]:

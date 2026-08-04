@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from aibench.grading import _pytest_pass_ratio, check_protected_paths, grade_case
+from aibench.grading import check_protected_paths, grade_case
+from aibench.languages import pass_ratio
 from aibench.models import Case
 
 STUB = "def clamp(x, lo, hi):\n    return x\n"
@@ -114,10 +115,10 @@ def test_case_without_hidden_tests_is_unaffected(tmp_path: Path):
 
 
 def test_pytest_pass_ratio_parsing():
-    assert _pytest_pass_ratio("2 failed, 3 passed in 0.05s") == 0.6
-    assert _pytest_pass_ratio("5 passed in 0.02s") == 1.0
-    assert _pytest_pass_ratio("1 error in 0.01s") == 0.0
-    assert _pytest_pass_ratio("no tests ran in 0.01s") is None
+    assert pass_ratio("2 failed, 3 passed in 0.05s") == 0.6
+    assert pass_ratio("5 passed in 0.02s") == 1.0
+    assert pass_ratio("1 error in 0.01s") == 0.0
+    assert pass_ratio("no tests ran in 0.01s") is None
 
 
 def test_gold_fallback_scan_ignores_injected_hidden_tests(tmp_path: Path):

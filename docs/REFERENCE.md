@@ -848,6 +848,17 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 结果写入草稿 `metadata.tier` / `tier_reasons` / `trace_signals`，层级分布因此继承真实生产任务
 的难度分布，而非人工配额。
 
+### 13.5.35 多语言
+
+`src/aibench/languages.py` 的 `LanguageSpec` 收拢了所有 per-language 知识：
+
+| 语言 | 测试文件 | 运行命令 | 通过率解析 |
+|------|----------|----------|------------|
+| python | `test_*.py` / `*_test.py` | `python -m pytest -q` | `N passed/failed/error` |
+| javascript / typescript | `*.test.mjs` / `*.spec.ts` 等 | `node --test`（内置，零依赖） | `ℹ pass N` / `# pass N` |
+
+隐藏测试文件名由 `hidden_test_name` 生成，**必须仍被运行器识别为测试**：`clamp.test.mjs` 拆出的隐藏半边是 `clamp_spec.test.mjs` 而不是 `clamp.test_spec.mjs` ——后者不匹配 node 的发现规则，会被静默跳过，用例就只靠冒烟测试通过了，正是隐藏测试要防的那件事。
+
 ### 13.5.4 消毒与定级
 
 `tier_shaping.settle_tier` 从 T5 逐层下探，每层用该层所需的变换塑形一份副本，取**第一层不变量
