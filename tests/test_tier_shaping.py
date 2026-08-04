@@ -209,3 +209,40 @@ def test_settle_survives_an_invented_role_and_stays_schema_valid():
     assert tier == "T3"
     validator = load_schema_validator()
     assert sorted(validator.iter_errors(d), key=lambda e: list(e.path)) == []
+
+
+def test_distractors_are_derived_not_requested():
+    """A forced-T4 probe got role=distractor from the generator 0 times in 10, so the label is
+    derived from the same evidence the invariant check verifies against."""
+    from aibench.extract.tier_shaping import annotate_roles, label_unreferenced_as_distractors
+
+    d = _draft()
+    d["context"]["files"].extend(
+        [
+            {"path": "unrelated.py", "content": "def orphan():\n    return 1\n"},
+            {"path": "helper.py", "content": "def helper():\n    return 2\n"},
+        ]
+    )
+    # clamp.py imports helper, so helper is needed even though the fix does not touch it.
+    d["context"]["files"][0]["content"] += "from helper import helper\n"
+    annotate_roles(d)
+    labelled = label_unreferenced_as_distractors(d)
+
+    assert labelled == ["unrelated.py"]
+    roles = {f["path"]: f["role"] for f in d["context"]["files"]}
+    assert roles["unrelated.py"] == "distractor"
+    assert roles["helper.py"] == "impl", "a referenced module is not a distractor"
+    assert roles["clamp.py"] == "impl", "the file the solution fixes is never a distractor"
+    assert roles["test_clamp.py"] == "test"
+
+
+def test_a_derived_distractor_survives_the_invariant_check():
+    from aibench.models import Case
+    from aibench.tiers import check_tier_invariants
+
+    d = _draft()
+    d["context"]["files"].append({"path": "orphan.py", "content": "X = 1\n"})
+    settle_tier(d, "T4")
+    # T4 needs more than this draft can offer, but whatever tier it lands on must be consistent.
+    check = check_tier_invariants(Case.from_dict(d))
+    assert not any(v.code == "distractor_in_solution" for v in check.violations)

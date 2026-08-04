@@ -168,6 +168,36 @@ def split_tests_for_hiding(case_dict: dict[str, Any], *, keep_visible: int = 1) 
     return hidden_count
 
 
+def label_unreferenced_as_distractors(case_dict: dict[str, Any]) -> list[str]:
+    """Mark files that nothing needs as distractors, instead of asking the generator to.
+
+    Generators essentially never emit ``role: distractor`` — a forced-T4 probe produced it
+    0 times in 10. But the property is derivable: a file is irrelevant when the reference
+    solution does not change it *and* no other file mentions its module name. Deriving it from
+    the same evidence :func:`aibench.tiers.check_tier_invariants` verifies against keeps the
+    label honest, where a generator's say-so did not.
+    """
+    ctx = case_dict.get("context") or {}
+    files = ctx.get("files") or []
+    solution = {str(g.get("path")) for g in (case_dict.get("grader") or {}).get("gold_files") or []}
+
+    labelled: list[str] = []
+    for f in files:
+        path = str(f.get("path") or "")
+        if f.get("role") != "impl" or path in solution:
+            continue
+        module = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        referenced = any(
+            module in (other.get("content") or "")
+            for other in files
+            if other is not f and other.get("role") in {"impl", "test"}
+        )
+        if not referenced:
+            f["role"] = "distractor"
+            labelled.append(path)
+    return labelled
+
+
 def protect_visible_tests(case_dict: dict[str, Any]) -> list[str]:
     """Declare every visible test file as protected, so neutering one fails the case."""
     paths = [
@@ -196,6 +226,8 @@ def shape_for_tier(case_dict: dict[str, Any], tier: str) -> dict[str, Any]:
         split_tests_for_hiding(case_dict, keep_visible=1)
         protect_visible_tests(case_dict)
         use_whole_suite_command(case_dict)
+    if tier in {"T4", "T5"}:
+        label_unreferenced_as_distractors(case_dict)
     return case_dict
 
 
