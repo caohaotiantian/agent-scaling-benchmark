@@ -293,6 +293,16 @@ def main(argv: list[str] | None = None) -> int:
     p_plan.add_argument("--alpha", type=float, default=0.05)
     p_plan.add_argument("--power", type=float, default=0.8)
 
+    p_comp = sub.add_parser(
+        "compose-cases",
+        help="Build T4 retrieval cases by planting verified cases among unrelated files",
+    )
+    p_comp.add_argument("--from-set", type=str, required=True)
+    p_comp.add_argument("--to-set", type=str, required=True)
+    p_comp.add_argument("--target-files", type=int, default=6, help="Files per composed case")
+    p_comp.add_argument("--donors-per-case", type=int, default=3)
+    p_comp.add_argument("--max-cases", type=int, default=None)
+
     p_exp = sub.add_parser("export-ablation", help="Export ablation_summary to CSV/XLSX")
     p_exp.add_argument("--ablation-dir", type=Path, required=True)
     p_exp.add_argument("--csv", action="store_true", default=True)
@@ -690,6 +700,41 @@ def main(argv: list[str] | None = None) -> int:
                 "reasons column) or --from-set does not match the calibrated set."
             )
         return 0 if report["selected_count"] else 1
+
+    if args.cmd == "compose-cases":
+        from aibench.cases import case_set_dir
+        from aibench.compose import compose_case_set, load_verified_cases
+        from aibench.extract.tier_shaping import settle_tier
+
+        src = case_set_dir(args.from_set)
+        if not src.is_dir():
+            print(f"source case set not found: {src}")
+            return 1
+        composed = compose_case_set(
+            load_verified_cases(src),
+            target_files=args.target_files,
+            donors_per_case=args.donors_per_case,
+        )
+        dest = case_set_dir(args.to_set)
+        dest.mkdir(parents=True, exist_ok=True)
+        schema = load_schema_validator()
+        tiers: dict[str, int] = {}
+        written = 0
+        for case in composed:
+            if args.max_cases is not None and written >= args.max_cases:
+                break
+            settled, _ = settle_tier(case, "T4")
+            errors = sorted(schema.iter_errors(case), key=lambda e: list(e.path))
+            if errors:
+                print(f"skip {case['case_id']}: {errors[0].message}")
+                continue
+            write_json(dest / f"{case['case_id']}.json", case)
+            tiers[settled or "unset"] = tiers.get(settled or "unset", 0) + 1
+            written += 1
+        print(f"composed {written} cases -> {dest}")
+        if tiers:
+            print("tier distribution: " + ", ".join(f"{k}={v}" for k, v in sorted(tiers.items())))
+        return 0 if written else 1
 
     if args.cmd == "plan-sample-size":
         discordance = args.discordance / 100.0 if args.discordance is not None else None

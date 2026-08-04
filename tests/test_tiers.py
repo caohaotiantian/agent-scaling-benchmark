@@ -110,13 +110,24 @@ def test_t3_requires_hidden_tests_reference_solution_and_protection():
     assert check_tier_invariants(_t3_case()).ok is True
 
 
-def test_t4_requires_distractors_and_a_multi_file_solution():
+def test_t4_asks_for_breadth_and_distractors_but_not_a_multi_file_fix():
+    """T4 measures retrieval: can the solver find the broken file among many. Requiring a
+    two-file defect as well made the tier unproducible — a forced-T4 probe hit it 0 times in
+    10 — and coupled two capabilities that a single blocked one could veto. Cross-file
+    consistency now lives at T5 alone."""
     c = _t3_case()
     check = check_tier_invariants(Case.from_dict({**c.raw, "metadata": {"tier": "T4"}}))
     codes = {v.code for v in check.violations}
     assert "too_few_files" in codes
     assert "too_few_distractors" in codes
-    assert "too_few_solution_files" in codes
+    assert "too_few_solution_files" not in codes
+
+    from aibench.tiers import TIER_SPECS
+
+    assert TIER_SPECS["T4"].min_solution_files == 1
+    assert "A4" not in TIER_SPECS["T4"].axes
+    assert TIER_SPECS["T5"].min_solution_files == 2
+    assert "A4" in TIER_SPECS["T5"].axes
 
 
 def test_hidden_test_may_not_shadow_a_context_file():

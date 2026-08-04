@@ -11,8 +11,8 @@ carries invariants that a machine can check offline:
     T1 直接修复    题面/注释直接给出缺陷位置                  地板锚，几乎所有组合都过
     T2 定位修复    只给现象，求解者必须自己定位                A1 诊断
     T3 隐藏规格    隐藏测试 + 参考解，可见测试只是冒烟          A5 规格遵从 / A6 抗过拟合
-    T4 跨文件检索  多文件 + 干扰文件，参考解触及 ≥2 个文件      A2 检索 / A4 跨文件一致性
-    T5 迭代自修复  T4 + 保护测试 + 更宽的隐藏测试面            A3 迭代自修复
+    T4 上下文检索  ≥5 文件 + 干扰文件，缺陷藏在其中            A2 检索
+    T5 跨文件自修复 T4 + 缺陷跨 ≥2 文件 + 更宽的隐藏测试面      A3 迭代自修复 / A4 跨文件一致性
 
 The disclosure detector below is deliberately conservative: it over-flags rather than
 under-flags. A false positive costs one regenerated prompt at build time; a false negative
@@ -98,14 +98,18 @@ TIER_SPECS: dict[str, TierSpec] = {
     ),
     "T4": TierSpec(
         tier="T4",
-        label="跨文件检索",
-        axes=("A1", "A2", "A4", "A5", "A6"),
+        label="上下文检索",
+        axes=("A1", "A2", "A5", "A6"),
         min_files=5,
         max_files=None,
         allow_disclosure=False,
         min_hidden_test_fns=3,
         min_distractors=1,
-        min_solution_files=2,
+        # One file, deliberately: T4 asks "can it find the broken file among many", and a
+        # forced-T4 probe produced a two-file defect 0 times in 10. Cross-file consistency is
+        # a different capability and lives at T5, so neither is unmeasurable because of the
+        # other.
+        min_solution_files=1,
         require_protected_paths=True,
     ),
     "T5": TierSpec(
