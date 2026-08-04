@@ -1384,6 +1384,12 @@ runs:
 <td>写入 <code>difficulty</code>、<code>tier</code>、<code>fingerprint</code>、<code>validity_ok</code>、<code>validity_issues</code></td>
 </tr>
 <tr>
+<td><code>--llm-disclosure-check</code></td>
+<td>flag</td>
+<td>关</td>
+<td>对非 T1 用例补一次 LLM 泄露二审（每条一次调用）。正则仍是唯一阻断判据，LLM 只能加 warn</td>
+</tr>
+<tr>
 <td><code>--fail-on-error</code></td>
 <td>flag</td>
 <td>关</td>

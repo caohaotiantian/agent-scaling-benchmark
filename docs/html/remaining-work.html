@@ -73,6 +73,8 @@
 <li>[x] <strong><code>plan-sample-size</code></strong>：按 McNemar 反推所需题量，可用 <code>--from-ablation</code> 实测不一致率</li>
 <li>[x] <strong>增量校准</strong> <code>calibrate-cases --reuse-from</code>：case 内容与锚点面板都未变才复用旧结果</li>
 <li>[x] <strong>锚点漂移检测</strong>：<code>anchor_fingerprint</code> 计入配置文件<strong>内容</strong>，改了 YAML 里的模型即整体失效</li>
+<li>[x] <strong>泄露检测 LLM 二审</strong> <code>audit-cases --llm-disclosure-check</code>：正则仍是唯一阻断判据，
+      LLM 只能加 warn —— 不可用/解析失败/判错都不能单独否掉一条用例</li>
 </ul>
 <hr>
 <h2 id="_4">未做（按优先级，待未来实现）</h2>
@@ -132,12 +134,6 @@
 <td><strong>仅支持 Python</strong></td>
 <td>分层不变量、测试函数计数、pytest 输出解析均为 Python 中心</td>
 <td>抽象出 per-language 适配（测试发现、运行命令、通过率解析）</td>
-</tr>
-<tr>
-<td>9</td>
-<td><strong>泄露检测为正则</strong></td>
-<td><code>find_disclosures</code> 双语正则，保守过判优于漏判，但仍会漏掉改写过的泄露</td>
-<td>在 audit 阶段补一次 LLM 判定作为二审</td>
 </tr>
 </tbody>
 </table>
