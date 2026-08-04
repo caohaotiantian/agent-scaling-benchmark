@@ -68,6 +68,8 @@
 <li>[x] <strong>干扰文件反证校验</strong>：<code>role=distractor</code> 却出现在参考解里即判违规（<code>distractor_in_solution</code>）</li>
 <li>[x] <strong>参考解最小性</strong>：与初始文件完全相同判 error，改动行占比 &gt;60% 告警</li>
 <li>[x] 采样扩展 pass@k / 成本轴（原 P0 全部）</li>
+<li>[x] <strong>评分干扰检测</strong>：conftest / pytest.ini / 跳过标记等绕过 <code>protected_paths</code> 的路子</li>
+<li>[x] <strong><code>select-cases --tier-quota</code></strong>：按层配额选题，避免整批落在同一能力带</li>
 </ul>
 <hr>
 <h2 id="_4">未做（按优先级，待未来实现）</h2>
@@ -164,18 +166,6 @@
 <td><strong>样本量规划无工具</strong></td>
 <td>「要分辨 10pp 需要多少题」只在文档里给了估算</td>
 <td>加 <code>plan-sample-size</code> 子命令：给定目标效应量与 p 分布，反推所需题量</td>
-</tr>
-<tr>
-<td>13</td>
-<td><strong><code>select-cases</code> 不做分层配额</strong></td>
-<td>纯按 <code>spread</code> / <code>r_pb</code> 降序取前 N，可能全部集中在某一层</td>
-<td>增加 <code>--tier-quota T2=0.3,T3=0.4,...</code>，在保证区分度的同时保持层级覆盖</td>
-</tr>
-<tr>
-<td>14</td>
-<td><strong>反作弊面偏窄</strong></td>
-<td>只覆盖 <code>protected_paths</code> 字节比对</td>
-<td>补：<code>conftest.py</code> 注入检测、<code>sys.modules</code> 猴补丁检测、跳过标记（<code>pytest.mark.skip</code>）检测</td>
 </tr>
 </tbody>
 </table>

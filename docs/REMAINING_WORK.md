@@ -45,6 +45,8 @@
 - [x] **干扰文件反证校验**：`role=distractor` 却出现在参考解里即判违规（`distractor_in_solution`）
 - [x] **参考解最小性**：与初始文件完全相同判 error，改动行占比 >60% 告警
 - [x] 采样扩展 pass@k / 成本轴（原 P0 全部）
+- [x] **评分干扰检测**：conftest / pytest.ini / 跳过标记等绕过 `protected_paths` 的路子
+- [x] **`select-cases --tier-quota`**：按层配额选题，避免整批落在同一能力带
 
 ---
 
@@ -76,8 +78,6 @@
 | 10 | **校准无增量/断点续跑** | 每次 `calibrate-cases` 全量重跑，成本 = 锚点数 × repeats × 全集 | 按 case fingerprint 缓存历史结果，只跑新增/变更的 case |
 | 11 | **锚点漂移无策略** | 校准结论绑定当时的锚点面板；模型升级后 `p_hat` 失效，但没有失效标记 | `calibration.json` 记录锚点指纹；case 元数据带上校准时间与锚点版本，过期即提示重校准 |
 | 12 | **样本量规划无工具** | 「要分辨 10pp 需要多少题」只在文档里给了估算 | 加 `plan-sample-size` 子命令：给定目标效应量与 p 分布，反推所需题量 |
-| 13 | **`select-cases` 不做分层配额** | 纯按 `spread` / `r_pb` 降序取前 N，可能全部集中在某一层 | 增加 `--tier-quota T2=0.3,T3=0.4,...`，在保证区分度的同时保持层级覆盖 |
-| 14 | **反作弊面偏窄** | 只覆盖 `protected_paths` 字节比对 | 补：`conftest.py` 注入检测、`sys.modules` 猴补丁检测、跳过标记（`pytest.mark.skip`）检测 |
 
 ### P3 — 既有遗留（未变）
 

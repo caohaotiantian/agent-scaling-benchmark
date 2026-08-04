@@ -14,6 +14,7 @@ from aibench.calibrate import (
     SelectionPolicy,
     calibrate_case_set,
     load_anchor_panel,
+    parse_tier_quota,
     select_cases,
 )
 from aibench.cases import load_schema_validator, validate_case_set
@@ -243,6 +244,13 @@ def main(argv: list[str] | None = None) -> int:
     p_sel.add_argument("--from-set", type=str, required=True)
     p_sel.add_argument("--to-set", type=str, required=True)
     p_sel.add_argument("--max-cases", type=int, default=None)
+    p_sel.add_argument(
+        "--tier-quota",
+        type=str,
+        default=None,
+        help="Per-tier share of the selected set, e.g. T2=0.3,T3=0.4,T4=0.3. Without it, "
+        "selection ranks purely by discrimination and can land entirely in one tier.",
+    )
     p_sel.add_argument("--dry-run", action="store_true")
 
     p_exp = sub.add_parser("export-ablation", help="Export ablation_summary to CSV/XLSX")
@@ -623,9 +631,10 @@ def main(argv: list[str] | None = None) -> int:
                 source_set=args.from_set,
                 dest_set=args.to_set,
                 max_cases=args.max_cases,
+                tier_quota=parse_tier_quota(args.tier_quota),
                 dry_run=args.dry_run,
             )
-        except FileNotFoundError as e:
+        except (FileNotFoundError, ValueError) as e:
             print(str(e))
             return 1
         print(json.dumps(report, ensure_ascii=False, indent=2))
