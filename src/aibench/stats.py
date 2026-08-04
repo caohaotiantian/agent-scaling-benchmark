@@ -87,6 +87,110 @@ def point_biserial(item: list[float], total: list[float]) -> float | None:
     return cov / math.sqrt(var_i * var_t)
 
 
+def normal_quantile(p: float) -> float:
+    """Inverse standard-normal CDF (Acklam's rational approximation, |error| < 1.2e-9).
+
+    Inlined rather than pulled from scipy: it is the only distribution function the sample-size
+    planner needs, and scipy is not otherwise a dependency of this harness.
+    """
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"quantile needs 0 < p < 1, got {p}")
+    a = (
+        -39.69683028665376,
+        220.9460984245205,
+        -275.9285104469687,
+        138.3577518672690,
+        -30.66479806614716,
+        2.506628277459239,
+    )
+    b = (
+        -54.47609879822406,
+        161.5858368580409,
+        -155.6989798598866,
+        66.80131188771972,
+        -13.28068155288572,
+    )
+    c = (
+        -0.007784894002430293,
+        -0.3223964580411365,
+        -2.400758277161838,
+        -2.549732539343734,
+        4.374664141464968,
+        2.938163982698783,
+    )
+    d = (0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416)
+    plow, phigh = 0.02425, 1 - 0.02425
+    if p < plow:
+        q = math.sqrt(-2 * math.log(p))
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / (
+            (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1
+        )
+    if p > phigh:
+        q = math.sqrt(-2 * math.log(1 - p))
+        return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / (
+            (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1
+        )
+    q = p - 0.5
+    r = q * q
+    return (
+        (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5])
+        * q
+        / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+    )
+
+
+def mcnemar_sample_size(
+    *,
+    delta: float,
+    discordance: float,
+    alpha: float = 0.05,
+    power: float = 0.8,
+) -> dict[str, Any]:
+    """Cases needed for a paired test to detect a ``delta`` difference in success rate.
+
+    ``delta`` is the gap between the two success rates and ``discordance`` the share of cases
+    they disagree on. Only discordant cases carry information, and the two quantities interact:
+    at a fixed ``delta``, more discordance means the disagreement is less one-sided — noisier
+    evidence — so the requirement grows.
+    """
+    if not 0 < delta < 1:
+        raise ValueError(f"delta must be a proportion in (0, 1), got {delta}")
+    if not 0 < discordance <= 1:
+        raise ValueError(f"discordance must be in (0, 1], got {discordance}")
+    if discordance <= delta:
+        raise ValueError(
+            f"discordance ({discordance}) must exceed delta ({delta}): the two runs cannot "
+            "differ by more than they disagree"
+        )
+    z_a = normal_quantile(1 - alpha / 2)
+    z_b = normal_quantile(power)
+    n = ((z_a * math.sqrt(discordance) + z_b * math.sqrt(discordance - delta**2)) ** 2) / (delta**2)
+    n_cases = math.ceil(n)
+    return {
+        "delta": delta,
+        "discordance": discordance,
+        "alpha": alpha,
+        "power": power,
+        "required_cases": n_cases,
+        "expected_discordant_pairs": math.ceil(n_cases * discordance),
+    }
+
+
+def observed_discordance(pairwise: list[dict[str, Any]]) -> float | None:
+    """Discordance rate seen in an ablation's pairwise comparisons, for planning the next run."""
+    totals = [
+        (
+            p.get("discordant") or 0,
+            (p.get("discordant") or 0) + (p.get("both_passed") or 0) + (p.get("neither") or 0),
+        )
+        for p in pairwise
+    ]
+    usable = [(d, n) for d, n in totals if n]
+    if not usable:
+        return None
+    return sum(d for d, _ in usable) / sum(n for _, n in usable)
+
+
 def budget_quantiles(
     case_results: list[dict[str, Any]],
     *,
