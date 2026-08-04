@@ -31,3 +31,6 @@ benchmarks/ai_coding/cases/.ablation-filtered-*/
 
 # three-loop-workflow task state
 .agent/
+
+# calibration working set (subset materialized for incremental re-runs)
+benchmarks/ai_coding/cases/.calibrating-*/

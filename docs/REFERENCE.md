@@ -564,6 +564,7 @@ runs:
 | `--p-max` | float | `0.9` | 高于此通过率判送分题 |
 | `--p-min` | float | `0.05` | 低于此通过率判无人能过 |
 | `--min-rpb` | float | `0.15` | 点二列相关低于此判噪声题 |
+| `--reuse-from` | Path | 无 | 上一次的 `calibration.json`；case 内容与锚点面板**都**未变的沿用旧结果，只跑变更/新增的 |
 
 产物：`calibration.json` + `calibration_report.md`。**成本 = 锚点数 × repeats 次全量跑测**，
 按需预算。`kept_count==0` 时 exit 1。
@@ -875,6 +876,8 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | `spread` | 最强锚点通过率 − 最弱锚点通过率 | 越大越能分离配置 |
 | `point_biserial` | 该 case 结果与总体能力的相关 | `< 0.15` 判为噪声题 |
 | `flaky` | 同一锚点多次重复结果不一致 | 标记，供人工复核 |
+
+`anchor_fingerprint` 计入每个引用配置文件的**内容**而非路径：改了 `glm52.yaml` 里的 model 字段，路径全都没变但锚点含义已变，旧的 `p_hat` 必须整体失效，不能继续沿用。
 
 锚点面板**必须跨越**要区分的能力带（至少一个弱锚、一个强锚，且同时变化模型与 agent 两条轴），
 否则 `spread` 恒为 0，会把所有用例判为无区分度。

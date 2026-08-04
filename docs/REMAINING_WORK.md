@@ -48,6 +48,8 @@
 - [x] **评分干扰检测**：conftest / pytest.ini / 跳过标记等绕过 `protected_paths` 的路子
 - [x] **`select-cases --tier-quota`**：按层配额选题，避免整批落在同一能力带
 - [x] **`plan-sample-size`**：按 McNemar 反推所需题量，可用 `--from-ablation` 实测不一致率
+- [x] **增量校准** `calibrate-cases --reuse-from`：case 内容与锚点面板都未变才复用旧结果
+- [x] **锚点漂移检测**：`anchor_fingerprint` 计入配置文件**内容**，改了 YAML 里的模型即整体失效
 
 ---
 
@@ -76,8 +78,6 @@
 
 | # | 项 | 现状 | 落地建议 |
 |---|----|------|----------|
-| 10 | **校准无增量/断点续跑** | 每次 `calibrate-cases` 全量重跑，成本 = 锚点数 × repeats × 全集 | 按 case fingerprint 缓存历史结果，只跑新增/变更的 case |
-| 11 | **锚点漂移无策略** | 校准结论绑定当时的锚点面板；模型升级后 `p_hat` 失效，但没有失效标记 | `calibration.json` 记录锚点指纹；case 元数据带上校准时间与锚点版本，过期即提示重校准 |
 
 ### P3 — 既有遗留（未变）
 

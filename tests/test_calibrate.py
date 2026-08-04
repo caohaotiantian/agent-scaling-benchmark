@@ -248,3 +248,77 @@ def test_quota_selection_still_prefers_the_better_discriminators_within_a_tier()
     keep = [_cal("weak", "T2", 0.2), _cal("strong", "T2", 1.0)]
     picked = apply_tier_quota(keep, quota={"T2": 1.0}, max_cases=1)
     assert [c["case_id"] for c in picked] == ["strong"]
+
+
+def test_anchor_fingerprint_tracks_config_contents_not_just_paths(tmp_path, monkeypatch):
+    """Swapping the model inside a referenced YAML changes what the anchors mean while every
+    path stays identical, so a p_hat measured against the old panel must not stay trusted."""
+    from aibench.calibrate import AnchorSpec, anchor_fingerprint
+
+    panel = [
+        AnchorSpec(
+            name="a",
+            agent_config="configs/agents/openai_compat.yaml",
+            model_config="configs/models/glm52.yaml",
+        )
+    ]
+    before = anchor_fingerprint(panel)
+    assert before == anchor_fingerprint(panel), "must be stable for unchanged configs"
+
+    renamed = [
+        AnchorSpec(
+            name="a",
+            agent_config="configs/agents/openai_compat.yaml",
+            model_config="configs/models/glm51.yaml",
+        )
+    ]
+    assert anchor_fingerprint(renamed) != before
+
+
+def test_a_changed_panel_invalidates_every_previous_result():
+    from aibench.calibrate import plan_calibration
+
+    previous = {"anchor_fingerprint": "old", "cases": [{"case_id": "c1", "fingerprint": "f1"}]}
+    todo, reused = plan_calibration(["c1"], {"c1": "f1"}, previous, panel="new")
+    assert todo == ["c1"] and reused == []
+
+
+def test_unchanged_cases_are_reused_and_changed_ones_re_run():
+    from aibench.calibrate import plan_calibration
+
+    previous = {
+        "anchor_fingerprint": "p1",
+        "cases": [
+            {"case_id": "same", "fingerprint": "f-same"},
+            {"case_id": "edited", "fingerprint": "f-old"},
+        ],
+    }
+    todo, reused = plan_calibration(
+        ["same", "edited", "brand-new"],
+        {"same": "f-same", "edited": "f-new", "brand-new": "f-x"},
+        previous,
+        panel="p1",
+    )
+    assert todo == ["edited", "brand-new"]
+    assert [c["case_id"] for c in reused] == ["same"]
+
+
+def test_no_previous_calibration_means_everything_runs():
+    from aibench.calibrate import plan_calibration
+
+    todo, reused = plan_calibration(["a", "b"], {"a": "1", "b": "2"}, None, panel="p")
+    assert todo == ["a", "b"] and reused == []
+
+
+def test_merging_reused_results_recomputes_the_set_level_distributions():
+    from aibench.calibrate import _merge_reused
+
+    fresh = aggregate_calibration(_panel({"new": False}, {"new": False}, {"new": True}))
+    reused = [
+        {"case_id": "old", "tier": "T2", "p_hat": 1.0, "keep": False, "reasons": ["too_easy"]}
+    ]
+    merged = _merge_reused(fresh, reused, policy=None)
+    assert merged["total_cases"] == 2
+    assert merged["kept_count"] == 1
+    assert merged["p_hat_distribution"]["0.8-1.0"] == 1
+    assert [c["case_id"] for c in merged["cases"]] == ["new", "old"]

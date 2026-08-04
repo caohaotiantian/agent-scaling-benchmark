@@ -17,6 +17,7 @@ function over result rows, so the selection policy is testable without spending 
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import time
@@ -70,6 +71,8 @@ class CaseCalibration:
     passes: int
     p_hat: float
     confidence_interval: str | None
+    #: Content hash of the case as measured; a later run reuses this result only if it matches.
+    fingerprint: str | None = None
     by_anchor: dict[str, float] = field(default_factory=dict)
     spread: float = 0.0
     point_biserial: float | None = None
@@ -79,6 +82,51 @@ class CaseCalibration:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def anchor_fingerprint(anchors: list[AnchorSpec]) -> str:
+    """Identity of the panel a calibration was measured against.
+
+    Includes the *contents* of each referenced config, not just its path: swapping the model
+    inside `glm52.yaml` changes what the anchors mean while every path stays the same, and a
+    p_hat measured against the old panel would silently keep being trusted.
+    """
+    root = repo_root()
+    parts: list[str] = []
+    for a in sorted(anchors, key=lambda x: x.name):
+        parts.append(a.name)
+        for rel in (a.agent_config, a.model_config, a.run_config):
+            path = _abs(root, rel)
+            parts.append(path.read_text(encoding="utf-8") if path and path.is_file() else str(rel))
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def plan_calibration(
+    case_ids: list[str],
+    fingerprints: dict[str, str],
+    previous: dict[str, Any] | None,
+    *,
+    panel: str,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Split cases into those needing a run and those whose earlier result still holds.
+
+    A previous result is reusable only when both the case and the panel are byte-identical to
+    what produced it; either changing invalidates the measurement.
+    """
+    if not previous or previous.get("anchor_fingerprint") != panel:
+        return list(case_ids), []
+    prior = {
+        c["case_id"]: c
+        for c in previous.get("cases") or []
+        if c.get("fingerprint") and c["case_id"] in fingerprints
+    }
+    reusable = [
+        prior[cid]
+        for cid in case_ids
+        if cid in prior and prior[cid].get("fingerprint") == fingerprints.get(cid)
+    ]
+    reused_ids = {c["case_id"] for c in reusable}
+    return [cid for cid in case_ids if cid not in reused_ids], reusable
 
 
 def load_anchor_panel(path: Path) -> tuple[list[AnchorSpec], dict[str, Any]]:
@@ -104,6 +152,7 @@ def aggregate_calibration(
 
     outcomes: dict[str, dict[int, list[bool]]] = {}
     tiers: dict[str, str | None] = {}
+    fingerprints: dict[str, str | None] = {}
     anchor_of: list[str] = []
     for i, run in enumerate(runs):
         anchor_of.append(str(run.get("anchor", "anchor")))
@@ -114,6 +163,7 @@ def aggregate_calibration(
             if not cid:
                 continue
             tiers.setdefault(cid, row.get("tier"))
+            fingerprints.setdefault(cid, row.get("fingerprint"))
             outcomes.setdefault(cid, {}).setdefault(i, []).append(bool(row.get("passed")))
 
     run_indices = list(range(len(runs)))
@@ -167,6 +217,7 @@ def aggregate_calibration(
             CaseCalibration(
                 case_id=cid,
                 tier=tiers.get(cid),
+                fingerprint=fingerprints.get(cid),
                 attempts=attempts,
                 passes=passes,
                 p_hat=p_hat,
@@ -196,13 +247,18 @@ def aggregate_calibration(
 
 
 def _p_buckets(reports: list[CaseCalibration]) -> dict[str, int]:
+    return _p_buckets_from_rows([{"p_hat": r.p_hat} for r in reports])
+
+
+def _p_buckets_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
     buckets = {"0.0-0.2": 0, "0.2-0.5": 0, "0.5-0.8": 0, "0.8-1.0": 0}
-    for r in reports:
-        if r.p_hat < 0.2:
+    for r in rows:
+        p = float(r.get("p_hat") or 0.0)
+        if p < 0.2:
             buckets["0.0-0.2"] += 1
-        elif r.p_hat < 0.5:
+        elif p < 0.5:
             buckets["0.2-0.5"] += 1
-        elif r.p_hat < 0.8:
+        elif p < 0.8:
             buckets["0.5-0.8"] += 1
         else:
             buckets["0.8-1.0"] += 1
@@ -229,41 +285,115 @@ def calibrate_case_set(
     output_root: Path | None = None,
     policy: SelectionPolicy | None = None,
     case_workers: int | None = None,
+    reuse_from: Path | None = None,
 ) -> tuple[Path, dict[str, Any]]:
-    """Run the anchor panel ``repeats`` times over ``case_set`` and write ``calibration.json``."""
+    """Run the anchor panel ``repeats`` times over ``case_set`` and write ``calibration.json``.
+
+    ``reuse_from`` points at an earlier ``calibration.json``; cases whose content and panel are
+    unchanged keep their previous result and are not re-run. A calibration costs
+    anchors x repeats full passes, so re-measuring a set after adding a handful of cases is
+    otherwise the most expensive no-op in the pipeline.
+    """
     from aibench.runner import run_benchmark
 
     root = repo_root()
     out_root = output_root or (root / "runs")
     cal_dir = out_root / f"calibration_{time.strftime('%Y%m%d_%H%M%S')}"
     cal_dir.mkdir(parents=True, exist_ok=True)
+    panel = anchor_fingerprint(anchors)
+
+    from aibench.cases import load_cases
+    from aibench.validity import case_fingerprint
+
+    cases = load_cases(case_set, validate=True)
+    fingerprints = {c.case_id: c.metadata.get("fingerprint") or case_fingerprint(c) for c in cases}
+    previous = load_json(reuse_from) if reuse_from and reuse_from.is_file() else None
+    todo, reused = plan_calibration([c.case_id for c in cases], fingerprints, previous, panel=panel)
+    if reused:
+        print(f"reusing {len(reused)} unchanged case results; running {len(todo)}")
+
+    run_set = case_set
+    if reused and todo:
+        run_set = _materialize_subset(case_set, todo)
+    elif reused and not todo:
+        run_set = None  # nothing changed; the previous numbers still stand
 
     runs: list[dict[str, Any]] = []
-    for anchor in anchors:
-        for rep in range(1, repeats + 1):
-            run_dir = run_benchmark(
-                run_config_path=_abs(root, anchor.run_config),
-                agent_config_path=_abs(root, anchor.agent_config),
-                model_config_path=_abs(root, anchor.model_config),
-                case_set=case_set,
-                run_id=f"cal-{anchor.name}-r{rep}",
-                output_root=cal_dir,
-                case_workers=case_workers,
-            )
-            runs.append(
-                {
-                    "anchor": anchor.name,
-                    "repeat": rep,
-                    "rows": read_result_rows(run_dir / "results.jsonl"),
-                }
-            )
+    if run_set is not None:
+        for anchor in anchors:
+            for rep in range(1, repeats + 1):
+                run_dir = run_benchmark(
+                    run_config_path=_abs(root, anchor.run_config),
+                    agent_config_path=_abs(root, anchor.agent_config),
+                    model_config_path=_abs(root, anchor.model_config),
+                    case_set=run_set,
+                    run_id=f"cal-{anchor.name}-r{rep}",
+                    output_root=cal_dir,
+                    case_workers=case_workers,
+                )
+                runs.append(
+                    {
+                        "anchor": anchor.name,
+                        "repeat": rep,
+                        "rows": read_result_rows(run_dir / "results.jsonl"),
+                    }
+                )
 
     report = aggregate_calibration(runs, policy=policy)
+    if reused:
+        report = _merge_reused(report, reused, policy=policy)
     report["case_set"] = case_set
     report["repeats"] = repeats
+    report["anchor_fingerprint"] = panel
+    report["reused_case_count"] = len(reused)
+    report["recalibrated_case_count"] = len(todo)
     write_json(cal_dir / "calibration.json", report)
     (cal_dir / "calibration_report.md").write_text(render_calibration_md(report), encoding="utf-8")
     return cal_dir, report
+
+
+def _materialize_subset(case_set: str, case_ids: list[str]) -> str:
+    """Write a temporary case set holding only ``case_ids`` so a run can cover just those."""
+    src = case_set_dir(case_set)
+    dest_name = f".calibrating-{case_set}"
+    dest = repo_root() / "benchmarks/ai_coding/cases" / dest_name
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    wanted = set(case_ids)
+    for p in sorted(src.glob("*.json")):
+        if is_case_json_path(p) and load_json(p).get("case_id") in wanted:
+            shutil.copy2(p, dest / p.name)
+    snap = src / "snapshots"
+    if snap.is_dir():
+        shutil.copytree(snap, dest / "snapshots")
+    return dest_name
+
+
+def _merge_reused(
+    report: dict[str, Any],
+    reused: list[dict[str, Any]],
+    *,
+    policy: SelectionPolicy | None,
+) -> dict[str, Any]:
+    """Fold previously measured cases back in and recompute the set-level distributions."""
+    cases = [*(report.get("cases") or []), *reused]
+    cases.sort(key=lambda c: str(c.get("case_id")))
+    kept = [c for c in cases if c.get("keep")]
+    merged = dict(report)
+    merged.update(
+        {
+            "policy": (policy or SelectionPolicy()).to_dict(),
+            "total_cases": len(cases),
+            "kept_count": len(kept),
+            "dropped_count": len(cases) - len(kept),
+            "p_hat_distribution": _p_buckets_from_rows(cases),
+            "kept_p_hat_distribution": _p_buckets_from_rows(kept),
+            "tier_distribution": _count_by_tier(kept),
+            "cases": cases,
+        }
+    )
+    return merged
 
 
 def read_result_rows(path: Path) -> list[dict[str, Any]]:
