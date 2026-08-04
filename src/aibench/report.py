@@ -107,6 +107,8 @@ def build_summary(
         "confidence_interval": format_wilson_ci(success_n, effective_n),
         "stratified_by_task_type": stratify_results(case_results, key="task_type"),
         "stratified_by_difficulty": stratify_results(case_results, key="difficulty"),
+        "stratified_by_tier": stratify_results(case_results, key="tier"),
+        "reward_hack_count": sum(1 for r in case_results if r.get("reward_hack")),
         "judgment_agreement": None,
         "baseline_win_rate": None,
         # Scaling 收益（单路径 baseline 默认空）
@@ -238,6 +240,7 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         "",
     ]
     for title, key in (
+        ("tier", "stratified_by_tier"),
         ("task_type", "stratified_by_task_type"),
         ("difficulty", "stratified_by_difficulty"),
     ):
@@ -256,15 +259,17 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         [
             "## Case 明细",
             "",
-            "| case_id | passed | infra_error | tokens | wall_s | steps | difficulty |",
-            "| --- | --- | --- | ---: | ---: | ---: | --- |",
+            "| case_id | tier | passed | infra_error | tokens | wall_s | steps | 测试通过比 |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
         ]
     )
     for r in case_results:
+        ratio = r.get("test_pass_ratio")
         lines.append(
-            f"| {r.get('case_id')} | {r.get('passed')} | {r.get('infra_error')} "
+            f"| {r.get('case_id')} | {r.get('tier') or '-'} | {r.get('passed')} "
+            f"| {r.get('infra_error')} "
             f"| {r.get('total_tokens')} | {float(r.get('wall_time_s') or 0):.4f} "
-            f"| {r.get('step_count')} | {r.get('difficulty')} |"
+            f"| {r.get('step_count')} | {f'{ratio:.2f}' if ratio is not None else '-'} |"
         )
     lines.append("")
     diag = summary.get("failure_diagnostics")

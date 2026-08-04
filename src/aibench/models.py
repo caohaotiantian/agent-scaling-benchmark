@@ -9,10 +9,11 @@ from typing import Any
 class FileBlob:
     path: str
     content: str
+    role: str = "impl"  # impl | test | distractor | spec
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> FileBlob:
-        return cls(path=d["path"], content=d["content"])
+        return cls(path=d["path"], content=d["content"], role=d.get("role") or "impl")
 
 
 @dataclass
@@ -24,10 +25,13 @@ class GraderSpec:
     key_lines: list[str] = field(default_factory=list)
     judge_rubric: str | None = None
     judge_threshold: float | None = 0.7
+    hidden_tests: list[FileBlob] = field(default_factory=list)
+    protected_paths: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> GraderSpec:
         gold = [FileBlob.from_dict(x) for x in d.get("gold_files") or []]
+        hidden = [FileBlob.from_dict(x) for x in d.get("hidden_tests") or []]
         return cls(
             mode=d["mode"],
             command=d.get("command"),
@@ -36,6 +40,8 @@ class GraderSpec:
             key_lines=list(d.get("key_lines") or []),
             judge_rubric=d.get("judge_rubric"),
             judge_threshold=d.get("judge_threshold", 0.7),
+            hidden_tests=hidden,
+            protected_paths=list(d.get("protected_paths") or []),
         )
 
 
@@ -73,6 +79,11 @@ class Case:
             metadata=dict(d.get("metadata") or {}),
             raw=d,
         )
+
+    @property
+    def tier(self) -> str | None:
+        t = self.metadata.get("tier")
+        return str(t) if t else None
 
 
 @dataclass
@@ -206,6 +217,8 @@ class GradeResult:
     score: float | None = None
     detail: str = ""
     infra_error: bool = False
+    reward_hack: bool = False
+    test_pass_ratio: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

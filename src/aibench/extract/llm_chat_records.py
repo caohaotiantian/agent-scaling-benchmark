@@ -25,6 +25,7 @@ from aibench.extract.sessions import (
     redact_secrets,
     task_fingerprint,
 )
+from aibench.extract.trace_signals import signals_from_messages, suggest_tier
 
 
 @dataclass
@@ -269,6 +270,9 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
     fp = task_fingerprint(prompt, [f["path"] for f in context_files])
     case_id = f"db-{short_id}-{fp}"
 
+    signals = signals_from_messages(messages)
+    tier, tier_reasons = suggest_tier(signals)
+
     return {
         "case_id": case_id,
         "schema_version": "0.1",
@@ -302,6 +306,10 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             "has_context_files": bool(files),
             "has_gold_code": bool(gold),
             "review_status": "needs_review",
+            "tier": tier,
+            "tier_source": "trace_signals",
+            "tier_reasons": tier_reasons,
+            "trace_signals": signals.to_dict(),
         },
     }
 

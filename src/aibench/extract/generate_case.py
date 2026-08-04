@@ -11,6 +11,8 @@ import httpx
 from aibench.env_config import openai_settings
 from aibench.extract.history_parse import guess_language, guess_task_type
 from aibench.extract.sessions import redact_secrets, task_fingerprint
+from aibench.extract.tier_shaping import settle_tier
+from aibench.tiers import find_disclosures, tier_spec
 
 _SAFE_GRADER_CMD = re.compile(
     r"^(python(\d+(\.\d+)?)?\s+-m\s+pytest\b|python(\d+(\.\d+)?)?\s+\S+\.py\b|true\b)",
@@ -27,7 +29,7 @@ def is_safe_grader_command(cmd: str | None) -> bool:
     return bool(_SAFE_GRADER_CMD.match(c))
 
 
-def heuristic_case_from_draft(draft: dict[str, Any]) -> dict[str, Any]:
+def heuristic_case_from_draft(draft: dict[str, Any], *, tier: str | None = None) -> dict[str, Any]:
     """Normalize a draft into a runnable-ish case; prefer gold key_lines or simple script."""
     case = json.loads(json.dumps(draft))  # deep copy
     case["prompt"] = redact_secrets(case.get("prompt") or "")
@@ -90,6 +92,15 @@ def heuristic_case_from_draft(draft: dict[str, Any]) -> dict[str, Any]:
     if not case.get("case_id"):
         fp = task_fingerprint(case["prompt"], [f["path"] for f in cleaned])
         case["case_id"] = f"auto-{fp}"
+
+    requested = tier or draft_tier(draft, default="T1")
+    settled, notes = settle_tier(case, requested)
+    # settle_tier replaces the case contents, so re-read metadata rather than reusing `meta`.
+    settled_meta = case.setdefault("metadata", {})
+    settled_meta["tier_requested"] = requested
+    settled_meta["tier_notes"] = notes
+    if not settled:
+        settled_meta.pop("capability_axes", None)
     return case
 
 
@@ -157,18 +168,140 @@ def _normalize_task_type(value: Any) -> str:
     return _TASK_TYPE_MAP.get(s, "feature")
 
 
+# What each tier asks the generator to produce. The structural guarantees are enforced
+# afterwards by tier_shaping.settle_tier — these briefs only raise the hit rate.
+_TIER_BRIEFS: dict[str, str] = {
+    "T1": (
+        "TIER T1 (floor anchor — every model should solve this):\n"
+        "- One implementation file with a single localized defect, marked `# BUG: ...`.\n"
+        "- The prompt may name the defective mechanism directly.\n"
+        "- One visible pytest file, 2-4 test functions."
+    ),
+    "T2": (
+        "TIER T2 (the solver must locate the defect itself):\n"
+        "- One or two implementation files with a single defect.\n"
+        "- NO `# BUG` / `# FIXME` / `# TODO` comments anywhere. Do not mark the broken line.\n"
+        "- The prompt describes ONLY the observable symptom, the way a user or a CI log would\n"
+        "  report it (what was expected, what happened). It must NOT name the mechanism\n"
+        "  ('inverted comparison', 'wrong offset', 'uses X instead of Y'), a line number, or\n"
+        "  the fix. Writing 'the tests fail' is fine; writing why they fail is not.\n"
+        "- One visible pytest file, 3-5 test functions."
+    ),
+    "T3": (
+        "TIER T3 (hidden specification):\n"
+        "- Everything T2 requires, plus:\n"
+        "- The visible pytest file has AT LEAST 5 test functions and must cover boundary and\n"
+        "  error cases, not just the happy path. Some of them will be hidden from the solver at\n"
+        "  evaluation time, so a fix that only satisfies the first test must fail the rest.\n"
+        "- `grader.gold_files` MUST contain the corrected full content of every implementation\n"
+        "  file the fix touches. Include only files that actually change."
+    ),
+    "T4": (
+        "TIER T4 (multi-file retrieval):\n"
+        "- Everything T3 requires, plus:\n"
+        "- A small package of AT LEAST 5 files. The defect spans AT LEAST 2 implementation\n"
+        "  files (e.g. a helper returns the wrong shape and its caller compensates wrongly);\n"
+        "  fixing only one of them must leave tests failing.\n"
+        '- At least one plausible but irrelevant file marked `"role": "distractor"`.\n'
+        "- `grader.gold_files` covers BOTH changed implementation files.\n"
+        "- The visible pytest file has at least 6 test functions."
+    ),
+    "T5": (
+        "TIER T5 (iterative self-repair):\n"
+        "- Everything T4 requires, plus:\n"
+        "- The correct behaviour cannot be derived by reading alone: it depends on runtime\n"
+        "  state (ordering, accumulation, time windows, caching) that the solver has to observe\n"
+        "  by running the tests and reacting to the failure.\n"
+        "- The visible pytest file has at least 7 test functions."
+    ),
+}
+
+_ROLE_HINT = (
+    'context.files entries may carry "role": "impl" | "test" | "distractor" | "spec".\n'
+    'Mark the pytest file as "test" and irrelevant files as "distractor".'
+)
+
+
+def _system_prompt_for_tier(tier: str) -> str:
+    return (
+        "You create self-contained Python coding benchmark cases that discriminate between "
+        "coding agents of different capability.\n"
+        "Return ONLY one JSON object (markdown fences allowed).\n"
+        "Required keys: case_id, schema_version, task_type, language, prompt, context, grader, "
+        "metadata.\n"
+        "task_type MUST be one of: bugfix, feature, refactor, explain_to_edit, test_gen, pairwise.\n"
+        "language should be python.\n"
+        "context.files: array of {path, content, role}. Include a stub that is incomplete or "
+        "wrong, and a pytest file that fails on the stub and passes on a correct fix.\n"
+        f"{_ROLE_HINT}\n"
+        'grader: {"mode":"script","command":"python -m pytest -q"}\n'
+        "Keep each file under 120 lines. No secrets. No private paths.\n\n"
+        f"{_TIER_BRIEFS[tier]}"
+    )
+
+
+def _delocalize_prompt(prompt: str, *, chat: Any) -> str:
+    """Ask once for a symptom-only rewrite when the generated prompt gave the defect away."""
+    rewritten = chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "Rewrite a coding task description so it reports only the OBSERVABLE SYMPTOM "
+                    "— what was expected and what happened — with no mention of the cause, the "
+                    "mechanism, the location, or the fix. Keep the same function and file names. "
+                    "Reply with the rewritten description only, no preamble."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        512,
+    )
+    cleaned = re.sub(r"^```\w*\s*|\s*```$", "", rewritten.strip())
+    return cleaned or prompt
+
+
+def draft_tier(draft: dict[str, Any], *, default: str = "T2") -> str:
+    """Tier suggested for this draft by its trace, falling back to ``default``."""
+    tier = str((draft.get("metadata") or {}).get("tier") or "")
+    return tier if tier in _TIER_BRIEFS else default
+
+
+def _generate_timeout_s() -> float:
+    """Per-request timeout for case generation.
+
+    A reasoning model emitting a whole case as JSON regularly needs well over two minutes on a
+    shared gateway, and a timeout only buys a retry of the same slow call. Override with
+    AIBENCH_GENERATE_TIMEOUT.
+    """
+    import os
+
+    try:
+        return max(30.0, float(os.environ.get("AIBENCH_GENERATE_TIMEOUT", "300")))
+    except ValueError:
+        return 300.0
+
+
 def generate_case_with_llm(
     draft: dict[str, Any],
     *,
-    timeout_s: float = 120.0,
+    timeout_s: float | None = None,
+    tier: str | None = None,
 ) -> dict[str, Any]:
-    """Ask LLM to produce a minimal self-contained coding case JSON with script grader."""
+    """Ask an LLM for a case shaped for ``tier``, then enforce that tier's invariants.
+
+    The returned case is labelled with the highest tier it actually satisfies, which may be
+    lower than the one requested.
+    """
     settings = openai_settings()
     if not settings["api_key"] or not settings["base_url"] or not settings["model"]:
         raise RuntimeError(
             "OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL required for LLM generate"
         )
 
+    timeout_s = timeout_s if timeout_s is not None else _generate_timeout_s()
+    target_tier = tier or draft_tier(draft)
+    tier_spec(target_tier)  # reject unknown tiers before spending a call
     prompt = draft.get("prompt") or ""
     files = ((draft.get("context") or {}).get("files")) or []
     file_summaries = []
@@ -176,20 +309,9 @@ def generate_case_with_llm(
         body = (f.get("content") or "")[:600]
         file_summaries.append(f"### {f.get('path')}\n{body}")
 
-    system = (
-        "You create tiny self-contained Python coding benchmark cases.\n"
-        "Return ONLY one JSON object (markdown fences allowed).\n"
-        "Required keys: case_id, schema_version, task_type, language, prompt, context, grader, metadata.\n"
-        "task_type MUST be one of: bugfix, feature, refactor, explain_to_edit, test_gen, pairwise.\n"
-        "language should be python.\n"
-        "context.files: array of {path, content}. Include:\n"
-        "  1) a stub implementation that is incomplete/wrong\n"
-        "  2) a pytest file that fails on the stub and passes on a correct fix\n"
-        'grader: {"mode":"script","command":"python -m pytest -q <test_file>.py"}\n'
-        "Keep files short (<80 lines each). No secrets. Abstract away private paths."
-    )
+    system = _system_prompt_for_tier(target_tier)
     user = (
-        f"Inspire a MINIMAL coding task from this real user request "
+        f"Build a self-contained coding task inspired by this real user request "
         f"(do NOT require the original repo):\n{prompt[:800]}\n\n"
         f"Optional context snippets:\n{chr(10).join(file_summaries) or '(none)'}\n\n"
         "Output the case JSON now."
@@ -245,10 +367,14 @@ def generate_case_with_llm(
                     "role": "user",
                     "content": (
                         "Output ONLY a JSON coding benchmark case. No analysis.\n"
-                        "Schema: case_id, schema_version=0.1, task_type=feature, language=python,\n"
-                        "prompt, context.files=[{path,content}], grader={mode:script,command},\n"
+                        "Schema: case_id, schema_version=0.1, task_type=bugfix, language=python,\n"
+                        "prompt, context.files=[{path,content,role}], "
+                        "grader={mode:script,command,gold_files},\n"
                         "metadata={}.\n"
-                        "Include stub .py + test_*.py. Command: python -m pytest -q test_xxx.py\n"
+                        "Include a broken stub .py plus test_*.py with 5 test functions covering "
+                        "boundaries; gold_files holds the corrected stub. No BUG/TODO comments; "
+                        "the prompt states only the symptom.\n"
+                        "Command: python -m pytest -q\n"
                         f"Inspired by: {prompt[:400]}"
                     ),
                 }
@@ -290,17 +416,38 @@ def generate_case_with_llm(
     ctx = data.setdefault("context", {})
     cleaned = []
     for f in ctx.get("files") or []:
-        cleaned.append(
-            {
-                "path": f["path"],
-                "content": redact_secrets(str(f.get("content") or "")),
-            }
-        )
+        entry = {
+            "path": f["path"],
+            "content": redact_secrets(str(f.get("content") or "")),
+        }
+        if f.get("role"):
+            entry["role"] = str(f["role"])
+        cleaned.append(entry)
     if not cleaned:
         raise ValueError("LLM case has no context.files")
     ctx["files"] = cleaned
+    grader["gold_files"] = [
+        {"path": g["path"], "content": redact_secrets(str(g.get("content") or ""))}
+        for g in grader.get("gold_files") or []
+        if g.get("path")
+    ]
+
+    # A prompt that names the mechanism turns any tier above T1 into a giveaway. One rewrite
+    # attempt, then settle_tier decides what the case actually qualifies as.
+    if target_tier != "T1" and find_disclosures(data["prompt"]):
+        try:
+            data["prompt"] = redact_secrets(_delocalize_prompt(data["prompt"], chat=_chat))
+        except Exception as e:
+            print(f"delocalize failed for {data.get('case_id')}: {e}")
+
     if not data.get("case_id"):
         data["case_id"] = f"auto-{task_fingerprint(data['prompt'], [f['path'] for f in cleaned])}"
+
+    settled, notes = settle_tier(data, target_tier)
     data["metadata"]["generation"] = "llm"
+    data["metadata"]["tier_requested"] = target_tier
+    data["metadata"]["tier_notes"] = notes
     data["metadata"]["weak_grader"] = data.get("grader", {}).get("mode") != "script"
+    if not settled:
+        raise ValueError(f"case satisfies no tier: {notes}")
     return data

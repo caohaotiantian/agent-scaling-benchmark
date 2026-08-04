@@ -1,0 +1,30 @@
+# Calibration anchor panel: the reference points a case's difficulty is measured against.
+#
+# The panel must SPAN the capability range you intend to discriminate, otherwise `spread` is
+# uninformative — a panel of three near-identical configurations will call every case
+# non-discriminating. Keep at least one deliberately weak anchor and one strong one.
+#
+# Usage:
+#   uv run python -m aibench calibrate-cases --case-set auto-v0 --repeats 3
+#
+# Cost: len(anchors) x repeats full runs over the case set. Budget accordingly.
+anchors:
+  # Weak floor: single-turn rewrite, no tools. Cases every configuration passes here are
+  # giveaways.
+  - name: weak-single-turn
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm51.yaml
+    run_config: configs/runs/baseline.yaml
+
+  # Mid: same scaffold, stronger model. Isolates the model axis.
+  - name: mid-single-turn
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm52.yaml
+    run_config: configs/runs/baseline.yaml
+
+  # Strong ceiling: multi-step tool loop that can run the tests and react. Isolates the agent
+  # axis against `mid-single-turn`.
+  - name: strong-tool-loop
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/glm52.yaml
+    run_config: configs/runs/baseline-tool-loop.yaml
