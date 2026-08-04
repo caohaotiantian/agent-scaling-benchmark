@@ -210,9 +210,14 @@ def _p_buckets(reports: list[CaseCalibration]) -> dict[str, int]:
 
 
 def _tier_counts(reports: list[CaseCalibration]) -> dict[str, int]:
+    return _count_by_tier([{"tier": r.tier} for r in reports])
+
+
+def _count_by_tier(rows: list[dict[str, Any]]) -> dict[str, int]:
     out: dict[str, int] = {}
-    for r in reports:
-        out[r.tier or "unset"] = out.get(r.tier or "unset", 0) + 1
+    for r in rows:
+        key = str(r.get("tier") or "unset")
+        out[key] = out.get(key, 0) + 1
     return dict(sorted(out.items()))
 
 
@@ -277,19 +282,73 @@ def _abs(root: Path, rel: str | None) -> Path | None:
     return p if p.is_absolute() else root / p
 
 
+def parse_tier_quota(spec: str | None) -> dict[str, float]:
+    """Parse ``T2=0.3,T3=0.4`` into per-tier shares of the selected set."""
+    if not spec:
+        return {}
+    out: dict[str, float] = {}
+    for part in spec.split(","):
+        if not part.strip():
+            continue
+        tier, _, share = part.partition("=")
+        if not share:
+            raise ValueError(f"tier quota needs TIER=SHARE, got {part!r}")
+        out[tier.strip()] = float(share)
+    return out
+
+
+def _rank(case: dict[str, Any]) -> tuple[float, float]:
+    return (-(case.get("spread") or 0.0), -(case.get("point_biserial") or 0.0))
+
+
+def apply_tier_quota(
+    keep: list[dict[str, Any]],
+    *,
+    quota: dict[str, float],
+    max_cases: int | None,
+) -> list[dict[str, Any]]:
+    """Take the best discriminators per tier instead of globally.
+
+    Ranking purely by discrimination tends to concentrate the set in whichever tier happens to
+    separate the current anchor panel best, which then reports a single capability band as if
+    it were the whole picture. Quotas keep the coverage the tiers were built for.
+    """
+    if not quota:
+        return keep[:max_cases] if max_cases is not None else keep
+
+    by_tier: dict[str, list[dict[str, Any]]] = {}
+    for c in keep:
+        by_tier.setdefault(str(c.get("tier") or "unset"), []).append(c)
+    for rows in by_tier.values():
+        rows.sort(key=_rank)
+
+    total = max_cases if max_cases is not None else len(keep)
+    picked: list[dict[str, Any]] = []
+    for tier, share in quota.items():
+        want = round(share * total)
+        picked.extend(by_tier.get(tier, [])[:want])
+
+    # Quotas that under-fill (a tier had fewer good cases than asked for) are topped up with
+    # the best remaining cases rather than silently returning a short set.
+    if len(picked) < total:
+        chosen = {id(c) for c in picked}
+        picked.extend([c for c in keep if id(c) not in chosen][: total - len(picked)])
+    return sorted(picked, key=_rank)[:total]
+
+
 def select_cases(
     calibration: dict[str, Any],
     *,
     source_set: str,
     dest_set: str,
     max_cases: int | None = None,
+    tier_quota: dict[str, float] | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Copy the cases calibration kept into a new case set, best discriminators first."""
     keep = [c for c in calibration.get("cases") or [] if c.get("keep")]
-    keep.sort(key=lambda c: (-(c.get("spread") or 0.0), -(c.get("point_biserial") or 0.0)))
-    if max_cases is not None:
-        keep = keep[:max_cases]
+    keep.sort(key=_rank)
+    keep = apply_tier_quota(keep, quota=tier_quota or {}, max_cases=max_cases)
     wanted = {c["case_id"] for c in keep}
 
     src = case_set_dir(source_set)
@@ -329,6 +388,7 @@ def select_cases(
         "dest_set": dest_set,
         "selected_count": len(selected),
         "selected": selected,
+        "tier_distribution": _count_by_tier(keep),
         "missing": sorted(wanted - set(selected)),
         "dry_run": dry_run,
     }

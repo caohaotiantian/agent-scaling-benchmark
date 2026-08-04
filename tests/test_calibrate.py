@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from aibench.calibrate import (
     AnchorSpec,
     SelectionPolicy,
@@ -194,3 +196,55 @@ def test_point_biserial_edges():
     assert point_biserial([1.0, 0.0], [2.0, 1.0]) == 1.0
     assert point_biserial([1.0, 1.0], [2.0, 1.0]) is None  # no variance in the item
     assert point_biserial([1.0], [1.0]) is None
+
+
+def _cal(case_id, tier, spread, rpb=0.9):
+    return {"case_id": case_id, "tier": tier, "spread": spread, "point_biserial": rpb, "keep": True}
+
+
+def test_parse_tier_quota():
+    from aibench.calibrate import parse_tier_quota
+
+    assert parse_tier_quota("T2=0.5,T3=0.5") == {"T2": 0.5, "T3": 0.5}
+    assert parse_tier_quota(None) == {}
+    assert parse_tier_quota("") == {}
+    with pytest.raises(ValueError):
+        parse_tier_quota("T2")
+
+
+def test_without_a_quota_selection_can_collapse_into_one_tier():
+    from aibench.calibrate import apply_tier_quota
+
+    keep = [_cal(f"t2-{i}", "T2", 1.0) for i in range(4)] + [_cal("t3-a", "T3", 0.4)]
+    picked = apply_tier_quota(keep, quota={}, max_cases=4)
+    assert {c["tier"] for c in picked} == {"T2"}
+
+
+def test_a_quota_keeps_the_coverage_the_tiers_were_built_for():
+    from aibench.calibrate import apply_tier_quota
+
+    keep = [_cal(f"t2-{i}", "T2", 1.0) for i in range(4)] + [
+        _cal(f"t3-{i}", "T3", 0.4) for i in range(4)
+    ]
+    picked = apply_tier_quota(keep, quota={"T2": 0.5, "T3": 0.5}, max_cases=4)
+    counts = {}
+    for c in picked:
+        counts[c["tier"]] = counts.get(c["tier"], 0) + 1
+    assert counts == {"T2": 2, "T3": 2}
+
+
+def test_an_underfilled_quota_is_topped_up_rather_than_returning_short():
+    from aibench.calibrate import apply_tier_quota
+
+    keep = [_cal(f"t2-{i}", "T2", 1.0) for i in range(5)] + [_cal("t4-a", "T4", 0.9)]
+    picked = apply_tier_quota(keep, quota={"T4": 0.5, "T2": 0.5}, max_cases=4)
+    assert len(picked) == 4
+    assert sum(1 for c in picked if c["tier"] == "T4") == 1
+
+
+def test_quota_selection_still_prefers_the_better_discriminators_within_a_tier():
+    from aibench.calibrate import apply_tier_quota
+
+    keep = [_cal("weak", "T2", 0.2), _cal("strong", "T2", 1.0)]
+    picked = apply_tier_quota(keep, quota={"T2": 1.0}, max_cases=1)
+    assert [c["case_id"] for c in picked] == ["strong"]
