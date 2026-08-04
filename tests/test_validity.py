@@ -85,3 +85,81 @@ def test_audit_seed_fixture_set():
     rep = audit_case_set("seed-v0")
     assert rep["total"] >= 3
     assert "content_fingerprint" in rep
+
+
+def _t3_case_dict() -> dict:
+    return {
+        "case_id": "solvable-clamp",
+        "schema_version": "0.1",
+        "task_type": "bugfix",
+        "language": "python",
+        "prompt": "Callers report clamp() lets out-of-range values through. Make the tests pass.",
+        "context": {
+            "files": [
+                {"path": "clamp.py", "content": "def clamp(x, lo, hi):\n    return x\n"},
+                {
+                    "path": "test_clamp.py",
+                    "content": "from clamp import clamp\n\n\ndef test_inside():\n    assert clamp(5, 0, 9) == 5\n",
+                    "role": "test",
+                },
+            ]
+        },
+        "grader": {
+            "mode": "script",
+            "command": "python -m pytest -q",
+            "hidden_tests": [
+                {
+                    "path": "test_hidden.py",
+                    "content": (
+                        "from clamp import clamp\n\n\n"
+                        "def test_below():\n    assert clamp(-1, 0, 9) == 0\n\n\n"
+                        "def test_above():\n    assert clamp(99, 0, 9) == 9\n"
+                    ),
+                }
+            ],
+            "protected_paths": ["test_clamp.py"],
+            "gold_files": [
+                {
+                    "path": "clamp.py",
+                    "content": "def clamp(x, lo, hi):\n    return max(lo, min(hi, x))\n",
+                }
+            ],
+        },
+        "metadata": {"tier": "T3"},
+    }
+
+
+def test_solvability_gate_accepts_a_working_reference_solution():
+    from aibench.validity import check_reference_solution
+
+    ok, detail = check_reference_solution(Case.from_dict(_t3_case_dict()))
+    assert ok is True, detail
+
+
+def test_solvability_gate_catches_an_impossible_hidden_test():
+    from aibench.validity import check_reference_solution
+
+    raw = _t3_case_dict()
+    raw["grader"]["hidden_tests"] = [
+        {"path": "test_hidden.py", "content": "def test_impossible():\n    assert False\n"}
+    ]
+    ok, detail = check_reference_solution(Case.from_dict(raw))
+    assert ok is False
+    assert "reference_solution_failed" in detail
+
+
+def test_audit_runs_both_bounds_and_tier_invariants():
+    r = audit_case(Case.from_dict(_t3_case_dict()))
+    assert r.tier == "T3"
+    assert r.checks["stub_fail"]["ok"] is True
+    assert r.checks["reference_solution"]["ok"] is True
+    assert r.checks["tier"]["ok"] is True
+    assert r.ok is True
+
+
+def test_audit_reports_tier_violations_as_errors():
+    raw = _t3_case_dict()
+    raw["prompt"] = "clamp() uses the wrong comparison operator instead of min/max. Fix it."
+    r = audit_case(Case.from_dict(raw))
+    assert r.ok is False
+    assert any(i.code == "tier_prompt_discloses_defect" for i in r.issues)

@@ -28,6 +28,65 @@ def format_wilson_ci(successes: int, n: int, z: float = 1.96) -> str | None:
     return f"[{ci[0] * 100:.1f}%, {ci[1] * 100:.1f}%]"
 
 
+def mcnemar_test(b: int, c: int) -> dict[str, Any]:
+    """Exact two-sided McNemar test on paired pass/fail outcomes.
+
+    ``b`` counts cases only A solved, ``c`` cases only B solved. Cases both or neither solved
+    carry no information about which is better and are excluded by construction — that is the
+    whole point of pairing, and it is why this detects a difference two overlapping Wilson
+    intervals would call inconclusive.
+    """
+    n = b + c
+    if n == 0:
+        return {"b": b, "c": c, "discordant": 0, "p_value": 1.0, "significant": False}
+    k = min(b, c)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) * (0.5**n)
+    p = min(1.0, 2.0 * tail)
+    return {
+        "b": b,
+        "c": c,
+        "discordant": n,
+        "p_value": p,
+        "significant": p < 0.05,
+    }
+
+
+def paired_outcomes(
+    rows_a: list[dict[str, Any]],
+    rows_b: list[dict[str, Any]],
+    *,
+    key: str = "case_id",
+) -> tuple[int, int, int, int]:
+    """Return (both, only_a, only_b, neither) over the cases the two runs share."""
+    a = {str(r.get(key)): bool(r.get("passed")) for r in rows_a if not r.get("infra_error")}
+    b = {str(r.get(key)): bool(r.get("passed")) for r in rows_b if not r.get("infra_error")}
+    shared = sorted(set(a) & set(b))
+    both = sum(1 for k in shared if a[k] and b[k])
+    only_a = sum(1 for k in shared if a[k] and not b[k])
+    only_b = sum(1 for k in shared if b[k] and not a[k])
+    neither = len(shared) - both - only_a - only_b
+    return both, only_a, only_b, neither
+
+
+def point_biserial(item: list[float], total: list[float]) -> float | None:
+    """Correlation between one case's outcomes and overall scores across the same runs.
+
+    Near zero means the case is noise: solving it says nothing about how capable the
+    configuration is, so it contributes nothing to separating them.
+    """
+    n = len(item)
+    if n < 2 or len(total) != n:
+        return None
+    mean_i = sum(item) / n
+    mean_t = sum(total) / n
+    cov = sum((x - mean_i) * (y - mean_t) for x, y in zip(item, total, strict=True))
+    var_i = sum((x - mean_i) ** 2 for x in item)
+    var_t = sum((y - mean_t) ** 2 for y in total)
+    if var_i <= 0 or var_t <= 0:
+        return None
+    return cov / math.sqrt(var_i * var_t)
+
+
 def stratify_results(
     case_results: list[dict[str, Any]],
     *,

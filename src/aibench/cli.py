@@ -7,6 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from aibench.ablation import run_ablation
+from aibench.calibrate import (
+    DEFAULT_MIN_RPB,
+    DEFAULT_P_MAX,
+    DEFAULT_P_MIN,
+    SelectionPolicy,
+    calibrate_case_set,
+    load_anchor_panel,
+    select_cases,
+)
 from aibench.cases import load_schema_validator, validate_case_set
 from aibench.env_config import load_dotenv
 from aibench.export_results import export_ablation_csv, export_ablation_xlsx
@@ -27,6 +36,7 @@ from aibench.promote import promote_cases
 from aibench.report import check_summary
 from aibench.runner import run_benchmark
 from aibench.secrets_scan import scan_case_dir
+from aibench.tiers import TIER_ORDER
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -115,6 +125,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run validity audit and annotate metadata after generate",
     )
+    p_gen.add_argument(
+        "--tier",
+        type=str,
+        default=None,
+        choices=list(TIER_ORDER),
+        help="Force a target tier for every draft (default: the tier its trace suggests)",
+    )
+    p_gen.add_argument(
+        "--min-tier",
+        type=str,
+        default=None,
+        choices=list(TIER_ORDER),
+        help="Drop generated cases that settle below this tier",
+    )
 
     p_abl = sub.add_parser("ablation", help="Run agent/model matrix and aggregate tables")
     p_abl.add_argument("--matrix", type=Path, required=True)
@@ -192,6 +216,34 @@ def main(argv: list[str] | None = None) -> int:
         help="Materialize snapshots/<case_id>/ from context.files and set workspace.mode=mixed",
     )
     p_snap.add_argument("--case-set", type=str, required=True)
+
+    p_cal = sub.add_parser(
+        "calibrate-cases",
+        help="Run an anchor panel over a case set and measure each case's discrimination",
+    )
+    p_cal.add_argument("--case-set", type=str, required=True)
+    p_cal.add_argument(
+        "--anchors",
+        type=Path,
+        default=Path("configs/runs/anchor-panel.yaml"),
+        help="YAML with an `anchors:` list of {name, agent_config, model_config, run_config}",
+    )
+    p_cal.add_argument("--repeats", type=int, default=3, help="Independent runs per anchor")
+    p_cal.add_argument("--output-root", type=Path, default=None)
+    p_cal.add_argument("--workers", type=int, default=None)
+    p_cal.add_argument("--p-max", type=float, default=DEFAULT_P_MAX)
+    p_cal.add_argument("--p-min", type=float, default=DEFAULT_P_MIN)
+    p_cal.add_argument("--min-rpb", type=float, default=DEFAULT_MIN_RPB)
+
+    p_sel = sub.add_parser(
+        "select-cases",
+        help="Build a case set from the discriminative cases a calibration kept",
+    )
+    p_sel.add_argument("--calibration", type=Path, required=True, help="calibration.json")
+    p_sel.add_argument("--from-set", type=str, required=True)
+    p_sel.add_argument("--to-set", type=str, required=True)
+    p_sel.add_argument("--max-cases", type=int, default=None)
+    p_sel.add_argument("--dry-run", action="store_true")
 
     p_exp = sub.add_parser("export-ablation", help="Export ablation_summary to CSV/XLSX")
     p_exp.add_argument("--ablation-dir", type=Path, required=True)
@@ -344,29 +396,39 @@ def main(argv: list[str] | None = None) -> int:
         validator = load_schema_validator()
         paths = sorted(inp.glob("*.json"))[: max(args.max_cases * 3, args.max_cases)]
 
+        min_tier_rank = TIER_ORDER.index(args.min_tier) if args.min_tier else -1
+
         def _gen_one(path: Path) -> dict[str, Any] | None:
             draft = load_json(path)
             if args.filter and not rule_filter_draft(draft).keep:
                 return None
             try:
                 if args.heuristic_only:
-                    case = heuristic_case_from_draft(draft)
+                    case = heuristic_case_from_draft(draft, tier=args.tier)
                 else:
                     last_err: Exception | None = None
                     case = None
                     for _attempt in range(2):
                         try:
-                            case = generate_case_with_llm(draft)
+                            case = generate_case_with_llm(draft, tier=args.tier)
                             break
                         except Exception as e:
                             last_err = e
                     if case is None:
                         print(f"fallback heuristic for {path.name}: {last_err}")
-                        case = heuristic_case_from_draft(draft)
+                        case = heuristic_case_from_draft(draft, tier=args.tier)
                 errors = sorted(validator.iter_errors(case), key=lambda e: list(e.path))
                 if errors:
                     print(f"skip invalid {path.name}: {errors[0].message}")
                     return None
+                settled = (case.get("metadata") or {}).get("tier")
+                if min_tier_rank >= 0 and (
+                    not settled or TIER_ORDER.index(settled) < min_tier_rank
+                ):
+                    print(f"skip {path.name}: settled at {settled or 'none'} < {args.min_tier}")
+                    return None
+                # LLM generation can take minutes per draft; without this the command looks hung.
+                print(f"  [{settled or 'untiered'}] {case['case_id']} <- {path.name}", flush=True)
                 return case
             except Exception as e:
                 print(f"skip {path.name}: {e}")
@@ -374,12 +436,26 @@ def main(argv: list[str] | None = None) -> int:
 
         generated = [c for c in parallel_map(_gen_one, paths, workers=args.workers) if c]
         n_ok = 0
+        tier_counts: dict[str, int] = {}
         for case in generated:
             if n_ok >= args.max_cases:
                 break
             write_json(out / f"{case['case_id']}.json", case)
+            settled = (case.get("metadata") or {}).get("tier") or "unset"
+            tier_counts[settled] = tier_counts.get(settled, 0) + 1
             n_ok += 1
         print(f"generated {n_ok} cases -> {out}")
+        if tier_counts:
+            print(
+                "tier distribution: "
+                + ", ".join(f"{k}={v}" for k, v in sorted(tier_counts.items()))
+            )
+        if n_ok == 0 and args.min_tier:
+            print(
+                f"Nothing settled at {args.min_tier} or above (see the skip lines). A case only "
+                "reaches T3+ when it really carries hidden tests and a reference solution — "
+                "lower --min-tier, or drop --heuristic-only so the LLM can produce them."
+            )
         if args.secrets_scan and n_ok:
             rep = scan_case_dir(out)
             write_json(out / "_secrets_scan.json", rep)
@@ -501,6 +577,64 @@ def main(argv: list[str] | None = None) -> int:
         rep = build_snapshots_for_case_set(args.case_set)
         print(json.dumps(rep, ensure_ascii=False, indent=2))
         return 0
+
+    if args.cmd == "calibrate-cases":
+        if not args.anchors.is_file():
+            print(
+                f"anchor panel not found: {args.anchors}\n"
+                "Pass --anchors <file>, or copy configs/runs/anchor-panel.yaml and edit it."
+            )
+            return 1
+        try:
+            anchors, _panel = load_anchor_panel(args.anchors)
+        except ValueError as e:
+            print(str(e))
+            return 1
+        if validate_case_set(args.case_set):
+            print(f"case set {args.case_set!r} is missing or invalid; run validate-cases first")
+            return 1
+        cal_dir, report = calibrate_case_set(
+            args.case_set,
+            anchors,
+            repeats=args.repeats,
+            output_root=args.output_root,
+            policy=SelectionPolicy(p_max=args.p_max, p_min=args.p_min, min_rpb=args.min_rpb),
+            case_workers=args.workers,
+        )
+        print(f"calibration_dir={cal_dir}")
+        print(f"report={cal_dir / 'calibration_report.md'}")
+        print(
+            f"kept={report['kept_count']}/{report['total_cases']} "
+            f"p_hat={report['kept_p_hat_distribution']}"
+        )
+        return 0 if report["kept_count"] else 1
+
+    if args.cmd == "select-cases":
+        if not args.calibration.is_file():
+            print(
+                f"calibration file not found: {args.calibration}\n"
+                "Run `aibench calibrate-cases --case-set <set>` first; it writes "
+                "runs/calibration_<timestamp>/calibration.json."
+            )
+            return 1
+        try:
+            report = select_cases(
+                load_json(args.calibration),
+                source_set=args.from_set,
+                dest_set=args.to_set,
+                max_cases=args.max_cases,
+                dry_run=args.dry_run,
+            )
+        except FileNotFoundError as e:
+            print(str(e))
+            return 1
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        if not report["selected_count"]:
+            print(
+                "\nNo case was selected. Either calibration kept nothing (see its report's "
+                "reasons column) or --from-set does not match the calibrated set."
+            )
+        return 0 if report["selected_count"] else 1
 
     if args.cmd == "export-ablation":
         if args.csv:
