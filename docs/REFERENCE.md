@@ -705,7 +705,7 @@ runs:
 | `generation` | `llm` / `heuristic` |
 | `review_status` | 如 `needs_review` |
 | `weak_grader` | bool |
-| `difficulty` | `easy` / `medium` / `hard`（体积启发式，旧口径；分层请用 `tier`） |
+| `difficulty` | `easy` / `medium` / `hard`（**已废弃**：体积启发式，实测 93.8% 落在 medium。保留仅为兼容既有 `summary.json` 消费者，分层一律用 `tier`） |
 | `tier` | `T1`..`T5` 区分度层级（§13.5.2） |
 | `capability_axes` | 该层分离的能力轴，如 `["A1","A5","A6"]` |
 | `tier_requested` / `tier_notes` | 请求的目标层，以及每层被拒的原因 |
@@ -962,6 +962,9 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | Stub 必须失败（下界） | `stub_fail_gate` | error | 是 | 见 §14.3.1 |
 | 参考解必须通过（上界） | `solvability_gate` | error | 是 | 见 §14.3.3 |
 | 分层不变量 | `tier_<violation>` | error | 是 | §13.5.2，逐条来自 `check_tier_invariants` |
+| 干扰文件自相矛盾 | `tier_distractor_in_solution` | error | 是 | 声明 `role=distractor` 却被参考解改动 |
+| 参考解无改动 | `tier_solution_file_unchanged` | error | 是 | 某个 gold file 与初始文件完全相同，是凑数项 |
+| 参考解疑似重写 | `tier_solution_rewrites_file` | warn | 否 | 改动行占比 > 60%，无法定位缺陷 |
 | Gold 污染 | `contamination_gold_in_context` | error | 是 | gold 全文已在 context |
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |

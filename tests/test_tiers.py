@@ -188,3 +188,62 @@ def test_chinese_specification_is_not_treated_as_disclosure():
     assert find_disclosures("当前实现用了值相等而不是身份比较")
     assert find_disclosures("插入和删除两列写反了")
     assert find_disclosures("把 /api/v4 改成 /api/v5")
+
+
+def test_a_distractor_the_solution_touches_is_rejected():
+    """ "Irrelevant" is invisible in a file's own content; the reference solution is the only
+    evidence available, so a distractor appearing in it is self-contradictory."""
+    c = _t3_case()
+    raw = {**c.raw}
+    raw["context"] = {
+        "files": [
+            *raw["context"]["files"],
+            {"path": "helper.py", "content": "def helper():\n    return 1\n", "role": "distractor"},
+        ]
+    }
+    raw["grader"] = {
+        **raw["grader"],
+        "gold_files": [
+            *raw["grader"]["gold_files"],
+            {"path": "helper.py", "content": "def helper():\n    return 2\n"},
+        ],
+    }
+    check = check_tier_invariants(Case.from_dict(raw))
+    assert any(v.code == "distractor_in_solution" for v in check.violations)
+
+
+def test_a_reference_solution_identical_to_the_stub_is_rejected():
+    c = _t3_case()
+    raw = {**c.raw}
+    stub = raw["context"]["files"][0]["content"]
+    raw["grader"] = {**raw["grader"], "gold_files": [{"path": "clamp.py", "content": stub}]}
+    check = check_tier_invariants(Case.from_dict(raw))
+    assert any(v.code == "solution_file_unchanged" for v in check.violations)
+    assert check.ok is False
+
+
+def test_a_wholesale_rewrite_is_warned_but_not_blocking():
+    from aibench.tiers import solution_change_ratio
+
+    c = _t3_case()
+    raw = {**c.raw}
+    raw["grader"] = {
+        **raw["grader"],
+        "gold_files": [
+            {
+                "path": "clamp.py",
+                "content": "".join(f"# rewritten line {i}\n" for i in range(20)),
+            }
+        ],
+    }
+    check = check_tier_invariants(Case.from_dict(raw))
+    rewrite = [v for v in check.violations if v.code == "solution_rewrites_file"]
+    assert rewrite and rewrite[0].severity == "warn"
+    # Advisory only: a warning must not cost the case its tier.
+    assert check.ok is True
+    assert solution_change_ratio("a\nb\nc\n", "a\nb\nc\n") == 0.0
+    assert solution_change_ratio("a\nb\nc\n", "x\ny\nz\n") == 1.0
+
+
+def test_a_targeted_one_line_fix_passes_minimality():
+    assert check_tier_invariants(_t3_case()).ok is True

@@ -236,6 +236,58 @@ def count_test_functions(content: str) -> int:
     return len(_TEST_FN.findall(content or ""))
 
 
+#: Above this share of changed lines a reference solution reads as a rewrite rather than a fix.
+REWRITE_RATIO = 0.6
+
+
+def solution_change_ratio(original: str, solution: str) -> float:
+    """Share of the reference solution's lines that differ from the starting file."""
+    import difflib
+
+    a = (original or "").splitlines()
+    b = (solution or "").splitlines()
+    if not b:
+        return 0.0
+    same = sum(
+        block.size
+        for block in difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+    )
+    return 1.0 - (same / len(b))
+
+
+def _check_solution_minimality(case: Case) -> list[TierViolation]:
+    """A reference solution should demonstrate a localized fix, not replace the file.
+
+    A wholesale rewrite still passes the solvability gate, so nothing else would notice — yet
+    it proves nothing about where the defect was, and at T4 it makes "the fix spans two files"
+    unfalsifiable.
+    """
+    by_path = {fb.path: fb.content for fb in case.files}
+    out: list[TierViolation] = []
+    for gf in case.grader.gold_files:
+        original = by_path.get(gf.path)
+        if original is None:
+            continue  # a new file the solution adds; nothing to compare against
+        ratio = solution_change_ratio(original, gf.content)
+        if ratio == 0.0:
+            out.append(
+                TierViolation(
+                    "solution_file_unchanged",
+                    f"reference solution for {gf.path} is identical to the starting file",
+                )
+            )
+        elif ratio > REWRITE_RATIO:
+            out.append(
+                TierViolation(
+                    "solution_rewrites_file",
+                    f"reference solution changes {ratio:.0%} of {gf.path}; a fix this broad does "
+                    "not localise the defect",
+                    severity="warn",
+                )
+            )
+    return out
+
+
 def check_tier_invariants(case: Case) -> TierCheck:
     """Verify a case against its declared tier. Deterministic; never runs the case."""
     declared = case.tier
@@ -348,6 +400,20 @@ def check_tier_invariants(case: Case) -> TierCheck:
                     f"hidden test {fb.path} would overwrite a context file at grading time",
                 )
             )
+    # A distractor the reference solution has to touch was never a distractor. Nothing else in
+    # the case can catch this, because "irrelevant" is not visible in the file's own content.
+    solution_paths = {gf.path for gf in g.gold_files}
+    for fb in distractors:
+        if fb.path in solution_paths:
+            v.append(
+                TierViolation(
+                    "distractor_in_solution",
+                    f"{fb.path} is declared role=distractor but the reference solution changes it",
+                )
+            )
+
+    v.extend(_check_solution_minimality(case))
+
     if g.hidden_tests and g.mode not in {"script", "composite"}:
         v.append(
             TierViolation(
@@ -356,7 +422,10 @@ def check_tier_invariants(case: Case) -> TierCheck:
             )
         )
 
-    return TierCheck(tier=declared, ok=not v, violations=v, facts=facts)
+    # Warnings inform the case author; only errors disqualify a tier. Counting warnings here
+    # would make settle_tier downgrade a case over advisory feedback.
+    blocking = [x for x in v if x.severity == "error"]
+    return TierCheck(tier=declared, ok=not blocking, violations=v, facts=facts)
 
 
 def axes_for_tier(tier: str) -> list[str]:
