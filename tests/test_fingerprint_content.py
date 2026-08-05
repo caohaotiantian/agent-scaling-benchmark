@@ -85,10 +85,90 @@ class TestContentIsPartOfIdentity:
         # Both forms are accepted; disagreeing would make identity depend on the caller.
         assert case_fingerprint(_case()) == case_fingerprint(_raw())
 
+    def test_reordering_context_files_changes_the_fingerprint(self):
+        # The agent prompt lists files in declaration order, so a reordering is a different
+        # prompt even though the set of files is identical.
+        base = _raw()
+        before = case_fingerprint(Case.from_dict(base))
+        ctx = {"files": list(reversed(base["context"]["files"]))}
+        assert case_fingerprint(_case(context=ctx)) != before
+
     def test_the_set_fingerprint_moves_with_its_cases(self):
         before = set_fingerprint([_case()])
         ctx = {"files": [{"path": "impl.py", "content": "changed\n"}]}
         assert set_fingerprint([_case(context=ctx)]) != before
+
+
+class TestTheGraderIsPartOfIdentity:
+    """Changing how a submission is judged changes the case, even when no file moves.
+
+    Swapping `grader.command` for one that always fails, with everything else untouched, left
+    the fingerprint unchanged — so `--reuse-from` reported the old p_hat for a case that now
+    scores zero. Repairing a grader command or adding an install step is exactly the edit this
+    work motivates, and it was invisible to the gate.
+    """
+
+    def _differs(self, **grader_over) -> bool:
+        base = _raw()["grader"]
+        return case_fingerprint(_case(grader={**base, **grader_over})) != case_fingerprint(_case())
+
+    def test_a_changed_command_changes_the_fingerprint(self):
+        assert self._differs(command="python -m pytest -q other_test.py")
+
+    def test_a_changed_mode_changes_the_fingerprint(self):
+        assert self._differs(mode="gold")
+
+    def test_a_changed_match_changes_the_fingerprint(self):
+        assert self._differs(match="contains_key_lines")
+
+    def test_changed_key_lines_change_the_fingerprint(self):
+        assert self._differs(key_lines=["def thing"])
+
+    def test_changed_protected_paths_change_the_fingerprint(self):
+        assert self._differs(protected_paths=["test_impl.py"])
+
+    def test_a_changed_judge_threshold_changes_the_fingerprint(self):
+        assert self._differs(judge_threshold=0.9)
+
+    def test_a_changed_language_changes_the_fingerprint(self):
+        assert case_fingerprint(_case(language="javascript")) != case_fingerprint(_case())
+
+
+class TestExternalWorkspaces:
+    """Code that lives outside the case JSON cannot be witnessed by hashing the case JSON."""
+
+    def test_an_inline_case_is_not_external(self):
+        from aibench.validity import external_workspace
+
+        assert external_workspace(_case()) is False
+
+    def test_a_snapshot_case_is_external(self):
+        from aibench.validity import external_workspace
+
+        ctx = {"files": [], "workspace": {"mode": "snapshot", "snapshot": {"path": "snap"}}}
+        assert external_workspace(_case(context=ctx)) is True
+        assert external_workspace(_raw(context=ctx)) is True
+
+    def test_a_changed_workspace_spec_changes_the_fingerprint(self):
+        a = {"files": [], "workspace": {"mode": "snapshot", "snapshot": {"path": "repo_a"}}}
+        b = {"files": [], "workspace": {"mode": "snapshot", "snapshot": {"path": "repo_b"}}}
+        assert case_fingerprint(_case(context=a)) != case_fingerprint(_case(context=b))
+
+    def test_an_external_workspace_case_is_never_reused(self):
+        # Its fingerprint cannot move when the snapshot does, so the only safe answer is to
+        # re-run it rather than trust a value that cannot witness the change.
+        fp = f"{FINGERPRINT_VERSION}:same"
+        previous = {"anchor_fingerprint": "p1", "cases": [{"case_id": "c1", "fingerprint": fp}]}
+        todo, reused = plan_calibration(
+            ["c1"], {"c1": fp}, previous, panel="p1", never_reuse={"c1"}
+        )
+        assert todo == ["c1"] and reused == []
+
+    def test_an_inline_case_with_the_same_shape_is_still_reused(self):
+        fp = f"{FINGERPRINT_VERSION}:same"
+        previous = {"anchor_fingerprint": "p1", "cases": [{"case_id": "c1", "fingerprint": fp}]}
+        todo, reused = plan_calibration(["c1"], {"c1": fp}, previous, panel="p1", never_reuse=set())
+        assert todo == [] and [c["case_id"] for c in reused] == ["c1"]
 
 
 class TestVersionGate:
@@ -128,7 +208,7 @@ class TestAnchorCoverage:
         ]
         cov = anchor_coverage(["weak", "mid", "strong"], runs)
         assert cov["anchors_missing"] == ["strong"]
-        assert cov["anchors_with_rows"] == {"mid": 1, "strong": 0, "weak": 1}
+        assert cov["anchors_with_rows_this_run"] == {"mid": 1, "strong": 0, "weak": 1}
 
     def test_an_anchor_that_never_ran_at_all_is_reported_missing(self):
         from aibench.calibrate import anchor_coverage
@@ -142,11 +222,23 @@ class TestAnchorCoverage:
         runs = [{"anchor": n, "rows": [{}]} for n in ("weak", "mid", "strong")]
         assert anchor_coverage(["weak", "mid", "strong"], runs)["anchors_missing"] == []
 
+    def test_a_fully_reused_calibration_is_not_reported_as_having_no_anchors(self):
+        # Reused cases were measured by anchors this invocation never ran. Judging coverage on
+        # the run list alone would flag a complete panel as missing every anchor, and a field
+        # that cries wolf on a complete calibration trains the next reader to ignore it.
+        from aibench.calibrate import anchor_coverage
+
+        cases = [{"case_id": "c1", "by_anchor": {"weak": 1.0, "mid": 0.5, "strong": 0.0}}]
+        cov = anchor_coverage(["weak", "mid", "strong"], [], cases=cases)
+        assert cov["anchors_missing"] == []
+        assert cov["anchors_of_record"] == ["mid", "strong", "weak"]
+        assert cov["anchors_with_rows_this_run"] == {}
+
     def test_repeats_of_one_anchor_are_summed_not_overwritten(self):
         from aibench.calibrate import anchor_coverage
 
         runs = [{"anchor": "weak", "rows": [{}, {}]}, {"anchor": "weak", "rows": [{}]}]
-        assert anchor_coverage(["weak"], runs)["anchors_with_rows"] == {"weak": 3}
+        assert anchor_coverage(["weak"], runs)["anchors_with_rows_this_run"] == {"weak": 3}
 
 
 class TestNoStoredFingerprintIsTrusted:

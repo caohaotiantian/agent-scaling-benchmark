@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import tempfile
@@ -53,49 +54,107 @@ class CaseValidityReport:
 #: Bumped whenever the basis below changes. It is carried in the fingerprint itself so that a
 #: value stored by an older build can never compare equal to one computed now — a reuse gate
 #: that silently accepts a stale fingerprint hands back a p_hat measured on different code.
-FINGERPRINT_VERSION = "v2"
+FINGERPRINT_VERSION = "v3"
 
 
-def _file_digests(entries: Any) -> list[str]:
-    out: list[str] = []
+def _file_digests(entries: Any) -> list[list[str]]:
+    """``[path, sha256(content)]`` per file, in declaration order.
+
+    Order is preserved because the agent prompt lists files in it (``openai_compat`` and
+    ``tool_loop`` both join ``case.files`` as given), so a reordering is a different prompt.
+    """
+    out: list[list[str]] = []
     for f in entries or []:
         if isinstance(f, dict):
             path, content = str(f.get("path") or ""), str(f.get("content") or "")
         else:
             path, content = str(getattr(f, "path", "")), str(getattr(f, "content", "") or "")
-        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-        out.append(f"{path}:{digest}")
-    return sorted(out)
+        out.append([path, hashlib.sha256(content.encode("utf-8")).hexdigest()])
+    return out
+
+
+def _grader_basis(grader: Any) -> dict[str, Any]:
+    """The grader's decision surface — everything that changes what counts as passing.
+
+    A raw dict is normalised through :class:`GraderSpec` first so that the dict and ``Case``
+    forms of the same case cannot disagree over a defaulted field.
+    """
+    if isinstance(grader, dict):
+        from aibench.models import GraderSpec
+
+        grader = GraderSpec.from_dict({**grader, "mode": grader.get("mode") or ""})
+    return {
+        "mode": str(grader.mode or ""),
+        "command": str(grader.command or ""),
+        "match": str(grader.match or ""),
+        "key_lines": list(grader.key_lines or []),
+        "protected_paths": sorted(str(p) for p in (grader.protected_paths or [])),
+        "judge_rubric": str(grader.judge_rubric or ""),
+        "judge_threshold": grader.judge_threshold,
+        "gold_files": _file_digests(grader.gold_files),
+        "hidden_tests": _file_digests(grader.hidden_tests),
+    }
+
+
+def _workspace_basis(case: Case | dict[str, Any]) -> dict[str, Any]:
+    """The workspace spec, when the case builds its workspace from something external.
+
+    Only the spec is hashed, not the snapshot or clone it names — this function does no I/O
+    and has no case-set directory to resolve against. ``external_workspace`` marks the case so
+    the reuse gate can refuse it outright rather than trust a fingerprint that cannot witness
+    a change to the code the agent actually works on.
+    """
+    from aibench.workspace import WorkspaceSpec
+
+    ws = case.workspace if isinstance(case, Case) else None
+    if ws is None:
+        raw = {} if isinstance(case, Case) else ((case.get("context") or {}).get("workspace") or {})
+        ws = WorkspaceSpec.from_dict(raw)
+    spec = {k: getattr(ws, k) for k in vars(ws)}
+    return {
+        "mode": str(spec.get("mode") or "inline"),
+        "spec": json.dumps(spec, sort_keys=True, default=str),
+    }
+
+
+def external_workspace(case: Case | dict[str, Any]) -> bool:
+    """True when the case's code comes from a snapshot or clone rather than inline files."""
+    return _workspace_basis(case)["mode"] not in {"", "inline"}
 
 
 def case_fingerprint(case: Case | dict[str, Any]) -> str:
-    """Identify a case by everything a solver can see, contents included.
+    """Identify a case by everything that decides whether a submission passes.
 
     Hashing only the prompt and the file *paths* meant a case whose stub and reference
     solution had been replaced wholesale kept its identity, so ``calibrate-cases
-    --reuse-from`` returned the previous p_hat for code it had never run.
+    --reuse-from`` returned the previous p_hat for code it had never run. Hashing the file
+    contents alone left the same hole open through the grader: swapping ``grader.command``
+    for one that always fails did not move the fingerprint either.
+
+    Not covered: the *contents* of a snapshot or git workspace — see :func:`external_workspace`,
+    which the reuse gate consults instead.
     """
     if isinstance(case, Case):
-        prompt, task_type = case.prompt, case.task_type
-        files = case.files
-        gold = case.grader.gold_files
-        hidden = case.grader.hidden_tests
+        prompt, task_type, language = case.prompt, case.task_type, case.language
+        files, grader = case.files, case.grader
     else:
         prompt = str(case.get("prompt") or "")
         task_type = str(case.get("task_type") or "")
+        language = str(case.get("language") or "")
         files = (case.get("context") or {}).get("files") or []
         grader = case.get("grader") or {}
-        gold = grader.get("gold_files") or []
-        hidden = grader.get("hidden_tests") or []
-    basis = "|".join(
-        [
-            FINGERPRINT_VERSION,
-            task_type,
-            prompt.strip(),
-            ",".join(_file_digests(files)),
-            ",".join(_file_digests(gold)),
-            ",".join(_file_digests(hidden)),
-        ]
+    basis = json.dumps(
+        {
+            "version": FINGERPRINT_VERSION,
+            "task_type": task_type,
+            "language": language,
+            "prompt": prompt.strip(),
+            "files": _file_digests(files),
+            "grader": _grader_basis(grader),
+            "workspace": _workspace_basis(case),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
     )
     return f"{FINGERPRINT_VERSION}:{hashlib.sha256(basis.encode('utf-8')).hexdigest()[:16]}"
 
