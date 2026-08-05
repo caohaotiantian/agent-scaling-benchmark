@@ -50,19 +50,54 @@ class CaseValidityReport:
         }
 
 
+#: Bumped whenever the basis below changes. It is carried in the fingerprint itself so that a
+#: value stored by an older build can never compare equal to one computed now — a reuse gate
+#: that silently accepts a stale fingerprint hands back a p_hat measured on different code.
+FINGERPRINT_VERSION = "v2"
+
+
+def _file_digests(entries: Any) -> list[str]:
+    out: list[str] = []
+    for f in entries or []:
+        if isinstance(f, dict):
+            path, content = str(f.get("path") or ""), str(f.get("content") or "")
+        else:
+            path, content = str(getattr(f, "path", "")), str(getattr(f, "content", "") or "")
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+        out.append(f"{path}:{digest}")
+    return sorted(out)
+
+
 def case_fingerprint(case: Case | dict[str, Any]) -> str:
+    """Identify a case by everything a solver can see, contents included.
+
+    Hashing only the prompt and the file *paths* meant a case whose stub and reference
+    solution had been replaced wholesale kept its identity, so ``calibrate-cases
+    --reuse-from`` returned the previous p_hat for code it had never run.
+    """
     if isinstance(case, Case):
-        prompt = case.prompt
-        paths = sorted(f.path for f in case.files)
-        task_type = case.task_type
+        prompt, task_type = case.prompt, case.task_type
+        files = case.files
+        gold = case.grader.gold_files
+        hidden = case.grader.hidden_tests
     else:
         prompt = str(case.get("prompt") or "")
-        paths = sorted(
-            f.get("path") or "" for f in ((case.get("context") or {}).get("files") or [])
-        )
         task_type = str(case.get("task_type") or "")
-    basis = f"{task_type}|{prompt.strip()}|{'|'.join(paths)}"
-    return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
+        files = (case.get("context") or {}).get("files") or []
+        grader = case.get("grader") or {}
+        gold = grader.get("gold_files") or []
+        hidden = grader.get("hidden_tests") or []
+    basis = "|".join(
+        [
+            FINGERPRINT_VERSION,
+            task_type,
+            prompt.strip(),
+            ",".join(_file_digests(files)),
+            ",".join(_file_digests(gold)),
+            ",".join(_file_digests(hidden)),
+        ]
+    )
+    return f"{FINGERPRINT_VERSION}:{hashlib.sha256(basis.encode('utf-8')).hexdigest()[:16]}"
 
 
 def estimate_difficulty(case: Case) -> str:

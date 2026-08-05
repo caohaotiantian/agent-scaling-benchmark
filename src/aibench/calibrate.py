@@ -149,13 +149,33 @@ def plan_calibration(
 
     A previous result is reusable only when both the case and the panel are byte-identical to
     what produced it; either changing invalidates the measurement.
+
+    Results recorded under an older fingerprint scheme are never reused. Those fingerprints
+    were computed over the prompt and file paths alone, so they cannot witness a change of
+    file contents, and accepting one would return a p_hat measured on code that no longer
+    exists.
     """
+    from aibench.validity import FINGERPRINT_VERSION
+
     if not previous or previous.get("anchor_fingerprint") != panel:
         return list(case_ids), []
+    current = f"{FINGERPRINT_VERSION}:"
+    stale = sum(
+        1
+        for c in previous.get("cases") or []
+        if c.get("fingerprint") and not str(c["fingerprint"]).startswith(current)
+    )
+    if stale:
+        print(
+            f"ignoring {stale} earlier result(s) recorded under an older fingerprint scheme; "
+            "they cannot show whether the case contents changed"
+        )
     prior = {
         c["case_id"]: c
         for c in previous.get("cases") or []
-        if c.get("fingerprint") and c["case_id"] in fingerprints
+        if c.get("fingerprint")
+        and str(c["fingerprint"]).startswith(current)
+        and c["case_id"] in fingerprints
     }
     reusable = [
         prior[cid]
@@ -164,6 +184,26 @@ def plan_calibration(
     ]
     reused_ids = {c["case_id"] for c in reusable}
     return [cid for cid in case_ids if cid not in reused_ids], reusable
+
+
+def anchor_coverage(configured: list[str], runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Which of the configured anchors actually produced rows.
+
+    A calibration that lost passes — a killed process, a gateway refusing every request for
+    one anchor — still writes a report, and nothing in the numbers says the panel was smaller
+    than intended. Pairing such a result against a complete one reads as a real effect and is
+    not one; this records the difference so it cannot be missed.
+    """
+    rows_by_anchor: dict[str, int] = {}
+    for run in runs:
+        name = str(run.get("anchor", "anchor"))
+        rows_by_anchor[name] = rows_by_anchor.get(name, 0) + len(run.get("rows") or [])
+    produced = {name for name, count in rows_by_anchor.items() if count}
+    return {
+        "anchors_configured": sorted(configured),
+        "anchors_with_rows": dict(sorted(rows_by_anchor.items())),
+        "anchors_missing": sorted(set(configured) - produced),
+    }
 
 
 def load_anchor_panel(path: Path) -> tuple[list[AnchorSpec], dict[str, Any]]:
@@ -359,7 +399,10 @@ def calibrate_case_set(
             "capability. Use a panel whose members can all exercise these tiers, or pass "
             "allow_unfit_anchors to record the numbers anyway."
         )
-    fingerprints = {c.case_id: c.metadata.get("fingerprint") or case_fingerprint(c) for c in cases}
+    # Always recomputed. `metadata.fingerprint` is whatever the last `audit-cases --annotate`
+    # left behind, so trusting it makes reuse depend on when the annotation was run rather
+    # than on what the case now contains.
+    fingerprints = {c.case_id: case_fingerprint(c) for c in cases}
     previous = load_json(reuse_from) if reuse_from and reuse_from.is_file() else None
     todo, reused = plan_calibration([c.case_id for c in cases], fingerprints, previous, panel=panel)
     if reused:
@@ -410,6 +453,15 @@ def calibrate_case_set(
     report["unfit_anchors"] = [{"anchor": n, "tier": t, "missing_axes": m} for n, t, m in unfit]
     report["reused_case_count"] = len(reused)
     report["recalibrated_case_count"] = len(todo)
+    coverage = anchor_coverage([a.name for a in anchors], runs)
+    report.update(coverage)
+    missing = coverage["anchors_missing"]
+    if missing and run_set is not None:
+        print(
+            f"WARNING: {len(missing)} configured anchor(s) produced no rows: {', '.join(missing)}. "
+            "These numbers describe a smaller panel than the one configured; do not compare them "
+            "against a full-panel calibration."
+        )
     write_json(cal_dir / "calibration.json", report)
     (cal_dir / "calibration_report.md").write_text(render_calibration_md(report), encoding="utf-8")
     return cal_dir, report
