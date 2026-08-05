@@ -144,6 +144,7 @@ def plan_calibration(
     previous: dict[str, Any] | None,
     *,
     panel: str,
+    never_reuse: set[str] | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Split cases into those needing a run and those whose earlier result still holds.
 
@@ -153,55 +154,75 @@ def plan_calibration(
     Results recorded under an older fingerprint scheme are never reused. Those fingerprints
     were computed over the prompt and file paths alone, so they cannot witness a change of
     file contents, and accepting one would return a p_hat measured on code that no longer
-    exists.
+    exists. ``never_reuse`` carries the same argument one step further, for cases whose code
+    lives outside the JSON — no fingerprint computed from the case file can witness an edit to
+    a snapshot or a clone.
     """
     from aibench.validity import FINGERPRINT_VERSION
 
     if not previous or previous.get("anchor_fingerprint") != panel:
         return list(case_ids), []
     current = f"{FINGERPRINT_VERSION}:"
+    relevant = [c for c in previous.get("cases") or [] if c.get("case_id") in fingerprints]
     stale = sum(
         1
-        for c in previous.get("cases") or []
+        for c in relevant
         if c.get("fingerprint") and not str(c["fingerprint"]).startswith(current)
     )
+    unfingerprinted = sum(1 for c in relevant if not c.get("fingerprint"))
     if stale:
         print(
             f"ignoring {stale} earlier result(s) recorded under an older fingerprint scheme; "
             "they cannot show whether the case contents changed"
         )
+    if unfingerprinted:
+        print(f"ignoring {unfingerprinted} earlier result(s) that carry no fingerprint")
     prior = {
         c["case_id"]: c
-        for c in previous.get("cases") or []
-        if c.get("fingerprint")
-        and str(c["fingerprint"]).startswith(current)
-        and c["case_id"] in fingerprints
+        for c in relevant
+        if c.get("fingerprint") and str(c["fingerprint"]).startswith(current)
     }
+    blocked = never_reuse or set()
     reusable = [
         prior[cid]
         for cid in case_ids
-        if cid in prior and prior[cid].get("fingerprint") == fingerprints.get(cid)
+        if cid in prior
+        and cid not in blocked
+        and prior[cid].get("fingerprint") == fingerprints.get(cid)
     ]
     reused_ids = {c["case_id"] for c in reusable}
     return [cid for cid in case_ids if cid not in reused_ids], reusable
 
 
-def anchor_coverage(configured: list[str], runs: list[dict[str, Any]]) -> dict[str, Any]:
-    """Which of the configured anchors actually produced rows.
+def anchor_coverage(
+    configured: list[str],
+    runs: list[dict[str, Any]],
+    *,
+    cases: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Which of the configured anchors the report's numbers actually rest on.
 
     A calibration that lost passes — a killed process, a gateway refusing every request for
     one anchor — still writes a report, and nothing in the numbers says the panel was smaller
     than intended. Pairing such a result against a complete one reads as a real effect and is
     not one; this records the difference so it cannot be missed.
+
+    ``cases`` is the merged case list, which includes results carried over by ``--reuse-from``.
+    Those cases were measured by anchors that this invocation never ran, so judging coverage on
+    ``runs`` alone would report a fully reused calibration as having no anchors at all — and a
+    field that cries wolf on a complete panel is worse than no field.
     """
     rows_by_anchor: dict[str, int] = {}
     for run in runs:
         name = str(run.get("anchor", "anchor"))
         rows_by_anchor[name] = rows_by_anchor.get(name, 0) + len(run.get("rows") or [])
     produced = {name for name, count in rows_by_anchor.items() if count}
+    for case in cases or []:
+        produced.update(str(k) for k in (case.get("by_anchor") or {}))
     return {
         "anchors_configured": sorted(configured),
-        "anchors_with_rows": dict(sorted(rows_by_anchor.items())),
+        "anchors_with_rows_this_run": dict(sorted(rows_by_anchor.items())),
+        "anchors_of_record": sorted(produced),
         "anchors_missing": sorted(set(configured) - produced),
     }
 
@@ -382,7 +403,7 @@ def calibrate_case_set(
     panel = anchor_fingerprint(anchors)
 
     from aibench.cases import load_cases
-    from aibench.validity import case_fingerprint
+    from aibench.validity import case_fingerprint, external_workspace
 
     cases = load_cases(case_set, validate=True)
     tiers_present = {c.tier for c in cases if c.tier}
@@ -403,8 +424,13 @@ def calibrate_case_set(
     # left behind, so trusting it makes reuse depend on when the annotation was run rather
     # than on what the case now contains.
     fingerprints = {c.case_id: case_fingerprint(c) for c in cases}
+    # A snapshot- or git-backed case keeps its fingerprint when the snapshot changes, because
+    # the fingerprint is computed from the case file and the code is not in it.
+    external = {c.case_id for c in cases if external_workspace(c)}
     previous = load_json(reuse_from) if reuse_from and reuse_from.is_file() else None
-    todo, reused = plan_calibration([c.case_id for c in cases], fingerprints, previous, panel=panel)
+    todo, reused = plan_calibration(
+        [c.case_id for c in cases], fingerprints, previous, panel=panel, never_reuse=external
+    )
     if reused:
         print(f"reusing {len(reused)} unchanged case results; running {len(todo)}")
 
@@ -453,10 +479,10 @@ def calibrate_case_set(
     report["unfit_anchors"] = [{"anchor": n, "tier": t, "missing_axes": m} for n, t, m in unfit]
     report["reused_case_count"] = len(reused)
     report["recalibrated_case_count"] = len(todo)
-    coverage = anchor_coverage([a.name for a in anchors], runs)
+    coverage = anchor_coverage([a.name for a in anchors], runs, cases=report.get("cases") or [])
     report.update(coverage)
     missing = coverage["anchors_missing"]
-    if missing and run_set is not None:
+    if missing:
         print(
             f"WARNING: {len(missing)} configured anchor(s) produced no rows: {', '.join(missing)}. "
             "These numbers describe a smaller panel than the one configured; do not compare them "

@@ -1108,7 +1108,16 @@ else       → hard
 #### 14.3.5 指纹与集级去重
 
 ```text
-case_fingerprint = sha256(f"{task_type}|{prompt.strip()}|{'|'.join(sorted paths)}")[:16]
+case_fingerprint = "v3:" + sha256(json 规范化的 {
+    version, task_type, language, prompt.strip(),
+    files:   [[path, sha256(content)], ...]   # 按声明顺序，顺序参与哈希
+    grader:  {mode, command, match, key_lines, protected_paths,
+              judge_rubric, judge_threshold,
+              gold_files:   [[path, sha256(content)], ...],
+              hidden_tests: [[path, sha256(content)], ...]},
+    workspace: {mode, spec}
+})[:16]
+
 content_fingerprint(set) = sha256(sorted "case_id:fp" 行)[:16]
 
 同集内相同 fingerprint 的多条:
@@ -1117,14 +1126,29 @@ content_fingerprint(set) = sha256(sorted "case_id:fp" 行)[:16]
 
 `content_fingerprint` 会写入 run 的 `run_manifest.json` / summary，便于复现核对「是否同一 case 集」。
 
+**为什么带版本前缀（`v3:`）**：指纹的唯一消费者是 `calibrate-cases --reuse-from`
+的复用判据。旧口径只哈希 `task_type|prompt|paths`，**改文件内容、改 `grader.command`
+都不会让指纹变化**，于是复用会交还一份在另一份代码上测出来的 p_hat。
+版本前缀让旧值与新值永远不可能相等，复用门禁据此直接拒绝并打印丢弃条数。
+
+> **这是有意的破坏性变更**：升级后所有既有校准结果都不再可复用，`--reuse-from` 会全量重跑。
+> 这是正确行为而非 bug —— 旧指纹本来就无法反映内容变化。
+
+**不覆盖的部分**：`context.workspace` 为 `snapshot` / `git` / `mixed` 时，
+指纹只包含 workspace **规格**，不包含快照或克隆的**内容**（`case_fingerprint` 不做 I/O，
+也拿不到 case-set 目录）。这类用例由 `validity.external_workspace()` 标出，
+`plan_calibration` 对它们**一律不复用**，而不是信任一个证明不了内容未变的指纹。
+
 #### 14.3.6 `annotate` 写回字段
 
 | metadata 键 | 值 |
 |-------------|-----|
 | `difficulty` | easy/medium/hard |
-| `fingerprint` | 16 位 hex |
+| `fingerprint` | `v3:` + 16 位 hex |
 | `validity_ok` | bool |
 | `validity_issues` | issue 对象列表 |
+| `uncollectable_stub` | bool，stub 工作区是否根本收集不起来 |
+| `uncollectable_reference` | bool，参考解工作区是否根本收集不起来 |
 
 ### 14.4 与 `promote` 发布门控的关系
 
