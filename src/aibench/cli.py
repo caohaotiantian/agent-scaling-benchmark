@@ -308,6 +308,14 @@ def main(argv: list[str] | None = None) -> int:
     p_comp.add_argument("--to-set", type=str, required=True)
     p_comp.add_argument("--target-files", type=int, default=6, help="Files per composed case")
     p_comp.add_argument("--donors-per-case", type=int, default=3)
+    p_comp.add_argument(
+        "--donor-set",
+        type=str,
+        default=None,
+        help="Where distractor files come from (default: --from-set). Hosts should be the "
+        "cases calibration kept; donors only need to be plausible code, so drawing both "
+        "from the curated set starves composition.",
+    )
     p_comp.add_argument("--max-cases", type=int, default=None)
 
     p_exp = sub.add_parser("export-ablation", help="Export ablation_summary to CSV/XLSX")
@@ -725,10 +733,18 @@ def main(argv: list[str] | None = None) -> int:
         if not src.is_dir():
             print(f"source case set not found: {src}")
             return 1
+        pool = None
+        if args.donor_set:
+            donor_dir = case_set_dir(args.donor_set)
+            if not donor_dir.is_dir():
+                print(f"donor case set not found: {donor_dir}")
+                return 1
+            pool = load_verified_cases(donor_dir)
         composed = compose_case_set(
             load_verified_cases(src),
             target_files=args.target_files,
             donors_per_case=args.donors_per_case,
+            donor_pool=pool,
         )
         dest = case_set_dir(args.to_set)
         dest.mkdir(parents=True, exist_ok=True)

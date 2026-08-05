@@ -24,12 +24,22 @@ DISTRACTOR_DIR = "vendor"
 
 
 def donor_files(case: dict[str, Any]) -> list[dict[str, str]]:
-    """Implementation files of a case that are safe to plant elsewhere as noise."""
-    solution = {str(g.get("path")) for g in (case.get("grader") or {}).get("gold_files") or []}
+    """Implementation files of a case that are safe to plant elsewhere as noise.
+
+    A donor's own stub is included even though its reference solution changes it. "Part of the
+    solution" is a property of the *host* case, not the donor: planted under ``vendor/<id>/``
+    the file is unreachable from the host's imports and cannot participate in the host's fix,
+    so it is exactly the plausible-but-irrelevant code a retrieval case needs.
+
+    Excluding it measured badly — a typical case has one implementation file and that file is
+    what its own solution fixes, so 109 of 126 cases had nothing to donate at all.
+
+    Tests are still excluded: a donated test file would be collected and run.
+    """
     return [
         {"path": str(f.get("path")), "content": str(f.get("content") or "")}
         for f in (case.get("context") or {}).get("files") or []
-        if f.get("role") in {"impl", None} and str(f.get("path")) not in solution
+        if f.get("role") in {"impl", None}
     ]
 
 
@@ -88,18 +98,30 @@ def compose_case_set(
     *,
     target_files: int = 6,
     donors_per_case: int = 3,
+    donor_pool: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Compose every case against a rotating selection of the others.
+    """Compose every case in ``cases`` against a rotating selection from ``donor_pool``.
+
+    The pool defaults to ``cases`` but is worth separating: hosts should be the cases
+    calibration kept, while donors only need to be plausible code. Drawing both from the
+    curated set starves composition, since selection is what made that set small.
 
     Donors rotate rather than being drawn at random so the output is reproducible: a case set
     whose contents change between runs cannot be compared against an earlier calibration.
     """
-    if len(cases) < 2:
+    pool = donor_pool if donor_pool is not None else cases
+    if not cases or len(pool) < 2:
         return []
     composed: list[dict[str, Any]] = []
     for i, host in enumerate(cases):
-        donors = [cases[(i + 1 + j) % len(cases)] for j in range(donors_per_case)]
-        donors = [d for d in donors if d.get("case_id") != host.get("case_id")]
+        donors: list[dict[str, Any]] = []
+        for j in range(len(pool)):
+            candidate = pool[(i + 1 + j) % len(pool)]
+            if candidate.get("case_id") == host.get("case_id"):
+                continue
+            donors.append(candidate)
+            if len(donors) >= donors_per_case:
+                break
         result = compose_case(host, donors, target_files=target_files)
         if result["metadata"]["distractors_added"]:
             composed.append(result)
