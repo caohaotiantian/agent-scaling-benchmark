@@ -285,17 +285,19 @@ def test_a_changed_panel_invalidates_every_previous_result():
 
 def test_unchanged_cases_are_reused_and_changed_ones_re_run():
     from aibench.calibrate import plan_calibration
+    from aibench.validity import FINGERPRINT_VERSION
 
+    v = FINGERPRINT_VERSION
     previous = {
         "anchor_fingerprint": "p1",
         "cases": [
-            {"case_id": "same", "fingerprint": "f-same"},
-            {"case_id": "edited", "fingerprint": "f-old"},
+            {"case_id": "same", "fingerprint": f"{v}:f-same"},
+            {"case_id": "edited", "fingerprint": f"{v}:f-old"},
         ],
     }
     todo, reused = plan_calibration(
         ["same", "edited", "brand-new"],
-        {"same": "f-same", "edited": "f-new", "brand-new": "f-x"},
+        {"same": f"{v}:f-same", "edited": f"{v}:f-new", "brand-new": f"{v}:f-x"},
         previous,
         panel="p1",
     )

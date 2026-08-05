@@ -102,7 +102,7 @@ def _run_one_attempt(
             "language": case.language,
             "difficulty": difficulty,
             "tier": case.tier,
-            "fingerprint": case.metadata.get("fingerprint") or case_fingerprint(case),
+            "fingerprint": case_fingerprint(case),
             "agent_status": agent_result.status,
             "passed": passed,
             "infra_error": infra,
