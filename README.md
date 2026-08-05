@@ -10,6 +10,7 @@
 
 | 页面 | 说明 |
 |------|------|
+| **[交接文档](docs/html/handoff.html)** | **接手工作请先读这一页**：成果、实测数据、经验教训、后续计划 |
 | **[文档站首页](docs/html/index.html)** | 全部 HTML 页面索引与导航 |
 | **[项目介绍演示](docs/html/project-overview.html)** | 目标、架构、命令、科学效度、产物、设计表关系 |
 | **[参考手册](docs/html/reference.html)** | 参数级权威参考（CLI / 配置 / Schema / 映射） |
