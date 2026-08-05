@@ -5,7 +5,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from aibench.languages import pass_ratio
+from aibench.languages import pass_ratio, registered_spec
 from aibench.models import Case, GradeResult
 from aibench.workspace import safe_relpath as _safe_relpath
 
@@ -122,7 +122,9 @@ def grade_case(case: Case, workspace: Path) -> GradeResult:
         # Prefer script if present, else gold.
         if case.grader.command:
             r = _grade_script(case, workspace)
-            if r.passed or r.infra_error:
+            # Falling through on an uncollectable workspace lets the gold check pass a case
+            # whose tests never ran, and drops the collection verdict on the floor.
+            if r.passed or r.infra_error or r.collection_error:
                 return r
         if case.grader.gold_files or case.grader.key_lines:
             return _grade_gold(case, workspace)
@@ -159,15 +161,26 @@ def _grade_script(case: Case, workspace: Path) -> GradeResult:
             infra_error=True,
         )
     ok = proc.returncode == 0
+    combined = f"{proc.stdout or ''}\n{proc.stderr or ''}"
     tail = (proc.stdout or "")[-1500:] + (proc.stderr or "")[-1500:]
+    # Only a registered runner's exit codes and tally can be read; for anything else the
+    # harness has no idea what the output means and must not guess it is broken.
+    # Judge only output this harness knows how to read: the declared language must have a
+    # runner here, and the grader command must actually be driven by it. `python check.py` is
+    # an accepted grader command and prints no tally, so reading it as pytest would call every
+    # genuine assertion failure a broken workspace.
+    spec = registered_spec(case.language)
+    uncollectable = bool(
+        spec and not ok and spec.drives(cmd) and spec.is_uncollectable(proc.returncode, combined)
+    )
     return GradeResult(
         passed=ok,
         mode="script",
         score=1.0 if ok else 0.0,
         detail=f"exit={proc.returncode}\n{tail}".strip(),
-        test_pass_ratio=pass_ratio(
-            f"{proc.stdout or ''}\n{proc.stderr or ''}", language=case.language
-        ),
+        # A suite that never ran earned no partial credit; 0.0 would read as "everything failed".
+        test_pass_ratio=None if uncollectable else pass_ratio(combined, language=case.language),
+        collection_error=uncollectable,
     )
 
 
