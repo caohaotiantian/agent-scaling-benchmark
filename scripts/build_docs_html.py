@@ -2,7 +2,7 @@
 """Build unified HTML documentation site under docs/html/.
 
 Sources:
-  - docs/REFERENCE.md, USER_GUIDE.md, REMAINING_WORK.md
+  - docs/REFERENCE.md, USER_GUIDE.md, REMAINING_WORK.md, HANDOFF.md
   - configs/README.md
   - docs/html/_src/tables.md (field dictionary; smart HTML table layout)
   - docs/html/_src/project-overview.html (canonical overview body)
@@ -37,6 +37,7 @@ NAV = [
     ("tables.html", "字段字典"),
     ("configs.html", "生产配置"),
     ("remaining-work.html", "未尽事项"),
+    ("handoff.html", "交接文档"),
 ]
 
 SITE_CSS = r"""
@@ -953,6 +954,7 @@ def write_index() -> None:
     <thead><tr><th>HTML 页面</th><th>源文件</th></tr></thead>
     <tbody>
       <tr><td><a href="project-overview.html">project-overview.html</a></td><td>docs/html/_src/project-overview.html</td></tr>
+      <tr><td><a href="handoff.html">handoff.html</a></td><td>docs/HANDOFF.md</td></tr>
       <tr><td><a href="reference.html">reference.html</a></td><td>docs/REFERENCE.md</td></tr>
       <tr><td><a href="user-guide.html">user-guide.html</a></td><td>docs/USER_GUIDE.md</td></tr>
       <tr><td><a href="agentic-scaling-benchmark.html">agentic-scaling-benchmark.html</a></td><td>docs/html/_src/agentic-scaling-benchmark.html</td></tr>
@@ -985,6 +987,13 @@ def main() -> None:
         "参考手册 · REFERENCE",
         "reference.html",
         "参数级权威参考：概念、架构、环境变量、配置、完整 CLI 参数、Case 协议、科学效度门禁、产物与设计表映射。",
+    )
+    write_md_page(
+        ROOT / "docs/HANDOFF.md",
+        "handoff.html",
+        "交接文档 · HANDOFF",
+        "handoff.html",
+        "本轮成果、实测数据、经验教训与后续计划；接手工作请先读这一页。",
     )
     write_md_page(
         ROOT / "docs/USER_GUIDE.md",
