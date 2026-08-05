@@ -49,6 +49,11 @@ def scan_case_dict(case: dict[str, Any], *, path: str = "case") -> list[Finding]
     for g in (case.get("grader") or {}).get("gold_files") or []:
         p = g.get("path") or "gold"
         findings.extend(scan_text(str(g.get("content") or ""), path=f"{path}:gold:{p}"))
+    # Hidden tests are written into the workspace at grading time and are shipped in the case
+    # file like any other content, so leaving them unscanned exempted a whole surface.
+    for h in (case.get("grader") or {}).get("hidden_tests") or []:
+        p = h.get("path") or "hidden"
+        findings.extend(scan_text(str(h.get("content") or ""), path=f"{path}:hidden:{p}"))
     return findings
 
 

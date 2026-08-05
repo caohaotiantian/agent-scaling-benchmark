@@ -194,6 +194,26 @@ def plan_calibration(
     return [cid for cid in case_ids if cid not in reused_ids], reusable
 
 
+def verdict_reasons(
+    p_hat: float,
+    r_pb: float | None,
+    policy: SelectionPolicy,
+) -> list[str]:
+    """Why this case would be dropped, under ``policy``. Empty means keep.
+
+    A pure function of the measurement and the thresholds, so a reused result can be re-judged
+    without re-running anything.
+    """
+    reasons: list[str] = []
+    if p_hat > policy.p_max:
+        reasons.append(f"too_easy(p={p_hat:.2f}>{policy.p_max})")
+    if p_hat < policy.p_min:
+        reasons.append(f"unsolved_by_all(p={p_hat:.2f}<{policy.p_min}) — verify the case itself")
+    if r_pb is not None and r_pb < policy.min_rpb and policy.p_min <= p_hat <= policy.p_max:
+        reasons.append(f"no_discrimination(r_pb={r_pb:.2f}<{policy.min_rpb})")
+    return reasons
+
+
 def anchor_coverage(
     configured: list[str],
     runs: list[dict[str, Any]],
@@ -302,13 +322,7 @@ def aggregate_calibration(
         ]
         r_pb = point_biserial(item, totals)
 
-        reasons: list[str] = []
-        if p_hat > pol.p_max:
-            reasons.append(f"too_easy(p={p_hat:.2f}>{pol.p_max})")
-        if p_hat < pol.p_min:
-            reasons.append(f"unsolved_by_all(p={p_hat:.2f}<{pol.p_min}) — verify the case itself")
-        if r_pb is not None and r_pb < pol.min_rpb and pol.p_min <= p_hat <= pol.p_max:
-            reasons.append(f"no_discrimination(r_pb={r_pb:.2f}<{pol.min_rpb})")
+        reasons = verdict_reasons(p_hat, r_pb, pol)
 
         ci = wilson_ci(passes, attempts)
         reports.append(
@@ -472,7 +486,9 @@ def calibrate_case_set(
 
     report = aggregate_calibration(runs, policy=policy)
     if reused:
-        report = _merge_reused(report, reused, policy=policy)
+        report = _merge_reused(
+            report, reused, policy=policy, tiers={c.case_id: c.tier for c in cases}
+        )
     report["case_set"] = case_set
     report["repeats"] = repeats
     report["anchor_fingerprint"] = panel
@@ -516,8 +532,29 @@ def _merge_reused(
     reused: list[dict[str, Any]],
     *,
     policy: SelectionPolicy | None,
+    tiers: dict[str, str | None] | None = None,
 ) -> dict[str, Any]:
-    """Fold previously measured cases back in and recompute the set-level distributions."""
+    """Fold previously measured cases back in and recompute the set-level distributions.
+
+    The measurement is reused; the *verdict* is not. ``keep`` and ``reasons`` are recomputed
+    against the current policy, because tuning ``p_max``/``p_min``/``min_rpb`` needs no
+    re-measurement and is therefore exactly when an operator reaches for ``--reuse-from`` —
+    which used to hand back the previous run's keep/drop decisions under a report that stated
+    the new thresholds.
+
+    ``tiers`` refreshes the tier label for the same reason: it is deliberately outside the
+    fingerprint because it cannot change p_hat, so a retagged case would otherwise keep its old
+    label in the tier quota that decides what ships.
+    """
+    pol = policy or SelectionPolicy()
+    for row in reused:
+        if tiers is not None and row.get("case_id") in tiers:
+            row["tier"] = tiers[row["case_id"]]
+        p_hat = row.get("p_hat")
+        if p_hat is None:
+            continue
+        row["reasons"] = verdict_reasons(float(p_hat), row.get("point_biserial"), pol)
+        row["keep"] = not row["reasons"]
     cases = [*(report.get("cases") or []), *reused]
     cases.sort(key=lambda c: str(c.get("case_id")))
     kept = [c for c in cases if c.get("keep")]
