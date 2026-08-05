@@ -2361,6 +2361,12 @@ runs:
 </tbody>
 </table>
 <p><code>anchor_fingerprint</code> 计入每个引用配置文件的<strong>内容</strong>而非路径：改了 <code>glm52.yaml</code> 里的 model 字段，路径全都没变但锚点含义已变，旧的 <code>p_hat</code> 必须整体失效，不能继续沿用。</p>
+<p><strong>锚点面板必须能施展被测层级的能力轴。</strong> Agent 配置用 <code>capability_axes</code> 声明自己能施展哪些轴，
+<code>calibrate-cases</code> 在开跑前核对该集合出现的所有 tier，不匹配直接拒绝（<code>--allow-unfit-anchors</code> 可强制）。</p>
+<p>这条不是形式主义，是实测教训：单轮 agent 把<strong>整个工作区贴进 prompt</strong>，所以 T4 的干扰文件对它不是需要绕过的障碍，而是白送的可用代码 —— 在合成 T4 用例上，弱单轮锚点的通过率比同一批用例合成前<strong>高了 24 个百分点</strong>。一个施展不了某条轴的成员不会在那条轴上得低分，它得的是另一回事的分，跨这种面板算出来的 spread 不是那个能力的度量。</p>
+<p>检索层（T4+）用 <code>configs/runs/anchor-panel-retrieval.yaml</code>：三个成员全是多步 agent，
+差异落在真正支配检索的维度上 —— 步数预算、能否执行命令、读代码的模型强弱。
+该面板<strong>不能测 T5</strong>（frugal 成员无 bash，缺 A3），核对会如实报出来。</p>
 <p>锚点面板<strong>必须跨越</strong>要区分的能力带（至少一个弱锚、一个强锚，且同时变化模型与 agent 两条轴），
 否则 <code>spread</code> 恒为 0，会把所有用例判为无区分度。</p>
 <p><code>aibench select-cases</code> 按 <code>spread</code>、<code>point_biserial</code> 降序把保留的 case 复制成新集合，并把

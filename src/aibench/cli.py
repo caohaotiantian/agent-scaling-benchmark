@@ -256,6 +256,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Earlier calibration.json. Cases whose content and anchor panel are unchanged "
         "keep their previous result instead of being re-run.",
     )
+    p_cal.add_argument(
+        "--allow-unfit-anchors",
+        action="store_true",
+        help="Calibrate even when a panel member cannot exercise a tier present in the set. "
+        "The spread it produces is not a measurement of that capability.",
+    )
 
     p_sel = sub.add_parser(
         "select-cases",
@@ -682,6 +688,7 @@ def main(argv: list[str] | None = None) -> int:
             case_workers=args.workers,
             reuse_from=args.reuse_from,
             parallel=args.parallel,
+            allow_unfit_anchors=args.allow_unfit_anchors,
         )
         print(f"calibration_dir={cal_dir}")
         if report.get("reused_case_count"):

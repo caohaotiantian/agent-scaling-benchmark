@@ -19,7 +19,9 @@
 | `runs/baseline.yaml` | 单次：openai_compat + glm52，`case_workers: 4` |
 | `runs/baseline-tool-loop.yaml` | 单次：tool_loop + glm52 |
 | `runs/ablation-matrix.yaml` | 消融：基线 / 模型轴（glm51）/ Agent 轴（tool_loop），每次只变一条轴 |
-| `runs/anchor-panel.yaml` | 校准锚点面板：弱/中/强，供 `calibrate-cases` 实测用例区分度 |
+| `runs/anchor-panel.yaml` | 校准锚点面板（T1–T3）：弱/中/强单轮与多步混合 |
+| `runs/anchor-panel-retrieval.yaml` | 检索层（T4+）面板：**全部为多步 agent**，单轮无法施展 A2 |
+| `agents/tool_loop_frugal.yaml` | 受限多步 agent：短步数预算、无 shell，作检索层地板锚 |
 
 ## Required environment
 

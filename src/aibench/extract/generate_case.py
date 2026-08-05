@@ -264,6 +264,33 @@ def _system_prompt_for_tier(tier: str) -> str:
     )
 
 
+#: Openings that mean the model narrated the task instead of performing it.
+_META_REPLY = re.compile(
+    r"^(?:the user wants|i(?:'ll|\s+(?:will|need to|should|have))|"
+    r"here(?:'s|\s+is)\s+the|sure[,!]|certainly[,!]|rewritten\s*:|okay[,!])",
+    re.I,
+)
+
+
+def accept_rewrite(original: str, rewritten: str) -> str:
+    """Take a de-localized prompt only if it is actually one, else keep the original.
+
+    An unchecked rewrite shipped a case whose prompt was the model's own narration —
+    "The user wants me to rewrite the coding task description..." — with the original quoted
+    inside it, so it still disclosed the defect *and* no longer described a task.
+    """
+    text = re.sub(r"^```\w*\s*|\s*```$", "", (rewritten or "").strip())
+    if not text or _META_REPLY.match(text):
+        return original
+    # A rewrite that is much longer than its input is a reasoning dump, not a description.
+    if len(text) > max(400, len(original) * 2):
+        return original
+    # The rewrite exists to remove disclosure; one that still discloses has not done the job.
+    if find_disclosures(text):
+        return original
+    return text
+
+
 def _delocalize_prompt(prompt: str, *, chat: Any) -> str:
     """Ask once for a symptom-only rewrite when the generated prompt gave the defect away."""
     rewritten = chat(
@@ -281,8 +308,7 @@ def _delocalize_prompt(prompt: str, *, chat: Any) -> str:
         ],
         512,
     )
-    cleaned = re.sub(r"^```\w*\s*|\s*```$", "", rewritten.strip())
-    return cleaned or prompt
+    return accept_rewrite(prompt, rewritten)
 
 
 def draft_tier(draft: dict[str, Any], *, default: str = "T2") -> str:

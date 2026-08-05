@@ -102,6 +102,42 @@ def anchor_fingerprint(anchors: list[AnchorSpec]) -> str:
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+def unfit_anchors(
+    anchors: list[AnchorSpec],
+    tiers: set[str],
+) -> list[tuple[str, str, list[str]]]:
+    """Anchors that cannot exercise a tier present in the set, as (anchor, tier, missing axes).
+
+    Measured: composing retrieval cases raised the weak *single-turn* anchor by 24pp, because
+    that scaffold pastes every file into the prompt — the distractors were not an obstacle to
+    search past, they were extra working code handed over for free. A panel member that cannot
+    exhibit an axis does not score low on it; it scores something unrelated, and the spread
+    computed across such a panel is not a measurement of that capability.
+    """
+    from aibench.io_util import load_yaml
+    from aibench.models import AgentConfig
+    from aibench.tiers import tier_spec
+
+    root = repo_root()
+    problems: list[tuple[str, str, list[str]]] = []
+    for anchor in anchors:
+        path = _abs(root, anchor.agent_config)
+        if path is None or not path.is_file():
+            continue
+        declared = AgentConfig.from_dict(load_yaml(path)).capability_axes
+        if not declared:
+            continue  # undeclared means unknown, not unfit
+        for tier in sorted(tiers):
+            try:
+                required = tier_spec(tier).axes
+            except ValueError:
+                continue
+            missing = [a for a in required if a not in declared]
+            if missing:
+                problems.append((anchor.name, tier, missing))
+    return problems
+
+
 def plan_calibration(
     case_ids: list[str],
     fingerprints: dict[str, str],
@@ -288,6 +324,7 @@ def calibrate_case_set(
     case_workers: int | None = None,
     reuse_from: Path | None = None,
     parallel: int = 1,
+    allow_unfit_anchors: bool = False,
 ) -> tuple[Path, dict[str, Any]]:
     """Run the anchor panel ``repeats`` times over ``case_set`` and write ``calibration.json``.
 
@@ -308,6 +345,20 @@ def calibrate_case_set(
     from aibench.validity import case_fingerprint
 
     cases = load_cases(case_set, validate=True)
+    tiers_present = {c.tier for c in cases if c.tier}
+    unfit = unfit_anchors(anchors, tiers_present)
+    if unfit and not allow_unfit_anchors:
+        lines = "\n".join(
+            f"  {name} cannot exercise {tier} (missing {', '.join(missing)})"
+            for name, tier, missing in unfit
+        )
+        raise ValueError(
+            f"anchor panel cannot measure the tiers in {case_set!r}:\n{lines}\n"
+            "A panel member that cannot exhibit an axis does not score low on it, it scores "
+            "something unrelated, so the resulting spread is not a measurement of that "
+            "capability. Use a panel whose members can all exercise these tiers, or pass "
+            "allow_unfit_anchors to record the numbers anyway."
+        )
     fingerprints = {c.case_id: c.metadata.get("fingerprint") or case_fingerprint(c) for c in cases}
     previous = load_json(reuse_from) if reuse_from and reuse_from.is_file() else None
     todo, reused = plan_calibration([c.case_id for c in cases], fingerprints, previous, panel=panel)
@@ -356,6 +407,7 @@ def calibrate_case_set(
     report["case_set"] = case_set
     report["repeats"] = repeats
     report["anchor_fingerprint"] = panel
+    report["unfit_anchors"] = [{"anchor": n, "tier": t, "missing_axes": m} for n, t, m in unfit]
     report["reused_case_count"] = len(reused)
     report["recalibrated_case_count"] = len(todo)
     write_json(cal_dir / "calibration.json", report)
