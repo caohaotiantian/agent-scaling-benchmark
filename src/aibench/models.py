@@ -225,6 +225,10 @@ class GradeResult:
     infra_error: bool = False
     reward_hack: bool = False
     test_pass_ratio: float | None = None
+    #: The suite never ran (import error, syntax error, nothing collected) — the workspace is
+    #: broken rather than the submission wrong. Distinct from ``infra_error``, which is the
+    #: harness failing; this is the case itself failing to stand up.
+    collection_error: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

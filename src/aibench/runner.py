@@ -116,6 +116,7 @@ def _run_one_attempt(
             "judge_score": judge_score,
             "test_pass_ratio": grade.test_pass_ratio if grade else None,
             "reward_hack": bool(grade and grade.reward_hack),
+            "collection_error": bool(grade and grade.collection_error),
             "grade": grade.to_dict() if grade else None,
             "error_message": agent_result.error_message,
             "failure_category": _failure_category(infra, passed, agent_result.status, grade),
@@ -406,6 +407,12 @@ def _failure_category(
         return "预算耗尽失败"
     if agent_status == "failed":
         return "Agent协议失败"
+    if grade is not None and getattr(grade, "collection_error", False):
+        # The suite never ran. At run time the harness cannot tell whether the case shipped
+        # broken or the submission broke it — a syntax error in the model's own edit produces
+        # exactly this — so the category names the observation and blames neither. The
+        # audit-time verdict on `metadata.uncollectable_stub` is what separates the two.
+        return "测试未执行"
     if grade is not None and not grade.passed:
         return "模型推理失败"
     return "模型推理失败"

@@ -124,8 +124,30 @@ def check_contamination(case: Case) -> list[ValidityIssue]:
     return issues
 
 
-def check_stub_fails(case: Case, *, case_set: str | None = None) -> tuple[bool, str]:
-    """Return (ok, detail). ok=True means stub correctly fails (gate passed)."""
+#: Detail prefixes the audit keys off. Defined once so the reported reason and the boolean
+#: derived from it cannot drift apart.
+STUB_UNCOLLECTABLE = "stub_uncollectable"
+REFERENCE_UNCOLLECTABLE = "reference_solution_uncollectable"
+
+
+def check_stub_fails(
+    case: Case,
+    *,
+    case_set: str | None = None,
+    reference_collects: bool | None = None,
+) -> tuple[bool, str]:
+    """Return (ok, detail). ok=True means stub correctly fails (gate passed).
+
+    ``reference_collects`` says whether the workspace stands up once the reference solution is
+    applied: ``True`` when its suite reached a verdict, ``False`` when it could not be
+    collected, and ``None`` when there was no reference solution to try.
+
+    Only ``False`` condemns the stub. ``True`` means the workspace is sound and an
+    uncollectable stub is the ordinary "implement this" shape — the visible test imports a
+    symbol the stub has yet to define. ``None`` is not evidence either way, and reporting it
+    as a broken workspace would restate a case already rejected for having no reference
+    solution, inflating the count of workspaces this gate claims to have found.
+    """
     if case.grader.mode != "script" or not case.grader.command:
         return True, "skipped_non_script"
     tmp = Path(tempfile.mkdtemp(prefix="aibench_audit_"))
@@ -138,6 +160,13 @@ def check_stub_fails(case: Case, *, case_set: str | None = None) -> tuple[bool, 
             return False, f"infra: {grade.detail}"
         if grade.passed:
             return False, "stub_passed_grader"
+        if grade.collection_error and reference_collects is False:
+            # The stub is *supposed* to fail, so a workspace that cannot even be collected
+            # satisfies this gate by accident. That is how a case whose hidden test does not
+            # parse reaches the shipped set looking like a hard one. The reference solution is
+            # what separates the two: if applying it makes the suite run, the workspace is
+            # sound and only the stub was incomplete.
+            return False, f"{STUB_UNCOLLECTABLE}: {grade.detail[:300]}"
         return True, "stub_failed_as_expected"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -176,6 +205,11 @@ def check_reference_solution(case: Case, *, case_set: str | None = None) -> tupl
         grade = grade_case(case, ws)
         if grade.infra_error:
             return False, f"infra: {grade.detail}"
+        if grade.collection_error:
+            # Both verdicts reject the case, but only one of them is a statement about the
+            # task. Reporting a missing dependency as `reference_solution_failed` is what
+            # makes an unrunnable workspace indistinguishable from an unsolvable task.
+            return False, f"{REFERENCE_UNCOLLECTABLE}: {grade.detail[:300]}"
         if not grade.passed:
             return False, f"reference_solution_failed: {grade.detail[:300]}"
         return True, "reference_solution_passed"
@@ -196,18 +230,41 @@ def audit_case(
 
     issues.extend(check_contamination(case))
 
-    stub_ok, stub_detail = check_stub_fails(case, case_set=case_set)
-    checks["stub_fail"] = {"ok": stub_ok, "detail": stub_detail}
-    if not stub_ok:
-        issues.append(
-            ValidityIssue("stub_fail_gate", "error", f"stub must fail grader: {stub_detail}")
-        )
-
+    # The reference solution runs first: whether it makes the workspace collectable is what
+    # tells an incomplete stub apart from a broken one.
     ref_ok, ref_detail = check_reference_solution(case, case_set=case_set)
-    checks["reference_solution"] = {"ok": ref_ok, "detail": ref_detail}
+    ref_uncollectable = ref_detail.startswith(REFERENCE_UNCOLLECTABLE)
+    checks["reference_solution"] = {
+        "ok": ref_ok,
+        "detail": ref_detail,
+        "uncollectable": ref_uncollectable,
+    }
     if not ref_ok:
         issues.append(
             ValidityIssue("solvability_gate", "error", f"case must be solvable: {ref_detail}")
+        )
+
+    if ref_uncollectable:
+        reference_collects: bool | None = False
+    elif ref_ok or ref_detail.startswith("reference_solution_failed"):
+        # A reference solution that ran — whether it passed or failed — proves the workspace
+        # stands up. Anything else (no gold files, a path escape, an infra failure) never
+        # reached the grader and says nothing about collectability.
+        reference_collects = True
+    else:
+        reference_collects = None
+
+    stub_ok, stub_detail = check_stub_fails(
+        case, case_set=case_set, reference_collects=reference_collects
+    )
+    checks["stub_fail"] = {
+        "ok": stub_ok,
+        "detail": stub_detail,
+        "uncollectable": stub_detail.startswith(STUB_UNCOLLECTABLE),
+    }
+    if not stub_ok:
+        issues.append(
+            ValidityIssue("stub_fail_gate", "error", f"stub must fail grader: {stub_detail}")
         )
 
     tier = case.tier
@@ -253,6 +310,11 @@ def audit_case(
     )
 
 
+def _is_uncollectable(report: CaseValidityReport, check: str) -> bool:
+    entry = (report.checks or {}).get(check)
+    return bool(isinstance(entry, dict) and entry.get("uncollectable"))
+
+
 def audit_case_set(case_set: str, *, llm_disclosure_check: bool = False) -> dict[str, Any]:
     cases = load_cases(case_set, validate=True)
     reports = [
@@ -281,6 +343,12 @@ def audit_case_set(case_set: str, *, llm_disclosure_check: bool = False) -> dict
         "total": len(reports),
         "passed": ok_n,
         "failed": len(reports) - ok_n,
+        # Counted separately because "the workspace does not run" and "the task is hard" are
+        # the same number otherwise, and the second is a claim about capability.
+        "uncollectable_stub": sum(1 for r in reports if _is_uncollectable(r, "stub_fail")),
+        "uncollectable_reference": sum(
+            1 for r in reports if _is_uncollectable(r, "reference_solution")
+        ),
         "duplicates": dupes,
         "tier_distribution": dict(sorted(by_tier.items())),
         "reports": [r.to_dict() for r in reports],
@@ -301,6 +369,10 @@ def annotate_case_metadata(case_path: Path, report: CaseValidityReport) -> None:
     meta["fingerprint"] = report.fingerprint
     meta["validity_ok"] = report.ok
     meta["validity_issues"] = [i.to_dict() for i in report.issues]
+    # Without these the reason a case was rejected is lost the moment the audit run ends, and
+    # "broken workspace" becomes indistinguishable from "hard" again on the next read.
+    meta["uncollectable_stub"] = _is_uncollectable(report, "stub_fail")
+    meta["uncollectable_reference"] = _is_uncollectable(report, "reference_solution")
     if report.tier:
         meta["tier"] = report.tier
     raw["metadata"] = meta

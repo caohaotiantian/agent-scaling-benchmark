@@ -637,7 +637,10 @@ def main(argv: list[str] | None = None) -> int:
             write_json(args.report, rep)
         print(
             f"audit case_set={args.case_set} passed={rep['passed']}/{rep['total']} "
-            f"failed={rep['failed']} fingerprint={rep.get('content_fingerprint')}"
+            f"failed={rep['failed']} "
+            f"uncollectable_stub={rep.get('uncollectable_stub', 0)} "
+            f"uncollectable_reference={rep.get('uncollectable_reference', 0)} "
+            f"fingerprint={rep.get('content_fingerprint')}"
         )
         if args.fail_on_error and rep["failed"] > 0:
             return 2
