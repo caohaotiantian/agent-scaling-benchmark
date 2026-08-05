@@ -1,0 +1,17 @@
+# Floor anchor for retrieval calibration: multi-step, but a tight step budget and no shell.
+experiment_name: tool-loop-frugal
+algorithm_name: Baseline
+algorithm_version: v1.0
+budget_axis: steps
+budget_value: "max_steps=8, max_wall_time_s=300"
+branches: 1
+max_attempts: 1
+max_steps: 8
+max_wall_time_s: 300
+selection_strategy: first-submit
+case_set: retrieval-v0
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: configs/agents/tool_loop_frugal.yaml
+model_config: configs/models/glm52.yaml
+case_workers: 4

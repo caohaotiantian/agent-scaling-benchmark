@@ -118,6 +118,11 @@ class AgentConfig:
     adapter: str
     options: dict[str, Any] = field(default_factory=dict)
     description: str = ""
+    #: Capability axes this scaffold can actually exercise (see aibench.tiers.AXES). An agent
+    #: that hands the model every file cannot exhibit or lack retrieval, so scoring it on a
+    #: retrieval case measures something else. Empty means "unknown", treated as unrestricted
+    #: for backward compatibility.
+    capability_axes: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> AgentConfig:
@@ -127,6 +132,7 @@ class AgentConfig:
             adapter=d["adapter"],
             options=dict(d.get("options") or {}),
             description=d.get("description") or "",
+            capability_axes=tuple(d.get("capability_axes") or ()),
         )
 
 

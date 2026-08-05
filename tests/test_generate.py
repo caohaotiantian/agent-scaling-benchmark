@@ -1,5 +1,6 @@
 from aibench.cases import load_schema_validator
 from aibench.extract.generate_case import (
+    accept_rewrite,
     draft_tier,
     heuristic_case_from_draft,
     is_safe_grader_command,
@@ -130,3 +131,44 @@ def test_the_heuristic_fallback_cannot_smuggle_in_an_unverifiable_case(tmp_path,
     assert rc == 1, "nothing verifiable should have been written"
     assert "no reference solution" in capsys.readouterr().out
     assert not list(out.glob("*.json"))
+
+
+def test_a_narrated_rewrite_is_refused():
+    """A case shipped with its prompt set to the model's own narration — "The user wants me to
+    rewrite the coding task description..." — quoting the original inside, so it both failed to
+    describe a task and still disclosed the defect."""
+    from aibench.extract.generate_case import accept_rewrite
+
+    original = "Users report placement across OSDs is skewed under the default weights."
+    narrated = (
+        "The user wants me to rewrite the coding task description to report only the "
+        'observable symptom.\n\nOriginal:\n"Users report that data placement is skewed"'
+    )
+    assert accept_rewrite(original, narrated) == original
+
+    for meta in ("I'll rewrite that.", "Here is the rewritten description:", "Sure, here you go"):
+        assert accept_rewrite(original, meta) == original
+
+
+def test_a_rewrite_that_still_discloses_is_refused():
+    original = "The comparison is inverted, so it continues when it should stop."
+    assert accept_rewrite(original, "The improvement comparison is inverted.") == original
+
+
+def test_a_reasoning_dump_is_refused():
+    original = "clamp() returns values outside the requested range."
+    assert accept_rewrite(original, "x " * 500) == original
+
+
+def test_a_genuine_symptom_only_rewrite_is_taken():
+    from aibench.extract.generate_case import accept_rewrite
+
+    original = "compute_strides uses the wrong loop order instead of accumulating from the right."
+    good = "compute_strides returns [1, 3] for shape (2, 3); callers expect [3, 1]."
+    assert accept_rewrite(original, good) == good
+    assert accept_rewrite(original, f"```\n{good}\n```") == good
+
+
+def test_an_empty_rewrite_keeps_the_original():
+    assert accept_rewrite("original text", "") == "original text"
+    assert accept_rewrite("original text", "   ") == "original text"
