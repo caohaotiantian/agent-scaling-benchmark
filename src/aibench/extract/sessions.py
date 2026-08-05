@@ -45,18 +45,60 @@ def is_coding_session(session: SessionRecord) -> bool:
 
 
 def redact_secrets(text: str) -> str:
-    patterns = [
-        (r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+", r"\1=***"),
-        (r"sk-[A-Za-z0-9]{10,}", "sk-***"),
-        (
-            r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-            "***PRIVATE_KEY***",
-        ),
-    ]
-    out = text
-    for pat, repl in patterns:
-        out = re.sub(pat, repl, out)
-    return out
+    """Replace secret-looking values, without destroying the code around them.
+
+    The value pattern stops at the first quote or whitespace and puts back whatever quoting it
+    consumed. Matching ``\\S+`` instead swallowed the closing delimiter, so
+    ``assert "token=abc" in url`` became ``assert "token=*** in url`` — an unterminated string
+    literal. Measured over ``drafts-from-db``: 56 lines across 90 files in 45 drafts were left
+    with an unbalanced quote, and cases built from them shipped with a reference solution and
+    a hidden test that could not be parsed.
+    """
+    out = _SECRET_ASSIGN.sub(_redact_assignment, text)
+    out = re.sub(r"sk-[A-Za-z0-9]{10,}", "sk-***", out)
+    return re.sub(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+        "***PRIVATE_KEY***",
+        out,
+    )
+
+
+#: A secret-looking assignment whose value is either a quoted literal or a bare token.
+#:
+#: The bare alternative refuses anything that continues into an expression, because `token =
+#: os.environ["K"]` names no secret and rewriting it only breaks the file. A bare value behind
+#: a colon is held to a higher bar (see :func:`_looks_like_a_secret`) because `token: str` is
+#: an ordinary annotation, not a leak.
+_SECRET_ASSIGN = re.compile(
+    r"""(?ix)
+    (api[_-]?key|token|secret|password)   # 1: the name that makes this look like a secret
+    (["']?\s*(?P<sep>[:=])\s*)            # 2: the assignment, preserved verbatim; the optional
+                                          #    quote closes a quoted *key*, as in {"token": ...}
+    (?:
+        (?P<q>["'])(?P<quoted>[^"'\n]*)(?P=q)      # a quoted literal, delimiters restored
+      | (?P<bare>[A-Za-z0-9_\-]+)(?![\w\-.\[(])    # or a bare token that ends right here
+    )
+    """
+)
+
+
+def _looks_like_a_secret(value: str) -> bool:
+    """Whether a bare value behind a colon is worth redacting.
+
+    ``token: str`` and ``secret: bool`` are type annotations; ``api_key: a1b2c3d4`` is a leak.
+    A digit or a length no identifier-shaped type name reaches separates the two.
+    """
+    return any(c.isdigit() for c in value) or len(value) >= 8
+
+
+def _redact_assignment(m: re.Match[str]) -> str:
+    quote = m.group("q")
+    if quote is not None:
+        return f"{m.group(1)}{m.group(2)}{quote}***{quote}"
+    bare = m.group("bare")
+    if m.group("sep") == ":" and not _looks_like_a_secret(bare):
+        return m.group(0)
+    return f"{m.group(1)}{m.group(2)}***"
 
 
 def task_fingerprint(prompt: str, file_paths: Iterable[str]) -> str:

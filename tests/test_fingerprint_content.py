@@ -247,3 +247,65 @@ class TestNoStoredFingerprintIsTrusted:
         # Trusting it makes reuse depend on when annotation ran, not on the case contents.
         case = _case(metadata={"fingerprint": f"{FINGERPRINT_VERSION}:deadbeefdeadbeef"})
         assert case_fingerprint(case) != case.metadata["fingerprint"]
+
+
+class TestReusedRowsAreRejudged:
+    """`--reuse-from` reuses the measurement, never the verdict.
+
+    Tuning p_max/p_min/min_rpb needs no re-measurement, so that is exactly when an operator
+    reaches for --reuse-from — and the reused rows used to carry the previous run's keep/drop
+    decisions under a report stating the new thresholds.
+    """
+
+    def _row(self, **over):
+        row = {
+            "case_id": "c1",
+            "p_hat": 0.5,
+            "point_biserial": 0.9,
+            "keep": True,
+            "reasons": [],
+            "tier": None,
+        }
+        row.update(over)
+        return row
+
+    def test_a_tightened_threshold_re_judges_a_reused_row(self):
+        from aibench.calibrate import SelectionPolicy, _merge_reused
+
+        merged = _merge_reused(
+            {"cases": []}, [self._row()], policy=SelectionPolicy(p_max=0.4), tiers=None
+        )
+        row = merged["cases"][0]
+        assert row["keep"] is False
+        assert row["reasons"] == ["too_easy(p=0.50>0.4)"]
+        assert merged["kept_count"] == 0
+
+    def test_a_loosened_threshold_re_admits_a_reused_row(self):
+        from aibench.calibrate import SelectionPolicy, _merge_reused
+
+        dropped = self._row(keep=False, reasons=["too_easy(p=0.50>0.4)"])
+        merged = _merge_reused(
+            {"cases": []}, [dropped], policy=SelectionPolicy(p_max=0.9), tiers=None
+        )
+        assert merged["cases"][0]["keep"] is True
+        assert merged["cases"][0]["reasons"] == []
+
+    def test_a_retagged_case_does_not_keep_its_old_tier(self):
+        # tier is deliberately outside the fingerprint — it cannot change p_hat — so a retag
+        # would otherwise survive into the quota that decides what ships.
+        from aibench.calibrate import SelectionPolicy, _merge_reused
+
+        merged = _merge_reused(
+            {"cases": []}, [self._row(tier=None)], policy=SelectionPolicy(), tiers={"c1": "T3"}
+        )
+        assert merged["cases"][0]["tier"] == "T3"
+        assert merged["tier_distribution"] == {"T3": 1}
+
+    def test_verdict_reasons_is_a_pure_function_of_the_measurement(self):
+        from aibench.calibrate import SelectionPolicy, verdict_reasons
+
+        pol = SelectionPolicy(p_max=0.9, p_min=0.05, min_rpb=0.15)
+        assert verdict_reasons(0.5, 0.9, pol) == []
+        assert verdict_reasons(0.95, 0.9, pol) == ["too_easy(p=0.95>0.9)"]
+        assert verdict_reasons(0.0, 0.9, pol)[0].startswith("unsolved_by_all")
+        assert verdict_reasons(0.5, 0.0, pol) == ["no_discrimination(r_pb=0.00<0.15)"]
