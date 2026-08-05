@@ -55,12 +55,36 @@ def _verified_case(cid: str, module: str) -> dict:
     }
 
 
-def test_donor_files_exclude_tests_and_the_solution():
+def test_donor_files_exclude_tests_but_include_the_donors_own_stub():
+    """ "Part of the solution" is relative to the host, not the donor. Excluding a donor's own
+    stub left 109 of 126 real cases with nothing to donate, because a typical case has one
+    implementation file and that file is exactly what its own solution fixes."""
     case = _verified_case("host", "alpha")
     paths = [f["path"] for f in donor_files(case)]
     assert "alpha_util.py" in paths
-    assert "clamp.py" not in paths, "the file the fix changes is never noise"
+    assert "clamp.py" in paths
     assert "test_clamp.py" not in paths, "a donated test would be collected and run"
+
+
+def test_a_donated_stub_cannot_join_the_hosts_solution():
+    """The safety property that replaces the exclusion: donors land somewhere unreachable."""
+    host = _verified_case("host", "alpha")
+    out = compose_case(host, [_verified_case("donor", "beta")], target_files=6)
+    settle_tier(out, "T4")
+
+    host_solution = {g["path"] for g in out["grader"]["gold_files"]}
+    donated = [f for f in out["context"]["files"] if f["path"].startswith(f"{DISTRACTOR_DIR}/")]
+    assert donated, "nothing was planted"
+    for f in donated:
+        assert f["role"] == "distractor"
+        assert f["path"] not in host_solution
+
+    # settle_tier additionally labels the host's own unreferenced files as distractors, which
+    # is correct; what must never happen is a distractor the host's fix has to touch.
+    for f in out["context"]["files"]:
+        if f["role"] == "distractor":
+            assert f["path"] not in host_solution
+    assert check_tier_invariants(Case.from_dict(out)).ok is True
 
 
 def test_composition_plants_donors_out_of_the_import_path():
@@ -126,3 +150,24 @@ def test_composing_a_set_rotates_donors_deterministically():
 
 def test_a_single_case_cannot_be_composed():
     assert compose_case_set([_verified_case("only", "alpha")]) == []
+
+
+def test_donors_can_come_from_a_wider_pool_than_the_hosts():
+    """Selection is what makes the curated set small, so drawing donors from it starves
+    composition: hosts should be what calibration kept, donors only need to be plausible."""
+    hosts = [_verified_case("kept", "alpha")]
+    pool = [_verified_case(f"p{i}", f"m{i}") for i in range(5)]
+
+    assert compose_case_set(hosts, target_files=6, donors_per_case=3) == []
+
+    out = compose_case_set(hosts, target_files=6, donors_per_case=3, donor_pool=pool)
+    assert len(out) == 1
+    assert out[0]["metadata"]["distractors_added"] >= 3
+    assert len(out[0]["context"]["files"]) == 6
+
+
+def test_a_host_is_never_its_own_donor_even_when_it_is_in_the_pool():
+    hosts = [_verified_case("shared", "alpha")]
+    pool = [_verified_case("shared", "alpha"), _verified_case("other", "beta")]
+    out = compose_case_set(hosts, target_files=6, donors_per_case=2, donor_pool=pool)
+    assert out and "shared" not in out[0]["metadata"]["composed_from"]
