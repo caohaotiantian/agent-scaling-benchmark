@@ -636,6 +636,14 @@ def difficulty_band(p_hat: float | None) -> str:
     return "mid"
 
 
+def _validate_shares(shares: dict[str, float], label: str) -> None:
+    bad = {k: v for k, v in shares.items() if v < 0 or v > 1}
+    if bad:
+        raise ValueError(f"{label} shares must be between 0 and 1, got {bad}")
+    if abs(sum(shares.values()) - 1.0) > 0.01:
+        raise ValueError(f"{label} shares sum to {sum(shares.values()):.2f}, expected 1.0")
+
+
 def _largest_remainder(shares: dict[str, float], total: int, *, rotate: int = 0) -> dict[str, int]:
     """Split ``total`` across ``shares`` so the parts sum to exactly ``total``.
 
@@ -687,11 +695,21 @@ def apply_difficulty_quota(
             "A misspelt band would otherwise be reported as a pool shortfall, sending you to "
             "calibrate more cases while the ones you asked for sat unused."
         )
-    if abs(sum(quota.values()) - 1.0) > 0.01:
-        raise ValueError(f"difficulty quota shares sum to {sum(quota.values()):.2f}, expected 1.0")
+    _validate_shares(quota, "difficulty quota")
+    if tier_quota:
+        # Unvalidated tier shares overshoot `want`, and the excess was truncated in flag order,
+        # silently dropping a whole tier with nothing reported.
+        _validate_shares(tier_quota, "tier quota")
+    if max_cases is not None and max_cases < 0:
+        raise ValueError(f"--max-cases must not be negative, got {max_cases}")
 
     by_band: dict[str, list[dict[str, Any]]] = {}
+    bucketed: set[str] = set()
     for c in keep:
+        cid = str(c.get("case_id"))
+        if cid in bucketed:
+            continue  # one row per case, so a repeated id cannot consume two slots
+        bucketed.add(cid)
         by_band.setdefault(difficulty_band(c.get("p_hat")), []).append(c)
     for rows in by_band.values():
         rows.sort(key=_rank)
@@ -707,7 +725,11 @@ def apply_difficulty_quota(
         "shortfall": {},
         "tier_shortfall": {},
     }
-    for band_index, band in enumerate(quota):
+    for band in quota:
+        # Rotation must key off the band's own identity. Taking it from the band's position in
+        # the flag string put the order-dependence back where it had just been removed: the
+        # same quota typed in a different order selected a different set.
+        band_index = DIFFICULTY_BAND_NAMES.index(band)
         want = wants[band]
         available = [c for c in by_band.get(band, []) if str(c.get("case_id")) not in seen]
         take, tier_short = _within_band(available, want, tier_quota, rotate=band_index)
@@ -719,7 +741,8 @@ def apply_difficulty_quota(
         if tier_short:
             achieved["tier_shortfall"][band] = tier_short
 
-    achieved["total"] = len(picked)
+    out = sorted(picked, key=_rank)[:total]
+    achieved["total"] = len(out)
     # Denominator is what was ASKED for, not what was delivered. Dividing by the delivered
     # count renormalises the shortfall away: a set missing every hard case would report the
     # other bands as on target, and the gap would vanish from the block describing it.
@@ -727,7 +750,7 @@ def apply_difficulty_quota(
         b: round(v["got"] / total, 4) if total else 0.0 for b, v in achieved["bands"].items()
     }
     achieved["unmeasured_in_pool"] = len(by_band.get("unmeasured", []))
-    return sorted(picked, key=_rank)[:total], achieved
+    return out, achieved
 
 
 def _within_band(
