@@ -16,7 +16,10 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # The optional quote after the name matches a quoted key, as in {"token": "..."} — the
     # exact shape `redact_source` may decline to rewrite, and therefore the shape this gate
     # has to catch. Without it the JSON form was invisible to both.
-    ("password_assign", re.compile(r"(?i)(password|passwd|pwd)['\"]?\s*[:=]\s*\S+")),
+    # The value needs real length, or the quoted-key form turns every config entry into a
+    # finding: `"pwd": "allow"` is a permission setting, and flagging it makes `--secrets-scan`
+    # report a clean set as dirty and `promote` refuse it.
+    ("password_assign", re.compile(r"(?i)(password|passwd|pwd)['\"]?\s*[:=]\s*['\"]?[^\s'\"]{6,}")),
     (
         "api_key_assign",
         re.compile(r"(?i)(api[_-]?key|secret|token)['\"]?\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
