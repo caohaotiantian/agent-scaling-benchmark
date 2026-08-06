@@ -96,3 +96,42 @@ class TestTierReporting:
         case = _case("total() is wrong", metadata={"tier": "T1"})
         check = check_tier_invariants(case)
         assert not [v for v in check.violations if v.code == "prompt_names_changed_function"]
+
+
+class TestTheRewriteMustActuallyFixIt:
+    """A rewrite is only worth requesting if its acceptance test checks what triggered it.
+
+    `find_disclosures` has no pattern for a function name, so a rewrite that still named the
+    function passed the acceptance test unchallenged — the trigger fired, an LLM call was
+    spent, and the prompt came back naming the same function.
+    """
+
+    def test_a_rewrite_that_still_names_the_function_is_rejected(self):
+        from aibench.extract.generate_case import accept_rewrite
+
+        out = accept_rewrite(
+            "total() is off by one",
+            "The total helper undercounts by one.",
+            forbidden_names=["total"],
+        )
+        assert out == "total() is off by one"
+
+    def test_a_rewrite_that_drops_the_name_is_accepted(self):
+        from aibench.extract.generate_case import accept_rewrite
+
+        out = accept_rewrite(
+            "total() is off by one",
+            "Summing a basket undercounts by one.",
+            forbidden_names=["total"],
+        )
+        assert out == "Summing a basket undercounts by one."
+
+    def test_without_forbidden_names_the_previous_behaviour_is_unchanged(self):
+        from aibench.extract.generate_case import accept_rewrite
+
+        assert accept_rewrite("a", "a clean rewrite") == "a clean rewrite"
+
+    def test_a_rewrite_that_still_discloses_the_mechanism_is_still_rejected(self):
+        from aibench.extract.generate_case import accept_rewrite
+
+        assert accept_rewrite("x", "the bug is in the loop", forbidden_names=["total"]) == "x"
