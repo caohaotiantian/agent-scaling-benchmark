@@ -24,11 +24,11 @@ class TestTheValueGoesButTheSyntaxStays:
         ("source", "secret"),
         [
             ('assert "token=abc123" in ws_url', "abc123"),
-            ('ws_url += "?token=secretvalue"', "secretvalue"),
+            ('ws_url += "?token=s3cretvalue"', "s3cretvalue"),
             ('ctx = _make_ctx("read_file", "API_KEY=sk-abcdefghij")', "sk-abcdefghij"),
             ("config = {'password': 'hunter2'}", "hunter2"),
             ('token = "mytok123"', "mytok123"),
-            ('return f"{base}/x?access_token=abc"', "?access_token=abc"),
+            ('return f"{base}/x?access_token=a1b2c3"', "access_token=a1b2c3"),
             ('{"api_key": "xyz123"}', "xyz123"),
         ],
     )
@@ -131,3 +131,46 @@ class TestScanCoverage:
             "grader": {"gold_files": [], "hidden_tests": []},
         }
         assert scan_case_dict(case) == []
+
+
+class TestTheCoverageBoundaryIsDeliberate:
+    """What redaction declines to touch, the scanner must still catch.
+
+    The wide pattern is only justified where a parse check can veto it. Everywhere else — a
+    language with no parser, a chat fragment that never parsed, text inside a docstring — the
+    conservative rule applies and some short secrets go unrewritten. That is survivable only
+    because `secrets_scan` is the gate that blocks publication, so it has to catch them.
+    """
+
+    def test_a_short_alphabetic_secret_is_left_to_the_scanner(self):
+        from aibench.secrets_scan import scan_text
+
+        src = "password = swordfish\n"
+        assert redact_source(src, path="x.py") == src, "conservative rule leaves it"
+        assert scan_text(src, path="t"), "so the gate must report it"
+
+    def test_javascript_gets_the_conservative_rule_not_the_wide_one(self):
+        # `parses` cannot judge JS, so there is no veto and the wide pattern would run
+        # unchecked — it broke 17 of 19 real .js files it touched.
+        src = "proto.onToken = function (token, value) {\n  return value;\n};\n"
+        assert redact_source(src, path="a.js") == src
+
+    def test_an_unparseable_fragment_gets_the_conservative_rule(self):
+        # 78% of real draft .py content is a fragment that never parsed, so the guard cannot
+        # fire there and the wide pattern would apply raw.
+        src = "def handler(req):\n    token = None\n    return token\nif True\n    pass\n"
+        assert redact_source(src, path="frag.py") == src
+
+    def test_a_private_key_is_redacted_even_when_another_line_is_vetoed(self):
+        # The PEM pattern spans lines, so the line-by-line salvage can never match it; applying
+        # it outside that loop is what stops a vetoed file keeping its key.
+        src = (
+            "token = None\n"
+            'KEY = """-----BEGIN RSA PRIVATE KEY-----\n'
+            "MIIEowIBAAKCAQEAxxxx\n"
+            '-----END RSA PRIVATE KEY-----"""\n'
+        )
+        out = redact_source(src, path="k.py")
+        assert "MIIEowIBAAKCAQEAxxxx" not in out
+        assert "BEGIN RSA PRIVATE KEY" not in out
+        assert "token = None" in out

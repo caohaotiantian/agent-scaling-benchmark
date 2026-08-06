@@ -44,7 +44,7 @@ def is_coding_session(session: SessionRecord) -> bool:
     return bool(_CODE_INTENT.search(text))
 
 
-def redact_secrets(text: str) -> str:
+def redact_secrets(text: str, *, aggressive: bool = False) -> str:
     """Replace secret-looking values, without destroying the code around them.
 
     The value pattern stops at the first quote or whitespace and puts back whatever quoting it
@@ -53,13 +53,31 @@ def redact_secrets(text: str) -> str:
     literal. Measured over ``drafts-from-db``: 56 lines across 90 files in 45 drafts were left
     with an unbalanced quote, and cases built from them shipped with a reference solution and
     a hidden test that could not be parsed.
+
+    ``aggressive`` widens what counts as a secret value. It is only safe where a parse check
+    can veto the result, so it defaults off and :func:`redact_source` turns it on for exactly
+    the inputs it can verify.
     """
-    out = _SECRET_ASSIGN.sub(_redact_assignment, text)
-    out = re.sub(r"sk-[A-Za-z0-9]{10,}", "sk-***", out)
+    return _redact_spanning(_redact_line_local(text, aggressive=aggressive))
+
+
+def _redact_line_local(text: str, *, aggressive: bool) -> str:
+    """The rewrites that act within one line — the only ones that can break syntax."""
+    out = _SECRET_ASSIGN.sub(lambda m: _redact_assignment(m, aggressive=aggressive), text)
+    return re.sub(r"sk-[A-Za-z0-9]{10,}", "sk-***", out)
+
+
+def _redact_spanning(text: str) -> str:
+    """Rewrites that legitimately cross lines, applied whole-text and never vetoed.
+
+    A PEM block is unambiguous and replacing it cannot break anything, so it must not be at
+    the mercy of the line-by-line salvage below — which cannot match it at all, and so left
+    embedded private keys fully intact whenever any other line tripped the veto.
+    """
     return re.sub(
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
         "***PRIVATE_KEY***",
-        out,
+        text,
     )
 
 
@@ -88,23 +106,29 @@ _SECRET_ASSIGN = re.compile(
 )
 
 
-def _looks_like_a_secret(value: str) -> bool:
+def _looks_like_a_secret(value: str, *, aggressive: bool) -> bool:
     """Whether a bare, unquoted value is worth rewriting.
 
-    Deliberately generous. An unquoted right-hand side is often code rather than a credential —
-    ``token = None``, ``password = password or b""``, ``token: SecretStr`` — but guessing which
-    from the value alone is hopeless, and guessing conservatively means shipping secrets.
-    :func:`redact_source` settles it by evidence instead: a rewrite that breaks the file is
-    dropped, so over-reaching here costs nothing on source and catches more everywhere else.
+    An unquoted right-hand side is often code rather than a credential — ``token = None``,
+    ``password = password or b""``, ``token: SecretStr`` — and rewriting one breaks the file.
+    Requiring a digit, or real length, keeps ``hunter2`` and ``a1b2c3d4`` while leaving
+    identifiers and type names alone.
+
+    ``aggressive`` drops that bar, and is only justified where a parse check can veto the
+    result. It must stay off otherwise: a fragment that never parsed, a language with no
+    parser, and text inside a docstring all sit outside the guard's reach, and there a wider
+    pattern is pure damage with nothing to catch it.
     """
-    return len(value) >= 3
+    if aggressive:
+        return len(value) >= 3
+    return (any(c.isdigit() for c in value) and len(value) >= 6) or len(value) >= 16
 
 
-def _redact_assignment(m: re.Match[str]) -> str:
+def _redact_assignment(m: re.Match[str], *, aggressive: bool) -> str:
     quote = m.group("q")
     if quote is not None:
         return f"{m.group(1)}{m.group(2)}{quote}***{quote}"
-    if not _looks_like_a_secret(m.group("bare")):
+    if not _looks_like_a_secret(m.group("bare"), aggressive=aggressive):
         return m.group(0)
     return f"{m.group(1)}{m.group(2)}***"
 
@@ -121,30 +145,35 @@ def redact_source(text: str, *, path: str | None = None, language: str | None = 
     is recoverable, while a case whose reference solution no longer parses ships as a hard one
     and quietly corrupts the measurement.
     """
-    redacted = redact_secrets(text)
-    if redacted == text:
-        return text
     from aibench.languages import registered_spec, spec_for_path
 
     spec = spec_for_path(path) if path else None
     if spec is None:
         spec = registered_spec(language)
-    if spec is None or not spec.parses(text) or spec.parses(redacted) is not False:
-        return redacted
+    # The wide pattern is earned only when this exact input can be re-parsed afterwards. A
+    # language with no parser here, or a chat-extracted fragment that never parsed to begin
+    # with — 78% of real draft .py content — gets the conservative one, because there would be
+    # nothing to catch an over-reach.
+    verifiable = spec is not None and spec.parses(text) is True
+    line_redacted = _redact_line_local(text, aggressive=verifiable)
 
-    # The file parsed and the whole rewrite broke it. Rather than discard every redaction over
-    # one bad line — which would leave the other secrets in place — keep the line rewrites that
-    # survive on their own.
-    lines = text.splitlines(keepends=True)
-    kept = list(lines)
-    for i, line in enumerate(lines):
-        rewritten = redact_secrets(line)
-        if rewritten == line:
-            continue
-        trial = [*kept[:i], rewritten, *kept[i + 1 :]]
-        if spec.parses("".join(trial)) is not False:
-            kept = trial
-    return "".join(kept)
+    if verifiable and spec.parses(line_redacted) is False:
+        # The whole rewrite broke it. Rather than discard every redaction over one bad line —
+        # which would leave the other secrets in place — keep the ones that survive alone.
+        lines = text.splitlines(keepends=True)
+        kept = list(lines)
+        for i, line in enumerate(lines):
+            rewritten = _redact_line_local(line, aggressive=True)
+            if rewritten == line:
+                continue
+            trial = [*kept[:i], rewritten, *kept[i + 1 :]]
+            if spec.parses("".join(trial)) is not False:
+                kept = trial
+        line_redacted = "".join(kept)
+
+    # Applied last and unconditionally: a PEM block cannot be matched line by line, and
+    # replacing it cannot break anything, so it must never be subject to the veto above.
+    return _redact_spanning(line_redacted)
 
 
 def task_fingerprint(prompt: str, file_paths: Iterable[str]) -> str:
@@ -177,7 +206,7 @@ def session_to_case_draft(
             files.append(
                 {
                     "path": str(art["path"]),
-                    "content": redact_secrets(str(art["content"])),
+                    "content": redact_source(str(art["content"]), path=str(art["path"])),
                 }
             )
 
@@ -191,7 +220,7 @@ def session_to_case_draft(
             gold_files.append(
                 {
                     "path": str(art["path"]),
-                    "content": redact_secrets(str(art["content"])),
+                    "content": redact_source(str(art["content"]), path=str(art["path"])),
                 }
             )
 
