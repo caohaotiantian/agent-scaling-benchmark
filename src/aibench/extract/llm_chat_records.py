@@ -23,6 +23,7 @@ from aibench.extract.sessions import (
     Message,
     SessionRecord,
     redact_secrets,
+    redact_source,
     task_fingerprint,
 )
 from aibench.extract.trace_signals import signals_from_messages, suggest_tier
@@ -157,7 +158,7 @@ def chat_record_to_session(rec: ChatRecord) -> SessionRecord | None:
             {
                 "type": "context_file",
                 "path": f["path"],
-                "content": redact_secrets(f["content"]),
+                "content": redact_source(f["content"], path=f["path"]),
             }
         )
     for g in gold:
@@ -165,7 +166,7 @@ def chat_record_to_session(rec: ChatRecord) -> SessionRecord | None:
             {
                 "type": "accepted_file",
                 "path": g["path"],
-                "content": redact_secrets(g["content"]),
+                "content": redact_source(g["content"], path=g["path"]),
                 "accepted": True,
             }
         )
@@ -235,7 +236,9 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
     gold = gold_from_assistant(messages, language)
     task_type = guess_task_type(prompt)
 
-    context_files = [{"path": f["path"], "content": redact_secrets(f["content"])} for f in files]
+    context_files = [
+        {"path": f["path"], "content": redact_source(f["content"], path=f["path"])} for f in files
+    ]
     if not context_files:
         # Still allow pure "write from scratch" tasks
         context_files = [
@@ -251,7 +254,9 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             }
         ]
 
-    gold_files = [{"path": g["path"], "content": redact_secrets(g["content"])} for g in gold]
+    gold_files = [
+        {"path": g["path"], "content": redact_source(g["content"], path=g["path"])} for g in gold
+    ]
 
     if gold_files:
         grader: dict[str, Any] = {

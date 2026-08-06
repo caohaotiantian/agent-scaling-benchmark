@@ -10,7 +10,7 @@ import httpx
 
 from aibench.env_config import openai_settings
 from aibench.extract.history_parse import guess_language, guess_task_type
-from aibench.extract.sessions import redact_secrets, task_fingerprint
+from aibench.extract.sessions import redact_secrets, redact_source, task_fingerprint
 from aibench.extract.tier_shaping import settle_tier
 from aibench.tiers import find_disclosures, tier_spec
 
@@ -47,7 +47,7 @@ def heuristic_case_from_draft(draft: dict[str, Any], *, tier: str | None = None)
         cleaned.append(
             {
                 "path": f["path"],
-                "content": redact_secrets(f.get("content") or ""),
+                "content": redact_source(f.get("content") or "", path=f["path"]),
             }
         )
     if not cleaned:
@@ -466,7 +466,7 @@ def generate_case_with_llm(
     for f in ctx.get("files") or []:
         entry = {
             "path": f["path"],
-            "content": redact_secrets(str(f.get("content") or "")),
+            "content": redact_source(str(f.get("content") or ""), path=f["path"]),
         }
         if f.get("role"):
             entry["role"] = str(f["role"])
@@ -475,7 +475,7 @@ def generate_case_with_llm(
         raise ValueError("LLM case has no context.files")
     ctx["files"] = cleaned
     grader["gold_files"] = [
-        {"path": g["path"], "content": redact_secrets(str(g.get("content") or ""))}
+        {"path": g["path"], "content": redact_source(str(g.get("content") or ""), path=g["path"])}
         for g in grader.get("gold_files") or []
         if g.get("path")
     ]
