@@ -278,6 +278,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Per-tier share of the selected set, e.g. T2=0.3,T3=0.4,T4=0.3. Without it, "
         "selection ranks purely by discrimination and can land entirely in one tier.",
     )
+    p_sel.add_argument(
+        "--difficulty-quota",
+        type=str,
+        default=None,
+        help="Per-band share of the selected set by measured p_hat, e.g. "
+        "easy=0.15,mid=0.70,hard=0.15. Bands: hard <0.2, mid 0.2-0.8, easy >0.8. "
+        "Thresholds alone cannot shape a distribution — they drop the unusable and then rank "
+        "the rest by discrimination, which is how a selected set still ran 39% easy. A band "
+        "with too few cases is reported as a shortfall, never back-filled from another band.",
+    )
     p_sel.add_argument("--dry-run", action="store_true")
 
     p_plan = sub.add_parser(
@@ -721,12 +731,21 @@ def main(argv: list[str] | None = None) -> int:
                 dest_set=args.to_set,
                 max_cases=args.max_cases,
                 tier_quota=parse_tier_quota(args.tier_quota),
+                difficulty_quota=parse_tier_quota(args.difficulty_quota),
                 dry_run=args.dry_run,
             )
         except (FileNotFoundError, ValueError) as e:
             print(str(e))
             return 1
         print(json.dumps(report, ensure_ascii=False, indent=2))
+        short = (report.get("difficulty_quota") or {}).get("shortfall") or {}
+        if short:
+            detail = ", ".join(f"{b} short by {n}" for b, n in sorted(short.items()))
+            print(
+                f"WARNING: the pool could not fill every difficulty band ({detail}). "
+                "The set does not have the shape you asked for; calibrate more cases rather "
+                "than reading the result as if the target were met."
+            )
         if not report["selected_count"]:
             print(
                 "\nNo case was selected. Either calibration kept nothing (see its report's "
