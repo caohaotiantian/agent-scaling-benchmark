@@ -53,6 +53,23 @@ class LanguageSpec:
                 counts[key] = max(counts[key], int(number))
         return counts
 
+    def parses(self, content: str) -> bool | None:
+        """Whether ``content`` is syntactically valid, or ``None`` if this spec cannot tell.
+
+        Only used to detect that a *transformation* broke a file that was fine before, so an
+        honest "I don't know" is more useful than a guess.
+        """
+        if self.name != "python":
+            return None
+        try:
+            compile(content, "<case>", "exec")
+        except SyntaxError:
+            return False
+        except ValueError:
+            # e.g. source containing a null byte — not a syntax verdict.
+            return None
+        return True
+
     def is_uncollectable(self, exit_code: int, output: str) -> bool:
         """Did the suite fail to *run*, rather than fail?
 

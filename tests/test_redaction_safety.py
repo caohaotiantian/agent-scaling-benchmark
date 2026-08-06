@@ -15,7 +15,7 @@ import ast
 
 import pytest
 
-from aibench.extract.sessions import redact_secrets
+from aibench.extract.sessions import redact_secrets, redact_source
 from aibench.secrets_scan import scan_case_dict
 
 
@@ -45,7 +45,7 @@ class TestTheValueGoesButTheSyntaxStays:
 
 
 class TestExpressionsAreLeftAlone:
-    """A value that is an expression holds no secret, and rewriting it only breaks the file."""
+    """A value that continues into an expression holds no secret; rewriting only breaks it."""
 
     @pytest.mark.parametrize(
         "source",
@@ -60,17 +60,50 @@ class TestExpressionsAreLeftAlone:
         assert redact_secrets(source) == source
 
 
-class TestAnnotationsAreNotAssignments:
-    """`token: str` declares a type; it is not a leak, and mangling it breaks the module."""
+class TestSourceIsGuardedByParsing:
+    """`redact_secrets` is deliberately generous; `redact_source` is what keeps code working.
 
-    @pytest.mark.parametrize("source", ["token: str", "secret: bool", "api_key: int"])
-    def test_a_type_annotation_survives(self, source):
-        assert redact_secrets(source) == source
-        ast.parse(redact_secrets(source))
+    Deciding from the value alone whether an unquoted right-hand side is a credential or code
+    is hopeless, and guessing conservatively means shipping secrets. So the pattern reaches
+    wide and a parse check settles it: a rewrite that breaks the file is dropped.
+    """
 
-    @pytest.mark.parametrize("source", ["api_key: a1b2c3d4", "token: longenoughvalue"])
-    def test_a_secret_looking_value_behind_a_colon_is_still_redacted(self, source):
-        assert "***" in redact_secrets(source)
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "token = None",
+            "api_key = DEFAULT",
+            'self.password = password or b""',
+            'url = "https://h/x?token=" + tok + "&u=" + user',
+            "password: SecretStr",
+            'TOKEN = """abc"""',
+            "token: str",
+            "secret: bool",
+            'def read(self) -> Token:\n    """Consume the next token."""\n',
+        ],
+    )
+    def test_a_rewrite_that_would_break_the_file_is_dropped(self, source):
+        out = redact_source(source, path="x.py")
+        ast.parse(out)
+        assert out == source
+
+    def test_one_unsafe_line_does_not_discard_the_safe_ones(self):
+        # Reverting the whole file over a single bad line would leave every other secret in it.
+        src = 'token = None\nAPI_KEY = "sk-abcdefghijklmnop"\n'
+        out = redact_source(src, path="x.py")
+        ast.parse(out)
+        assert "sk-abcdefghijklmnop" not in out
+        assert "token = None" in out
+
+    def test_a_file_with_no_registered_language_is_still_redacted(self):
+        # No parser means no veto; a YAML or markdown value is redacted as before.
+        out = redact_source("api_key: a1b2c3d4\n", path="config.yaml")
+        assert "a1b2c3d4" not in out
+
+    def test_a_safe_rewrite_is_kept(self):
+        out = redact_source('API_KEY = "sk-abcdefghijklmnop"\n', path="x.py")
+        ast.parse(out)
+        assert "sk-abcdefghijklmnop" not in out
 
 
 class TestScanCoverage:

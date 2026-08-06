@@ -72,10 +72,16 @@ def redact_secrets(text: str) -> str:
 _SECRET_ASSIGN = re.compile(
     r"""(?ix)
     (api[_-]?key|token|secret|password)   # 1: the name that makes this look like a secret
-    (["']?\s*(?P<sep>[:=])\s*)            # 2: the assignment, preserved verbatim; the optional
-                                          #    quote closes a quoted *key*, as in {"token": ...}
+    (["']?[ \t]*(?P<sep>[:=])[ \t]*)      # 2: the assignment, preserved verbatim. Horizontal
+                                          #    space only: `\s*` let a separator ending one
+                                          #    line bind to the docstring opening the next.
+                                          #    The optional quote closes a quoted *key*.
     (?:
-        (?P<q>["'])(?P<quoted>[^"'\n]*)(?P=q)      # a quoted literal, delimiters restored
+        # A quoted literal. No whitespace inside, because a value that spans one would be
+        # code: in `"…?token=" + tok + "&u="` the quote after `token=` CLOSES a literal, and
+        # treating it as an opening one swallowed `+ tok +`. Non-empty, so the first two
+        # quotes of a `\"\"\"` opener are never mistaken for an empty value.
+        (?P<q>["'])(?P<quoted>[^"'\s]+)(?P=q)
       | (?P<bare>[A-Za-z0-9_\-]+)(?![\w\-.\[(])    # or a bare token that ends right here
     )
     """
@@ -83,22 +89,62 @@ _SECRET_ASSIGN = re.compile(
 
 
 def _looks_like_a_secret(value: str) -> bool:
-    """Whether a bare value behind a colon is worth redacting.
+    """Whether a bare, unquoted value is worth rewriting.
 
-    ``token: str`` and ``secret: bool`` are type annotations; ``api_key: a1b2c3d4`` is a leak.
-    A digit or a length no identifier-shaped type name reaches separates the two.
+    Deliberately generous. An unquoted right-hand side is often code rather than a credential —
+    ``token = None``, ``password = password or b""``, ``token: SecretStr`` — but guessing which
+    from the value alone is hopeless, and guessing conservatively means shipping secrets.
+    :func:`redact_source` settles it by evidence instead: a rewrite that breaks the file is
+    dropped, so over-reaching here costs nothing on source and catches more everywhere else.
     """
-    return any(c.isdigit() for c in value) or len(value) >= 8
+    return len(value) >= 3
 
 
 def _redact_assignment(m: re.Match[str]) -> str:
     quote = m.group("q")
     if quote is not None:
         return f"{m.group(1)}{m.group(2)}{quote}***{quote}"
-    bare = m.group("bare")
-    if m.group("sep") == ":" and not _looks_like_a_secret(bare):
+    if not _looks_like_a_secret(m.group("bare")):
         return m.group(0)
     return f"{m.group(1)}{m.group(2)}***"
+
+
+def redact_source(text: str, *, path: str | None = None, language: str | None = None) -> str:
+    """Redact file content, but never hand back source that stopped parsing.
+
+    Rewriting code with a regex cannot be made safe in general — the value may be an
+    expression, a fragment of a larger literal, or a docstring delimiter — so the guard is
+    empirical: if the file parsed before and does not after, the redaction is discarded.
+
+    Leaving a value in place means the secret stays in the case, which ``secrets_scan`` reports
+    and ``promote`` refuses to publish. That is the intended trade: a case blocked at the gate
+    is recoverable, while a case whose reference solution no longer parses ships as a hard one
+    and quietly corrupts the measurement.
+    """
+    redacted = redact_secrets(text)
+    if redacted == text:
+        return text
+    from aibench.languages import registered_spec, spec_for_path
+
+    spec = spec_for_path(path) if path else None
+    if spec is None:
+        spec = registered_spec(language)
+    if spec is None or not spec.parses(text) or spec.parses(redacted) is not False:
+        return redacted
+
+    # The file parsed and the whole rewrite broke it. Rather than discard every redaction over
+    # one bad line — which would leave the other secrets in place — keep the line rewrites that
+    # survive on their own.
+    lines = text.splitlines(keepends=True)
+    kept = list(lines)
+    for i, line in enumerate(lines):
+        rewritten = redact_secrets(line)
+        if rewritten == line:
+            continue
+        trial = [*kept[:i], rewritten, *kept[i + 1 :]]
+        if spec.parses("".join(trial)) is not False:
+            kept = trial
+    return "".join(kept)
 
 
 def task_fingerprint(prompt: str, file_paths: Iterable[str]) -> str:

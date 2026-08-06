@@ -13,8 +13,14 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("openai_sk", re.compile(r"sk-[A-Za-z0-9]{20,}")),
     ("aws_key", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
-    ("password_assign", re.compile(r"(?i)(password|passwd|pwd)\s*[:=]\s*\S+")),
-    ("api_key_assign", re.compile(r"(?i)(api[_-]?key|secret|token)\s*[:=]\s*['\"]?[^\s'\"]{8,}")),
+    # The optional quote after the name matches a quoted key, as in {"token": "..."} — the
+    # exact shape `redact_source` may decline to rewrite, and therefore the shape this gate
+    # has to catch. Without it the JSON form was invisible to both.
+    ("password_assign", re.compile(r"(?i)(password|passwd|pwd)['\"]?\s*[:=]\s*\S+")),
+    (
+        "api_key_assign",
+        re.compile(r"(?i)(api[_-]?key|secret|token)['\"]?\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
+    ),
     ("bearer", re.compile(r"(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*")),
 ]
 
