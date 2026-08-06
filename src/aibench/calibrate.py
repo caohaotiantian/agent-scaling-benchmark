@@ -609,6 +609,91 @@ def _rank(case: dict[str, Any]) -> tuple[float, float]:
     return (-(case.get("spread") or 0.0), -(case.get("point_biserial") or 0.0))
 
 
+#: Band edges for difficulty quotas, in p_hat. A case above ``easy`` is solved by nearly every
+#: anchor and separates nothing; one below ``hard`` is solved by nearly none. These are for
+#: *shaping the set*, and are deliberately distinct from ``SelectionPolicy``'s keep/drop
+#: thresholds, which decide whether a case is usable at all.
+DIFFICULTY_BANDS = {"hard": 0.2, "easy": 0.8}
+
+
+def difficulty_band(p_hat: float | None) -> str:
+    """Which band a measured case falls in: ``easy`` / ``mid`` / ``hard``."""
+    if p_hat is None:
+        return "mid"
+    if p_hat < DIFFICULTY_BANDS["hard"]:
+        return "hard"
+    if p_hat > DIFFICULTY_BANDS["easy"]:
+        return "easy"
+    return "mid"
+
+
+def apply_difficulty_quota(
+    keep: list[dict[str, Any]],
+    *,
+    quota: dict[str, float],
+    max_cases: int | None,
+    tier_quota: dict[str, float] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Shape the set by measured difficulty, returning the selection and what it achieved.
+
+    Thresholds alone cannot produce a distribution. ``SelectionPolicy`` drops the unusable, but
+    everything it keeps between ``p_min`` and ``p_max`` is then ranked purely by discrimination —
+    which is why a selected set still ran 39% easy: the whole 0.8–0.9 slice survives.
+
+    The shortfall per band is reported rather than quietly back-filled from another band. A set
+    that missed its shape is a fact about the pool, and hiding it behind a top-up would make the
+    next reader believe a target was met that never was.
+    """
+    if not quota:
+        return (keep[:max_cases] if max_cases is not None else keep), {}
+
+    by_band: dict[str, list[dict[str, Any]]] = {}
+    for c in keep:
+        by_band.setdefault(difficulty_band(c.get("p_hat")), []).append(c)
+    for rows in by_band.values():
+        rows.sort(key=_rank)
+
+    total = max_cases if max_cases is not None else len(keep)
+    picked: list[dict[str, Any]] = []
+    achieved: dict[str, Any] = {"target": dict(quota), "bands": {}, "shortfall": {}}
+    for band, share in quota.items():
+        want = round(share * total)
+        available = by_band.get(band, [])
+        take = _within_band(available, want, tier_quota)
+        picked.extend(take)
+        achieved["bands"][band] = {"wanted": want, "got": len(take), "pool": len(available)}
+        if len(take) < want:
+            achieved["shortfall"][band] = want - len(take)
+
+    achieved["total"] = len(picked)
+    achieved["actual_shares"] = {
+        b: round(v["got"] / len(picked), 4) if picked else 0.0 for b, v in achieved["bands"].items()
+    }
+    return sorted(picked, key=_rank), achieved
+
+
+def _within_band(
+    rows: list[dict[str, Any]],
+    want: int,
+    tier_quota: dict[str, float] | None,
+) -> list[dict[str, Any]]:
+    """Best ``want`` cases from one band, spread across tiers when a tier quota is given."""
+    if want <= 0 or not rows:
+        return []
+    if not tier_quota:
+        return rows[:want]
+    by_tier: dict[str, list[dict[str, Any]]] = {}
+    for c in rows:
+        by_tier.setdefault(str(c.get("tier") or "unset"), []).append(c)
+    out: list[dict[str, Any]] = []
+    for tier, share in tier_quota.items():
+        out.extend(by_tier.get(tier, [])[: round(share * want)])
+    if len(out) < want:
+        chosen = {id(c) for c in out}
+        out.extend([c for c in rows if id(c) not in chosen][: want - len(out)])
+    return out[:want]
+
+
 def apply_tier_quota(
     keep: list[dict[str, Any]],
     *,
@@ -651,12 +736,21 @@ def select_cases(
     dest_set: str,
     max_cases: int | None = None,
     tier_quota: dict[str, float] | None = None,
+    difficulty_quota: dict[str, float] | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Copy the cases calibration kept into a new case set, best discriminators first."""
     keep = [c for c in calibration.get("cases") or [] if c.get("keep")]
     keep.sort(key=_rank)
-    keep = apply_tier_quota(keep, quota=tier_quota or {}, max_cases=max_cases)
+    difficulty_report: dict[str, Any] = {}
+    if difficulty_quota:
+        # Difficulty is the outer dimension when asked for: it decides the set's shape, and the
+        # tier quota then spreads the picks within each band so capability coverage survives.
+        keep, difficulty_report = apply_difficulty_quota(
+            keep, quota=difficulty_quota, max_cases=max_cases, tier_quota=tier_quota
+        )
+    else:
+        keep = apply_tier_quota(keep, quota=tier_quota or {}, max_cases=max_cases)
     wanted = {c["case_id"] for c in keep}
 
     src = case_set_dir(source_set)
@@ -697,9 +791,19 @@ def select_cases(
         "selected_count": len(selected),
         "selected": selected,
         "tier_distribution": _count_by_tier(keep),
+        "difficulty_distribution": _count_by_band(keep),
+        "difficulty_quota": difficulty_report,
         "missing": sorted(wanted - set(selected)),
         "dry_run": dry_run,
     }
+
+
+def _count_by_band(cases: list[dict[str, Any]]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for c in cases:
+        b = difficulty_band(c.get("p_hat"))
+        out[b] = out.get(b, 0) + 1
+    return dict(sorted(out.items()))
 
 
 def render_calibration_md(report: dict[str, Any]) -> str:
