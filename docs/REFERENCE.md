@@ -602,6 +602,7 @@ runs:
 | `--to-set` | str | 必填 | 目标集合 |
 | `--max-cases` | int | 无 | 只取区分度最高的前 N 条 |
 | `--tier-quota` | str | 无 | 各层占比，如 `T2=0.3,T3=0.4,T4=0.3`。不传则纯按区分度排序，可能整批落在同一层，把单一能力带当成全貌 |
+| `--difficulty-quota` | str | 无 | 按**实测 p_hat** 的难度带配额组集，如 `easy=0.15,mid=0.70,hard=0.15`。带界：hard <0.2 / mid 0.2–0.8 / easy >0.8。份额须和为 1，带名拼错直接报错（否则会被当成池子不足，把人引去多跑校准）。与 `--tier-quota` 同时给出时，**难度带为外层**、tier 在带内分配。某带不够时**如实报欠填并返回偏少的集合**，绝不从相邻带补齐 |
 | `--dry-run` | flag | 关 | 不写盘，只回报选择结果 |
 
 写入时把 `metadata.calibration`（`p_hat` / `spread` / `point_biserial` / `attempts`）落到 case 上。
@@ -1147,6 +1148,12 @@ content_fingerprint(set) = sha256(sorted "case_id:fp" 行)[:16]
 ```
 
 `content_fingerprint` 会写入 run 的 `run_manifest.json` / summary，便于复现核对「是否同一 case 集」。
+
+> **难度带的分辨率取决于尝试次数。** p_hat 只能取 `k/(anchors × repeats)`。
+> 3 锚点 × 2 重复 = 6 次时，实测取值就是 `{0, 1/6, 2/6, 3/6, 4/6, 5/6, 1}`；
+> `SelectionPolicy` 丢掉 0 和 1 之后，**hard 带只剩 1/6 一个值、easy 带只剩 5/6 一个值**。
+> 想要 15:70:15 这类分布真正有意义，必须先提高每条用例的尝试次数，
+> 光靠多攒用例是凑不出来的。
 
 **为什么带版本前缀（`v3:`）**：指纹的唯一消费者是 `calibrate-cases --reuse-from`
 的复用判据。旧口径只哈希 `task_type|prompt|paths`，**改文件内容、改 `grader.command`
