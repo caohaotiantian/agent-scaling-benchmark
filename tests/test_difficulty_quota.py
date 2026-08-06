@@ -10,6 +10,7 @@ shape was achieved that never was.
 """
 
 import collections
+import itertools
 
 import pytest
 
@@ -207,3 +208,85 @@ class TestTierAllocationIsOrderIndependent:
             pool, quota={"mid": 1.0}, max_cases=10, tier_quota={"T2": 0.5, "T3": 0.5}
         )
         assert rep["tier_shortfall"]["mid"]["T2"] == 5
+
+
+class TestOrderIndependence:
+    """The selected set must follow from the flag VALUES, never their typing order.
+
+    Fixed once for tiers, then reintroduced for bands by deriving the tie-break rotation from
+    each band's position in the flag string: six permutations of the same quota produced six
+    different case sets, and `content_fingerprint` diverged with nothing recording why.
+    """
+
+    def _pool(self):
+        return [
+            _case(f"{t}{bp}{i}", bp, tier=t)
+            for bp in (0.95, 0.5, 0.1)
+            for t in ("T2", "T3", "T4", "T5")
+            for i in range(20)
+        ]
+
+    def test_permuting_the_band_order_selects_the_same_set(self):
+        shares = {"easy": 0.15, "mid": 0.70, "hard": 0.15}
+        tier_quota = {"T2": 0.25, "T3": 0.25, "T4": 0.25, "T5": 0.25}
+        sets = set()
+        for perm in itertools.permutations(shares):
+            picked, _ = apply_difficulty_quota(
+                self._pool(),
+                quota={k: shares[k] for k in perm},
+                max_cases=20,
+                tier_quota=tier_quota,
+            )
+            sets.add(tuple(sorted(c["case_id"] for c in picked)))
+        assert len(sets) == 1, f"{len(sets)} distinct sets from the same quota"
+
+    def test_permuting_the_tier_order_selects_the_same_set(self):
+        shares = {"easy": 0.15, "mid": 0.70, "hard": 0.15}
+        sets = set()
+        for perm in itertools.permutations(("T2", "T3", "T4", "T5")):
+            picked, _ = apply_difficulty_quota(
+                self._pool(),
+                quota=shares,
+                max_cases=20,
+                tier_quota=dict.fromkeys(perm, 0.25),
+            )
+            sets.add(tuple(sorted(c["case_id"] for c in picked)))
+        assert len(sets) == 1
+
+
+class TestInputIsValidated:
+    def test_tier_shares_must_sum_to_one(self):
+        # Unnormalised shares overshot `want`, and the excess was truncated in flag order —
+        # dropping a whole tier with nothing reported.
+        with pytest.raises(ValueError, match="tier quota shares sum to"):
+            apply_difficulty_quota(
+                [_case("m0", 0.5)],
+                quota={"mid": 1.0},
+                max_cases=1,
+                tier_quota={"T2": 0.4, "T3": 0.4, "T4": 0.4, "T5": 0.4},
+            )
+
+    def test_a_negative_share_is_refused_even_though_the_sum_is_one(self):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            apply_difficulty_quota(
+                [_case("m0", 0.5)], quota={"easy": -0.5, "mid": 1.5}, max_cases=10
+            )
+
+    def test_a_negative_max_cases_is_refused(self):
+        with pytest.raises(ValueError, match="must not be negative"):
+            apply_difficulty_quota([_case("m0", 0.5)], quota={"mid": 1.0}, max_cases=-5)
+
+
+class TestReportDescribesWhatWasReturned:
+    def test_a_repeated_case_id_cannot_consume_two_slots(self):
+        pool = [_case("x", 0.5), _case("x", 0.5, spread=0.9)] + [
+            _case(f"m{i}", 0.5) for i in range(5)
+        ]
+        picked, rep = apply_difficulty_quota(pool, quota={"mid": 1.0}, max_cases=7)
+        assert len({c["case_id"] for c in picked}) == len(picked)
+        assert rep["total"] == len(picked)
+
+    def test_the_reported_total_matches_the_returned_set(self):
+        pool = [_case(f"m{i}", 0.5) for i in range(20)]
+        picked, rep = apply_difficulty_quota(pool, quota={"mid": 1.0}, max_cases=5)
+        assert rep["total"] == len(picked) == 5
