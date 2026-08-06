@@ -313,3 +313,51 @@ class TestKnownBounds:
         src = 'accessToken = "ghp_abc123def456"\n'
         assert redact_source(src, path="c.py") == src
         assert scan_text(src, path="t")
+
+
+class TestScannerIgnoresDeclarations:
+    """A declaration is not a leak.
+
+    Lowering `api_key_assign`'s floor from 8 to 6 — done to close a real coverage gap — made
+    the scanner fire on TypeScript annotations. Over a 575-case build all 25 findings were of
+    that shape, so `--secrets-scan` called a clean set dirty and `promote` would refuse it.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "apiKey: string,",
+            "apiKey: string;",
+            "apiKey = apiKey;",
+            "apiKey = typeof",
+            "apiKey: input.apiKey",
+            "apiKey: resolved.trim(),",
+            "ApiKey: Boolean(resolveStoredApiKey(x))",
+            "apiKey = input.apiKey?.trim();",
+            "API_KEY: apiKey,",
+            # A call is code whatever it contains; letting its digits vouch for it turned a
+            # constructor into a credential.
+            "secret = bytes(range(256))",
+        ],
+    )
+    def test_a_declaration_is_not_reported(self, text):
+        from aibench.secrets_scan import scan_text
+
+        assert scan_text(text, path="t") == []
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'api_key = "sk-abcdefghij"',
+            'token = "a1b2c3"',
+            "password=hunter2",
+            '{"api_key": "xyz123"}',
+            # A weak alphabetic password is still a credential — the rule is deliberately
+            # narrower than "any bare identifier" so this keeps tripping the gate.
+            "password = swordfish",
+        ],
+    )
+    def test_a_real_credential_is_still_reported(self, text):
+        from aibench.secrets_scan import scan_text
+
+        assert scan_text(text, path="t")
