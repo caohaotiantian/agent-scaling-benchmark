@@ -41,11 +41,95 @@ class Finding:
         return asdict(self)
 
 
+#: Assignment rules whose value half needs a shape check; the rest match a fixed credential
+#: format and need none.
+_ASSIGNMENT_RULES = {"password_assign", "api_key_assign"}
+_ASSIGNED_VALUE = re.compile(r"""['"]?\s*[:=]\s*['"]?(?P<value>[^\s'"]+)""")
+#: Type names and keywords that appear as the value half of a declaration.
+_CODE_TOKENS = frozenset(
+    [
+        "string",
+        "number",
+        "boolean",
+        "object",
+        "symbol",
+        "bigint",
+        "any",
+        "unknown",
+        "never",
+        "void",
+        "undefined",
+        "null",
+        "typeof",
+        "keyof",
+        "readonly",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "bytes",
+        "dict",
+        "list",
+        "tuple",
+        "set",
+        "None",
+        "True",
+        "False",
+        "Optional",
+        "Union",
+        "Any",
+        "Boolean",
+        "String",
+        "Number",
+        "Object",
+    ]
+)
+#: A value that reaches into an expression: dotted access or a call.
+_EXPRESSION_VALUE = re.compile(r"^[A-Za-z_$][\w$]*(?:\.[\w$]+|\(|\?\.)")
+
+
+def _is_code_not_credential(snippet: str) -> bool:
+    """Whether an assignment's value is provably code rather than a secret.
+
+    `apiKey: string`, `apiKey = apiKey;` and `apiKey = input.apiKey?.trim()` are declarations,
+    not leaks. Over a 575-case build every one of the 25 findings was of this shape, which
+    makes `--secrets-scan` call a clean set dirty and `promote` refuse it.
+
+    Deliberately narrow: only a known type token, a value echoing its own key, or something
+    that continues into an expression. Rejecting *any* bare identifier would also discard
+    `password = swordfish`, which is a real if weak credential. A value carrying a digit is
+    never treated as code.
+    """
+    m = _ASSIGNED_VALUE.search(snippet)
+    if not m:
+        return False
+    value = m.group("value").rstrip(";,)]}")
+    # Checked before the digit escape: `bytes(range(256))` is a call whatever it contains, and
+    # letting its digits vouch for it turned a constructor into a credential.
+    if _EXPRESSION_VALUE.match(value):
+        return True
+    if any(c.isdigit() for c in value):
+        return False
+    key = re.match(r"[A-Za-z_$][\w$-]*", snippet.strip())
+    if key and _same_name(value, key.group(0)):
+        return True  # `apiKey = apiKey`, `API_KEY: apiKey`
+    return value in _CODE_TOKENS
+
+
+def _same_name(a: str, b: str) -> bool:
+    """Whether two identifiers name the same thing across casing and separator style."""
+    return (
+        a.replace("_", "").replace("-", "").lower() == b.replace("_", "").replace("-", "").lower()
+    )
+
+
 def scan_text(text: str, *, path: str = "<text>") -> list[Finding]:
     out: list[Finding] = []
     for name, pat in _PATTERNS:
         for m in pat.finditer(text or ""):
             snip = m.group(0)
+            if name in _ASSIGNMENT_RULES and _is_code_not_credential(snip):
+                continue
             if len(snip) > 80:
                 snip = snip[:40] + "..." + snip[-20:]
             out.append(Finding(path=path, rule=name, snippet=snip))
