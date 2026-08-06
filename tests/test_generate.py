@@ -172,3 +172,36 @@ def test_a_genuine_symptom_only_rewrite_is_taken():
 def test_an_empty_rewrite_keeps_the_original():
     assert accept_rewrite("original text", "") == "original text"
     assert accept_rewrite("original text", "   ") == "original text"
+
+
+class TestFileListTypeSlips:
+    """A generator that returns strings where objects belong must not cost the whole case.
+
+    `"files": ["impl.py"]` instead of `[{"path": "impl.py", ...}]` raised
+    `'str' object has no attribute 'get'`, which the caller caught as a failed generation and
+    replaced with the heuristic fallback — a materially weaker case. Over a 600-case build this
+    was the largest single cause of that fallback, ahead of malformed JSON: 53 against 33.
+    """
+
+    def test_string_entries_are_dropped_not_fatal(self):
+        from aibench.extract.generate_case import _file_entries
+
+        got = _file_entries(["impl.py", {"path": "a.py", "content": "x"}, 7, None])
+        assert got == [{"path": "a.py", "content": "x"}]
+
+    def test_entries_without_a_path_are_dropped(self):
+        from aibench.extract.generate_case import _file_entries
+
+        assert _file_entries([{"content": "x"}, {"path": "", "content": "y"}]) == []
+
+    def test_an_empty_or_missing_list_is_handled(self):
+        from aibench.extract.generate_case import _file_entries
+
+        assert _file_entries(None) == []
+        assert _file_entries([]) == []
+
+    def test_well_formed_entries_pass_through_unchanged(self):
+        from aibench.extract.generate_case import _file_entries
+
+        rows = [{"path": "a.py", "content": "x", "role": "impl"}]
+        assert _file_entries(rows) == rows
