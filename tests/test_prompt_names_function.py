@@ -135,3 +135,84 @@ class TestTheRewriteMustActuallyFixIt:
         from aibench.extract.generate_case import accept_rewrite
 
         assert accept_rewrite("x", "the bug is in the loop", forbidden_names=["total"]) == "x"
+
+
+class TestAttribution:
+    """Which function a change belongs to, for changes that are not inside one.
+
+    Latching the last `def` seen and reading only the new file's line numbers was wrong in four
+    ways at once. None of them fires on the current 105 cases, so the headline never moved —
+    they would have fired on the next case whose fix touched a constant or a decorator, and
+    then named the wrong function, which is the silent-wrong-answer shape.
+    """
+
+    def _touched(self, before: str, after: str):
+        from aibench.tiers import _functions_touched
+
+        return _functions_touched(before, after)
+
+    def test_a_module_level_change_belongs_to_no_function(self):
+        assert (
+            self._touched(
+                "def loader():\n    return 1\n\nMAX = 3\n",
+                "def loader():\n    return 1\n\nMAX = 5\n",
+            )
+            == set()
+        )
+
+    def test_a_class_attribute_change_belongs_to_no_function(self):
+        assert (
+            self._touched(
+                "def setup():\n    pass\n\nclass Account:\n    rate = 0.05\n",
+                "def setup():\n    pass\n\nclass Account:\n    rate = 0.10\n",
+            )
+            == set()
+        )
+
+    def test_a_decorator_belongs_to_the_function_it_decorates(self):
+        # Not to the function declared above it.
+        assert self._touched(
+            "def helper():\n    pass\n\n@cache(size=8)\ndef compute():\n    return 1\n",
+            "def helper():\n    pass\n\n@cache(size=None)\ndef compute():\n    return 1\n",
+        ) == {"compute"}
+
+    def test_a_nested_def_does_not_swallow_its_parent(self):
+        assert self._touched(
+            "def outer():\n    def inner():\n        return 1\n    return 2\n",
+            "def outer():\n    def inner():\n        return 1\n    return 3\n",
+        ) == {"outer"}
+
+    def test_a_deleted_function_is_named_not_its_neighbour(self):
+        # A pure deletion has j1 == j2, so reading only the new file attributes it to whatever
+        # now sits at that position — the function *after* the one that was removed.
+        assert self._touched(
+            "def alpha(x):\n    return x\n\ndef beta(z):\n    return z\n",
+            "def beta(z):\n    return z\n",
+        ) == {"alpha"}
+
+    def test_an_unparseable_file_still_gets_a_best_effort_answer(self):
+        # Two auto-v0 gold files carry unterminated literals from the earlier redaction
+        # corruption; the regex fallback is what keeps them working.
+        assert self._touched(
+            'def total(x):\n    return x - 1\n    s = "unterminated\n',
+            'def total(x):\n    return x\n    s = "unterminated\n',
+        ) == {"total"}
+
+
+class TestDeclarationForms:
+    def _name(self, line):
+        from aibench.tiers import _FUNCTION_DEF
+
+        m = _FUNCTION_DEF.match(line)
+        return (m.group(1) or m.group(2)) if m else None
+
+    def test_javascript_export_forms_are_recognised(self):
+        assert self._name("export function computeTax(x) {") == "computeTax"
+        assert self._name("export default function computeTax(x) {") == "computeTax"
+        assert self._name("export async function fetchAll() {") == "fetchAll"
+
+    def test_an_arrow_function_is_a_function(self):
+        assert self._name("const identity = (x) => x") == "identity"
+
+    def test_a_plain_constant_is_not_a_function(self):
+        assert self._name("const MAX_RETRIES = 3;") is None
