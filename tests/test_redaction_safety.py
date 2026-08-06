@@ -149,6 +149,22 @@ class TestTheCoverageBoundaryIsDeliberate:
         assert redact_source(src, path="x.py") == src, "conservative rule leaves it"
         assert scan_text(src, path="t"), "so the gate must report it"
 
+    @pytest.mark.parametrize("name", ["token", "api_key", "secret", "password", "passwd", "pwd"])
+    @pytest.mark.parametrize("value", ["a1b2c3", "s3cretv", "hunter22", "abcdefgh"])
+    def test_every_six_plus_value_is_caught_by_one_of_the_two(self, name, value):
+        """Walk the band rather than pick one string, so the two floors cannot drift apart.
+
+        They already did: the redactor took six characters while the scanner took eight, and
+        the class below asserted they met. Values shorter than six are covered by neither and
+        that is accepted — a five-character credential is not one.
+        """
+        from aibench.secrets_scan import scan_text
+
+        src = f"{name} = {value}\n"
+        redacted = redact_source(src, path="cfg.txt") != src
+        scanned = bool(scan_text(src, path="t"))
+        assert redacted or scanned, f"{src!r} is neither redacted nor scanned"
+
     def test_javascript_gets_the_conservative_rule_not_the_wide_one(self):
         # `parses` cannot judge JS, so there is no veto and the wide pattern would run
         # unchecked — it broke 17 of 19 real .js files it touched.
@@ -192,3 +208,60 @@ class TestScannerPrecision:
 
         assert scan_text('{"password": "hunter2"}', path="t")
         assert scan_text("password = swordfish", path="t")
+
+
+class TestTheNameMustBeAWholeWord:
+    """`Token` inside `CancellationToken` is not a secret name.
+
+    Without a left boundary the rule broke 12 of the 20 real .js files it touched — and JS has
+    no parser here, so nothing vetoed it.
+    """
+
+    def test_a_name_suffix_is_not_a_match(self):
+        for src in (
+            "})(CancellationToken || (exports.CancellationToken = CancellationToken = {}));",
+            "exports.createScalarToken = createScalarToken;",
+            "var spaceAfterMeaningfulToken = false;",
+        ):
+            assert redact_source(src, path="a.js") == src
+
+    def test_an_underscore_prefix_is_still_a_match(self):
+        # ZOTERO_API_KEY and GITHUB_PERSONAL_ACCESS_TOKEN appear in the real drafts.
+        assert (
+            redact_source("ZOTERO_API_KEY=abc123def\n", path="x.env")
+            != "ZOTERO_API_KEY=abc123def\n"
+        )
+
+    def test_a_bare_identifier_value_is_not_a_credential(self):
+        assert (
+            redact_source("token = createScalarToken\n", path="a.js")
+            == "token = createScalarToken\n"
+        )
+
+    def test_a_plain_integer_is_not_a_credential(self):
+        assert (
+            redact_source("class P { token=1048576; }", path="a.js") == "class P { token=1048576; }"
+        )
+
+
+class TestThePemRuleIsNotExempt:
+    def test_a_module_that_merely_mentions_both_markers_is_untouched(self):
+        # Unanchored, the pattern ran from any BEGIN to the next END and deleted the code
+        # between them — and when that code was a whole function the result still parsed.
+        src = (
+            'd = {"a": "-----BEGIN RSA PRIVATE KEY-----"}\ne = ("-----END RSA PRIVATE KEY-----")\n'
+        )
+        out = redact_source(src, path="x.py")
+        ast.parse(out)
+        assert out == src
+
+    def test_a_real_key_is_still_removed(self):
+        src = (
+            "token = None\n"
+            'KEY = """-----BEGIN RSA PRIVATE KEY-----\n'
+            "MIIEowIBAAKCAQEAxxxx\n"
+            '-----END RSA PRIVATE KEY-----"""\n'
+        )
+        out = redact_source(src, path="k.py")
+        ast.parse(out)
+        assert "MIIEowIBAAKCAQEAxxxx" not in out

@@ -68,14 +68,19 @@ def _redact_line_local(text: str, *, aggressive: bool) -> str:
 
 
 def _redact_spanning(text: str) -> str:
-    """Rewrites that legitimately cross lines, applied whole-text and never vetoed.
+    """Rewrites that legitimately cross lines. Applied whole-text, still subject to the veto.
 
-    A PEM block is unambiguous and replacing it cannot break anything, so it must not be at
-    the mercy of the line-by-line salvage below — which cannot match it at all, and so left
-    embedded private keys fully intact whenever any other line tripped the veto.
+    Kept out of the line-by-line salvage because it cannot match a single line, which is how a
+    file with an embedded private key came back byte-identical whenever any other line tripped
+    the guard.
+
+    The body is restricted to what a PEM block can actually contain. Left unanchored it ran
+    from any BEGIN marker to the next END marker anywhere in the file, so a module that merely
+    *mentions* both markers had the code between them deleted — and if that code was a whole
+    function the result still parsed, so nothing noticed.
     """
     return re.sub(
-        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[A-Za-z0-9+/=\s]*?-----END [A-Z ]*PRIVATE KEY-----",
         "***PRIVATE_KEY***",
         text,
     )
@@ -89,7 +94,11 @@ def _redact_spanning(text: str) -> str:
 #: an ordinary annotation, not a leak.
 _SECRET_ASSIGN = re.compile(
     r"""(?ix)
-    (api[_-]?key|token|secret|password)   # 1: the name that makes this look like a secret
+    (?<![A-Za-z0-9])                      # a whole word, not a suffix. Without this, `Token`
+                                          # matched inside `CancellationToken` and broke 12 of
+                                          # the 20 real .js files the rule touched. Underscore
+                                          # is allowed, so `ZOTERO_API_KEY` still matches.
+    (api[_-]?key|token|secret|password|passwd|pwd)   # 1: the name that makes this a secret
     (["']?[ \t]*(?P<sep>[:=])[ \t]*)      # 2: the assignment, preserved verbatim. Horizontal
                                           #    space only: `\s*` let a separator ending one
                                           #    line bind to the docstring opening the next.
@@ -121,6 +130,13 @@ def _looks_like_a_secret(value: str, *, aggressive: bool) -> bool:
     """
     if aggressive:
         return len(value) >= 3
+    if value.isdigit():
+        return False  # `token=1048576` is a constant, not a credential
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) and not any(c.isdigit() for c in value):
+        # A bare identifier: `exports.createScalarToken = createScalarToken` names a symbol,
+        # and rewriting it deletes a reference. Real credentials are not valid identifiers,
+        # or at least carry a digit.
+        return False
     return (any(c.isdigit() for c in value) and len(value) >= 6) or len(value) >= 16
 
 
@@ -171,9 +187,14 @@ def redact_source(text: str, *, path: str | None = None, language: str | None = 
                 kept = trial
         line_redacted = "".join(kept)
 
-    # Applied last and unconditionally: a PEM block cannot be matched line by line, and
-    # replacing it cannot break anything, so it must never be subject to the veto above.
-    return _redact_spanning(line_redacted)
+    # Applied after the line work because it cannot be matched line by line — but under the
+    # same veto, since it is not exempt from breaking a file. A declined PEM rewrite leaves the
+    # key for `secrets_scan`'s own `private_key` rule to block, which is the trade this whole
+    # function makes everywhere else.
+    with_pem = _redact_spanning(line_redacted)
+    if verifiable and spec.parses(with_pem) is False:
+        return line_redacted
+    return with_pem
 
 
 def task_fingerprint(prompt: str, file_paths: Iterable[str]) -> str:

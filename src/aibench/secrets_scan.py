@@ -20,9 +20,12 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # finding: `"pwd": "allow"` is a permission setting, and flagging it makes `--secrets-scan`
     # report a clean set as dirty and `promote` refuse it.
     ("password_assign", re.compile(r"(?i)(password|passwd|pwd)['\"]?\s*[:=]\s*['\"]?[^\s'\"]{6,}")),
+    # Six, matching password_assign and the redactor's own floor. At eight there was a band of
+    # values that redaction declined to rewrite and the scanner declined to report — covered by
+    # neither, while the tests asserted the two met.
     (
         "api_key_assign",
-        re.compile(r"(?i)(api[_-]?key|secret|token)['\"]?\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
+        re.compile(r"(?i)(api[_-]?key|secret|token)['\"]?\s*[:=]\s*['\"]?[^\s'\"]{6,}"),
     ),
     ("bearer", re.compile(r"(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*")),
 ]
