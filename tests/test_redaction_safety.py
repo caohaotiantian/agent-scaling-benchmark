@@ -174,3 +174,21 @@ class TestTheCoverageBoundaryIsDeliberate:
         assert "MIIEowIBAAKCAQEAxxxx" not in out
         assert "BEGIN RSA PRIVATE KEY" not in out
         assert "token = None" in out
+
+
+class TestScannerPrecision:
+    """Accepting a quoted key must not turn every config entry into a finding."""
+
+    def test_a_config_permission_is_not_a_password(self):
+        from aibench.secrets_scan import scan_text
+
+        # `"pwd": "allow"` is opencode's working-directory permission. Flagging it made
+        # --secrets-scan report a clean generated set as dirty (12 hits in a 21-case batch).
+        assert scan_text('  "pwd": "allow",', path="t") == []
+        assert scan_text('"pwd": "deny"', path="t") == []
+
+    def test_a_real_password_in_a_quoted_key_is_still_found(self):
+        from aibench.secrets_scan import scan_text
+
+        assert scan_text('{"password": "hunter2"}', path="t")
+        assert scan_text("password = swordfish", path="t")
