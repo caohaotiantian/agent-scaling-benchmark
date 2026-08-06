@@ -616,15 +616,48 @@ def _rank(case: dict[str, Any]) -> tuple[float, float]:
 DIFFICULTY_BANDS = {"hard": 0.2, "easy": 0.8}
 
 
+#: The bands a quota may name. ``unmeasured`` is reachable but never quota-fillable.
+DIFFICULTY_BAND_NAMES = ("hard", "mid", "easy")
+
+
 def difficulty_band(p_hat: float | None) -> str:
-    """Which band a measured case falls in: ``easy`` / ``mid`` / ``hard``."""
+    """Which band a measured case falls in: ``easy`` / ``mid`` / ``hard`` / ``unmeasured``.
+
+    A case with no p_hat is *not* mid. Calling it mid would let an uncalibrated case fill the
+    quota that carries the set's whole claim to discriminating, and then be counted in the
+    achieved distribution as though it had been measured.
+    """
     if p_hat is None:
-        return "mid"
+        return "unmeasured"
     if p_hat < DIFFICULTY_BANDS["hard"]:
         return "hard"
     if p_hat > DIFFICULTY_BANDS["easy"]:
         return "easy"
     return "mid"
+
+
+def _largest_remainder(shares: dict[str, float], total: int, *, rotate: int = 0) -> dict[str, int]:
+    """Split ``total`` across ``shares`` so the parts sum to exactly ``total``.
+
+    Rounding each share independently does not add up: three bands at 0.15/0.70/0.15 of 10
+    round to 2+7+2 = 11, and three equal thirds of 10 round to 9. Either way the operator gets
+    a count they did not ask for, with nothing reporting the difference.
+
+    ``rotate`` shifts which key wins a tied remainder. Breaking ties by name alone is
+    deterministic but biased: with four equal tier shares the last name alphabetically loses
+    the remainder in every band, so it ends up with half the quota it asked for.
+    """
+    if total <= 0 or not shares:
+        return dict.fromkeys(shares, 0)
+    exact = {k: v * total for k, v in shares.items()}
+    out = {k: int(v) for k, v in exact.items()}
+    remainder = max(total - sum(out.values()), 0)
+    names = sorted(exact)
+    order = names[rotate % len(names) :] + names[: rotate % len(names)]
+    rank = {k: i for i, k in enumerate(order)}
+    for k in sorted(exact, key=lambda k: (-(exact[k] - int(exact[k])), rank[k]))[:remainder]:
+        out[k] += 1
+    return out
 
 
 def apply_difficulty_quota(
@@ -636,9 +669,9 @@ def apply_difficulty_quota(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Shape the set by measured difficulty, returning the selection and what it achieved.
 
-    Thresholds alone cannot produce a distribution. ``SelectionPolicy`` drops the unusable, but
-    everything it keeps between ``p_min`` and ``p_max`` is then ranked purely by discrimination —
-    which is why a selected set still ran 39% easy: the whole 0.8–0.9 slice survives.
+    ``SelectionPolicy`` decides which cases are usable; nothing decided what the set should
+    look like, so everything it kept was ranked purely by discrimination and the shape fell
+    out of whatever the pool happened to contain.
 
     The shortfall per band is reported rather than quietly back-filled from another band. A set
     that missed its shape is a fact about the pool, and hiding it behind a top-up would make the
@@ -647,6 +680,16 @@ def apply_difficulty_quota(
     if not quota:
         return (keep[:max_cases] if max_cases is not None else keep), {}
 
+    unknown = sorted(set(quota) - set(DIFFICULTY_BAND_NAMES))
+    if unknown:
+        raise ValueError(
+            f"unknown difficulty band(s) {unknown}; expected {list(DIFFICULTY_BAND_NAMES)}. "
+            "A misspelt band would otherwise be reported as a pool shortfall, sending you to "
+            "calibrate more cases while the ones you asked for sat unused."
+        )
+    if abs(sum(quota.values()) - 1.0) > 0.01:
+        raise ValueError(f"difficulty quota shares sum to {sum(quota.values()):.2f}, expected 1.0")
+
     by_band: dict[str, list[dict[str, Any]]] = {}
     for c in keep:
         by_band.setdefault(difficulty_band(c.get("p_hat")), []).append(c)
@@ -654,44 +697,74 @@ def apply_difficulty_quota(
         rows.sort(key=_rank)
 
     total = max_cases if max_cases is not None else len(keep)
+    wants = _largest_remainder(quota, total)
     picked: list[dict[str, Any]] = []
-    achieved: dict[str, Any] = {"target": dict(quota), "bands": {}, "shortfall": {}}
-    for band, share in quota.items():
-        want = round(share * total)
-        available = by_band.get(band, [])
-        take = _within_band(available, want, tier_quota)
+    seen: set[str] = set()
+    achieved: dict[str, Any] = {
+        "target": dict(quota),
+        "requested_total": total,
+        "bands": {},
+        "shortfall": {},
+        "tier_shortfall": {},
+    }
+    for band_index, band in enumerate(quota):
+        want = wants[band]
+        available = [c for c in by_band.get(band, []) if str(c.get("case_id")) not in seen]
+        take, tier_short = _within_band(available, want, tier_quota, rotate=band_index)
+        seen.update(str(c.get("case_id")) for c in take)
         picked.extend(take)
         achieved["bands"][band] = {"wanted": want, "got": len(take), "pool": len(available)}
         if len(take) < want:
             achieved["shortfall"][band] = want - len(take)
+        if tier_short:
+            achieved["tier_shortfall"][band] = tier_short
 
     achieved["total"] = len(picked)
+    # Denominator is what was ASKED for, not what was delivered. Dividing by the delivered
+    # count renormalises the shortfall away: a set missing every hard case would report the
+    # other bands as on target, and the gap would vanish from the block describing it.
     achieved["actual_shares"] = {
-        b: round(v["got"] / len(picked), 4) if picked else 0.0 for b, v in achieved["bands"].items()
+        b: round(v["got"] / total, 4) if total else 0.0 for b, v in achieved["bands"].items()
     }
-    return sorted(picked, key=_rank), achieved
+    achieved["unmeasured_in_pool"] = len(by_band.get("unmeasured", []))
+    return sorted(picked, key=_rank)[:total], achieved
 
 
 def _within_band(
     rows: list[dict[str, Any]],
     want: int,
     tier_quota: dict[str, float] | None,
-) -> list[dict[str, Any]]:
-    """Best ``want`` cases from one band, spread across tiers when a tier quota is given."""
+    *,
+    rotate: int = 0,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Best ``want`` cases from one band, plus any per-tier shortfall.
+
+    Allocating each tier with an independent ``round`` overshot ``want`` and was then
+    truncated, so whichever tiers came last in the flag lost their picks entirely: the same
+    quota typed in a different order produced a different case set, and a tier could be
+    starved with nothing reporting it.
+    """
     if want <= 0 or not rows:
-        return []
+        return [], {}
     if not tier_quota:
-        return rows[:want]
+        return rows[:want], {}
+
     by_tier: dict[str, list[dict[str, Any]]] = {}
     for c in rows:
         by_tier.setdefault(str(c.get("tier") or "unset"), []).append(c)
+    wants = _largest_remainder(tier_quota, want, rotate=rotate)
     out: list[dict[str, Any]] = []
-    for tier, share in tier_quota.items():
-        out.extend(by_tier.get(tier, [])[: round(share * want)])
+    short: dict[str, int] = {}
+    for tier, n in wants.items():
+        take = by_tier.get(tier, [])[:n]
+        out.extend(take)
+        if len(take) < n:
+            short[tier] = n - len(take)
     if len(out) < want:
-        chosen = {id(c) for c in out}
-        out.extend([c for c in rows if id(c) not in chosen][: want - len(out)])
-    return out[:want]
+        # Top up by rank, not by tier order, so the fill is deterministic.
+        chosen = {str(c.get("case_id")) for c in out}
+        out.extend([c for c in rows if str(c.get("case_id")) not in chosen][: want - len(out)])
+    return out[:want], short
 
 
 def apply_tier_quota(

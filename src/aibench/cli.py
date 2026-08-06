@@ -738,13 +738,20 @@ def main(argv: list[str] | None = None) -> int:
             print(str(e))
             return 1
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        short = (report.get("difficulty_quota") or {}).get("shortfall") or {}
-        if short:
+        dq = report.get("difficulty_quota") or {}
+        short = dq.get("shortfall") or {}
+        tier_short = dq.get("tier_shortfall") or {}
+        if short or tier_short:
             detail = ", ".join(f"{b} short by {n}" for b, n in sorted(short.items()))
+            if tier_short:
+                detail += f"; tier shortfall per band {tier_short}"
+            # stderr, so a shortfall cannot corrupt the JSON on stdout exactly when a
+            # consumer most needs to parse it.
             print(
-                f"WARNING: the pool could not fill every difficulty band ({detail}). "
+                f"WARNING: the pool could not fill every quota ({detail}). "
                 "The set does not have the shape you asked for; calibrate more cases rather "
-                "than reading the result as if the target were met."
+                "than reading the result as if the target were met.",
+                file=sys.stderr,
             )
         if not report["selected_count"]:
             print(
