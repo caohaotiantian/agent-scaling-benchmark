@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -272,12 +273,22 @@ _META_REPLY = re.compile(
 )
 
 
-def accept_rewrite(original: str, rewritten: str) -> str:
+def accept_rewrite(
+    original: str,
+    rewritten: str,
+    *,
+    forbidden_names: Sequence[str] = (),
+) -> str:
     """Take a de-localized prompt only if it is actually one, else keep the original.
 
     An unchecked rewrite shipped a case whose prompt was the model's own narration —
     "The user wants me to rewrite the coding task description..." — with the original quoted
     inside it, so it still disclosed the defect *and* no longer described a task.
+
+    ``forbidden_names`` are the functions the fix changes. Checking them here is what makes the
+    rewrite worth requesting: ``find_disclosures`` has no pattern for a function name, so a
+    rewrite that still names one would otherwise sail through the acceptance test that exists
+    to confirm the rewrite did its job.
     """
     text = re.sub(r"^```\w*\s*|\s*```$", "", (rewritten or "").strip())
     if not text or _META_REPLY.match(text):
@@ -288,11 +299,18 @@ def accept_rewrite(original: str, rewritten: str) -> str:
     # The rewrite exists to remove disclosure; one that still discloses has not done the job.
     if find_disclosures(text):
         return original
+    if any(re.search(rf"\b{re.escape(n)}\b", text) for n in forbidden_names):
+        return original
     return text
 
 
-def _delocalize_prompt(prompt: str, *, chat: Any) -> str:
+def _delocalize_prompt(prompt: str, *, chat: Any, forbidden_names: Sequence[str] = ()) -> str:
     """Ask once for a symptom-only rewrite when the generated prompt gave the defect away."""
+    avoid = (
+        f" Do not mention any of these names: {', '.join(forbidden_names)}."
+        if forbidden_names
+        else ""
+    )
     rewritten = chat(
         [
             {
@@ -302,7 +320,7 @@ def _delocalize_prompt(prompt: str, *, chat: Any) -> str:
                     "— what was expected and what happened — with no mention of the cause, the "
                     "mechanism, the location, or the fix. Refer to behaviour the user can see, "
                     "not to the function that produces it: name the entry point or the file if "
-                    "you must, never the function being changed. "
+                    "you must, never the function being changed." + avoid + " "
                     "Reply with the rewritten description only, no preamble."
                 ),
             },
@@ -310,7 +328,7 @@ def _delocalize_prompt(prompt: str, *, chat: Any) -> str:
         ],
         512,
     )
-    return accept_rewrite(prompt, rewritten)
+    return accept_rewrite(prompt, rewritten, forbidden_names=forbidden_names)
 
 
 def draft_tier(draft: dict[str, Any], *, default: str = "T2") -> str:
@@ -485,11 +503,12 @@ def generate_case_with_llm(
     # A prompt that names the mechanism turns any tier above T1 into a giveaway, and so does
     # one that names the function the fix changes — measured, that is worth 0.876 p_hat against
     # 0.717. One rewrite attempt, then settle_tier decides what the case actually qualifies as.
-    if target_tier != "T1" and (
-        find_disclosures(data["prompt"]) or prompt_names_changed_function(data)
-    ):
+    named = prompt_names_changed_function(data) if target_tier != "T1" else []
+    if target_tier != "T1" and (find_disclosures(data["prompt"]) or named):
         try:
-            data["prompt"] = redact_secrets(_delocalize_prompt(data["prompt"], chat=_chat))
+            data["prompt"] = redact_secrets(
+                _delocalize_prompt(data["prompt"], chat=_chat, forbidden_names=named)
+            )
         except Exception as e:
             print(f"delocalize failed for {data.get('case_id')}: {e}")
 
