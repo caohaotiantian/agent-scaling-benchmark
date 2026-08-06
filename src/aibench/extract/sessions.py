@@ -108,7 +108,11 @@ _SECRET_ASSIGN = re.compile(
         # code: in `"…?token=" + tok + "&u="` the quote after `token=` CLOSES a literal, and
         # treating it as an opening one swallowed `+ tok +`. Non-empty, so the first two
         # quotes of a `\"\"\"` opener are never mistaken for an empty value.
-        (?P<q>["'])(?P<quoted>[^"'\s]+)(?P=q)
+        # Six characters, the same floor both scanner rules use. Without it the redactor and
+        # the gate disagreed about `"pwd": "allow"` in opposite directions — the scanner
+        # deliberately declines to call a five-letter permission a secret, and the redactor
+        # masked it anyway.
+        (?P<q>["'])(?P<quoted>[^"'\s]{6,})(?P=q)
       | (?P<bare>[A-Za-z0-9_\-]+)(?![\w\-.\[(])    # or a bare token that ends right here
     )
     """
@@ -160,6 +164,19 @@ def redact_source(text: str, *, path: str | None = None, language: str | None = 
     and ``promote`` refuses to publish. That is the intended trade: a case blocked at the gate
     is recoverable, while a case whose reference solution no longer parses ships as a hard one
     and quietly corrupts the measurement.
+
+    Known bounds, all measured against ``benchmarks/ai_coding/cases`` and all currently at zero
+    live occurrences, all covered by ``secrets_scan``:
+
+    * In parse-verified Python no *bare* value is ever rewritten, because ``***`` is not a valid
+      expression, so the veto discards every such rewrite. The aggressive path is therefore
+      quoted-values-only for Python — which is not obvious from reading the pattern.
+    * A camelCase name (``accessToken``) is not matched: the word boundary that stopped ``Token``
+      matching inside ``CancellationToken`` excludes these too.
+    * A language with no parser here gets the conservative rule and no veto, so whitespace-free
+      or minified source can still be rewritten wrongly.
+    * An *encrypted* PEM block is not matched, because its ``Proc-Type``/``DEK-Info`` headers
+      fall outside the base64 body the pattern now requires.
     """
     from aibench.languages import registered_spec, spec_for_path
 

@@ -265,3 +265,51 @@ class TestThePemRuleIsNotExempt:
         out = redact_source(src, path="k.py")
         ast.parse(out)
         assert "MIIEowIBAAKCAQEAxxxx" not in out
+
+
+class TestTheTwoHalvesAgree:
+    """What the gate declines to call a secret, the redactor must not destroy.
+
+    They disagreed for one commit: the scanner was taught that `"pwd": "allow"` is a
+    working-directory permission rather than a password, and the redactor was taught the
+    opposite in the next commit. It rewrote 44 lines of real draft config.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            '  "pwd": "allow",',
+            '"pwd": "deny"',
+            '{"api_key": "xyz123"}',
+            "config = {'password': 'hunter2'}",
+            'token = "mytok123"',
+            "ZOTERO_API_KEY=abc123def",
+        ],
+    )
+    def test_redactor_and_scanner_reach_the_same_verdict(self, text):
+        from aibench.secrets_scan import scan_text
+
+        rewrites = redact_source(text, path="o.json") != text
+        flags = bool(scan_text(text, path="t"))
+        assert rewrites == flags, f"redactor={rewrites} scanner={flags} for {text!r}"
+
+
+class TestKnownBounds:
+    """Documented gaps. Each is zero-occurrence on the real corpus and caught by the scanner."""
+
+    def test_a_bare_python_value_is_never_rewritten(self):
+        # `***` is not an expression, so the veto always drops it — the aggressive path is
+        # quoted-values-only for Python, which the pattern alone does not reveal.
+        from aibench.secrets_scan import scan_text
+
+        src = "GITLAB_TOKEN=abc123def456\n"
+        assert redact_source(src, path="c.py") == src
+        assert redact_source(src, path="c.env") != src, "but a non-Python path is redacted"
+        assert scan_text(src, path="t"), "and the gate catches the Python case"
+
+    def test_a_camelcase_name_is_not_matched_but_is_scanned(self):
+        from aibench.secrets_scan import scan_text
+
+        src = 'accessToken = "ghp_abc123def456"\n'
+        assert redact_source(src, path="c.py") == src
+        assert scan_text(src, path="t")
