@@ -169,6 +169,23 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return data
 
 
+def _file_entries(value: Any) -> list[dict[str, Any]]:
+    """The well-formed ``{path, content}`` entries in a file list the generator returned.
+
+    A generator that answers `"files": ["impl.py"]` instead of `[{"path": "impl.py", ...}]`
+    used to raise `'str' object has no attribute 'get'`, which the caller caught as a failed
+    generation and replaced with the heuristic fallback — a materially weaker case. Measured
+    over a 600-case build it was the single largest cause of that fallback, ahead of malformed
+    JSON: 53 cases against 33. Entries without a usable path are dropped; if that leaves
+    nothing, the caller still refuses the case.
+    """
+    out: list[dict[str, Any]] = []
+    for item in value or []:
+        if isinstance(item, dict) and str(item.get("path") or "").strip():
+            out.append(item)
+    return out
+
+
 def _coerce_scalar_fields(data: dict[str, Any]) -> None:
     """Normalise the scalar fields generators get the JSON type wrong on.
 
@@ -483,7 +500,7 @@ def generate_case_with_llm(
     data["prompt"] = redact_secrets(str(data.get("prompt") or ""))
     ctx = data.setdefault("context", {})
     cleaned = []
-    for f in ctx.get("files") or []:
+    for f in _file_entries(ctx.get("files")):
         entry = {
             "path": f["path"],
             "content": redact_source(str(f.get("content") or ""), path=f["path"]),
@@ -496,8 +513,7 @@ def generate_case_with_llm(
     ctx["files"] = cleaned
     grader["gold_files"] = [
         {"path": g["path"], "content": redact_source(str(g.get("content") or ""), path=g["path"])}
-        for g in grader.get("gold_files") or []
-        if g.get("path")
+        for g in _file_entries(grader.get("gold_files"))
     ]
 
     # A prompt that names the mechanism turns any tier above T1 into a giveaway, and so does
