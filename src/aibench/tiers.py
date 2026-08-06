@@ -21,6 +21,7 @@ ships a case that hands the answer to every model and separates nothing.
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -215,10 +216,52 @@ def find_disclosures(prompt: str) -> list[str]:
     return [name for name, pat in _DISCLOSURE_PATTERNS if pat.search(prompt or "")]
 
 
-#: Declaration of a function, with its name, for locating what a diff hunk sits inside.
+#: Declaration of a function, with its name, for languages this module cannot parse.
+#: Branch 2 requires the value to look like a function so a plain constant is not reported as
+#: one; `export`/`default` are allowed because that is how most real JavaScript declares them.
 _FUNCTION_DEF = re.compile(
-    r"^\s*(?:async\s+)?(?:def|function)\s+(\w+)|^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*="
+    r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:def|function|func|fn)\s+(\w+)"
+    r"|^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*"
+    r"(?:async\s+)?(?:function\b|\(|<|[\w$]+\s*=>)"
 )
+
+
+def _enclosing_by_line(source: str) -> list[str | None]:
+    """For each line, the function it belongs to — ``None`` at module or class level."""
+    lines = source.splitlines()
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        # No parse: fall back to latching the last declaration seen. That mis-attributes
+        # anything outside a function body, which is why it is only the fallback.
+        out: list[str | None] = []
+        current: str | None = None
+        for line in lines:
+            m = _FUNCTION_DEF.match(line)
+            if m:
+                current = m.group(1) or m.group(2)
+            out.append(current)
+        return out
+
+    owner: list[str | None] = [None] * len(lines)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        # Decorators belong to the function they decorate.
+        start = min([node.lineno, *(d.lineno for d in node.decorator_list)]) - 1
+        end = (node.end_lineno or node.lineno) - 1
+        for i in range(start, min(end + 1, len(owner))):
+            # ast.walk is unordered; a nested def must win over the one containing it.
+            if owner[i] is None or _spans(tree, owner[i]) > (end - start):
+                owner[i] = node.name
+    return owner
+
+
+def _spans(tree: ast.AST, name: str | None) -> int:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == name:
+            return (node.end_lineno or node.lineno) - node.lineno
+    return 1 << 30
 
 
 def _functions_touched(before: str, after: str) -> set[str]:
@@ -226,34 +269,33 @@ def _functions_touched(before: str, after: str) -> set[str]:
     import difflib
 
     old_lines, new_lines = before.splitlines(), after.splitlines()
-    enclosing: list[str | None] = []
-    current: str | None = None
-    for line in new_lines:
-        m = _FUNCTION_DEF.match(line)
-        if m:
-            current = m.group(1) or m.group(2)
-        enclosing.append(current)
+    old_owner, new_owner = _enclosing_by_line(before), _enclosing_by_line(after)
 
     touched: set[str] = set()
     matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
-    for tag, _i1, _i2, j1, j2 in matcher.get_opcodes():
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             continue
-        # A deletion has j1 == j2; attribute it to the function it was removed from.
-        for j in range(j1, max(j2, j1 + 1)):
-            name = enclosing[j] if j < len(enclosing) else None
-            if name:
-                touched.add(name)
+        # Both sides are consulted: a pure deletion has j1 == j2, so reading the new file alone
+        # attributes it to whatever now sits at that position — the function *after* the one
+        # the code was removed from.
+        touched.update(n for n in old_owner[i1:i2] if n)
+        touched.update(n for n in new_owner[j1:j2] if n)
     return touched
 
 
 def prompt_names_changed_function(case: Case | dict[str, Any]) -> list[str]:
     """Functions the reference solution changes that the prompt names outright.
 
-    The strongest prompt-side predictor measured on ``auto-v0``: of the cases carrying a
-    reference solution, the 62 whose prompt names a changed function average p_hat 0.876
-    against 0.717 for the 43 that do not. Naming it converts "find the defect" into "read this
-    function", which is the capability the tier above T1 is supposed to be measuring.
+    The strongest prompt-side predictor measured. Of the 105 ``auto-v0`` cases carrying a
+    reference solution, scored against ``runs/calibration_20260805_090754``, the 56 this rule
+    flags average p_hat 0.905 against 0.704 for the 49 it does not. Naming the function
+    converts "find the defect" into "read this function", which is the capability every tier
+    above T1 is supposed to be measuring.
+
+    (An earlier, looser rule — "the prompt names any function *defined* in the gold file" —
+    measured 62 against 43 at 0.876/0.717 on the same data. That rule flags functions the fix
+    never touched, which is why it was replaced; its numbers do not describe this one.)
     """
     if isinstance(case, Case):
         prompt = case.prompt
