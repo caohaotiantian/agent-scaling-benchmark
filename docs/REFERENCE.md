@@ -898,6 +898,25 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 实现**的句式判为泄露；对「应该返回 X」这类**规格陈述**不判）。检出后 `generate-cases` 会做一次
 「只保留现象」的改写，仍失败则降级。
 
+此外 `prompt_names_changed_function` 检测**题面是否点名了参考解要改的那个函数**。
+它不是正则匹配题面，而是把参考解与 stub 逐行 diff，取每个改动块所在的函数名，
+再看题面有没有提到 —— 因为「点名被修函数」把「找出缺陷」变成了「读这个函数」，
+而定位能力正是 T1 以上各层要测的东西。
+
+实测（`auto-v0` 有参考解的 105 条 × `runs/calibration_20260805_090754`）：
+
+| 分组 | n | mean p_hat |
+|---|---:|---:|
+| 题面点名被修函数 | 56 | **0.905** |
+| 未点名 | 49 | **0.704** |
+
+**判为 `warn` 而非 `error`**：它命中约半数用例，直接拒绝会把题量腰斩。
+它的作用是在 `generate-cases` 里触发那次「只保留现象」的改写；
+审计里只作为告警出现，不阻断发布。
+
+> 与之配套：`_delocalize_prompt` 的系统提示原本明文要求 "Keep the same function and file names"，
+> 与本检测直接矛盾 —— 已改为「指称可观察行为，必要时可提入口或文件，但不得点名被改的函数」。
+
 ### 13.5.5 经验校准
 
 结构不变量保证用例「看起来该有区分度」，只有跑起来才知道有没有。
@@ -1017,6 +1036,9 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | 干扰文件自相矛盾 | `tier_distractor_in_solution` | error | 是 | 声明 `role=distractor` 却被参考解改动 |
 | 参考解无改动 | `tier_solution_file_unchanged` | error | 是 | 某个 gold file 与初始文件完全相同，是凑数项 |
 | 参考解疑似重写 | `tier_solution_rewrites_file` | warn | 否 | 改动行占比 > 60%，无法定位缺陷 |
+| 题面点名被修函数 | `tier_prompt_names_changed_function` | warn | 否 | §13.5.4；实测 +20pp p_hat，命中约半数用例故不阻断，改为触发题面改写 |
+| 工作区不可收集（stub） | `stub_fail_gate` + `checks.stub_fail.uncollectable` | error | 是 | §14.3.1；与「stub 如预期失败」分开计数 |
+| 工作区不可收集（参考解） | `solvability_gate` + `checks.reference_solution.uncollectable` | error | 是 | §14.3.3；与「参考解真正失败」分开计数 |
 | Gold 污染 | `contamination_gold_in_context` | error | 是 | gold 全文已在 context |
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |

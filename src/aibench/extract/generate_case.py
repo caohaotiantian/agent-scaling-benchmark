@@ -12,7 +12,7 @@ from aibench.env_config import openai_settings
 from aibench.extract.history_parse import guess_language, guess_task_type
 from aibench.extract.sessions import redact_secrets, redact_source, task_fingerprint
 from aibench.extract.tier_shaping import settle_tier
-from aibench.tiers import find_disclosures, tier_spec
+from aibench.tiers import find_disclosures, prompt_names_changed_function, tier_spec
 
 # Whitelist, not a blacklist: the grader command runs on the host, so anything not explicitly
 # a known test runner is refused. Kept in step with aibench.languages.default_command.
@@ -300,7 +300,9 @@ def _delocalize_prompt(prompt: str, *, chat: Any) -> str:
                 "content": (
                     "Rewrite a coding task description so it reports only the OBSERVABLE SYMPTOM "
                     "— what was expected and what happened — with no mention of the cause, the "
-                    "mechanism, the location, or the fix. Keep the same function and file names. "
+                    "mechanism, the location, or the fix. Refer to behaviour the user can see, "
+                    "not to the function that produces it: name the entry point or the file if "
+                    "you must, never the function being changed. "
                     "Reply with the rewritten description only, no preamble."
                 ),
             },
@@ -480,9 +482,12 @@ def generate_case_with_llm(
         if g.get("path")
     ]
 
-    # A prompt that names the mechanism turns any tier above T1 into a giveaway. One rewrite
-    # attempt, then settle_tier decides what the case actually qualifies as.
-    if target_tier != "T1" and find_disclosures(data["prompt"]):
+    # A prompt that names the mechanism turns any tier above T1 into a giveaway, and so does
+    # one that names the function the fix changes — measured, that is worth 0.876 p_hat against
+    # 0.717. One rewrite attempt, then settle_tier decides what the case actually qualifies as.
+    if target_tier != "T1" and (
+        find_disclosures(data["prompt"]) or prompt_names_changed_function(data)
+    ):
         try:
             data["prompt"] = redact_secrets(_delocalize_prompt(data["prompt"], chat=_chat))
         except Exception as e:

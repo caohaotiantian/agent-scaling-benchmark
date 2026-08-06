@@ -215,6 +215,72 @@ def find_disclosures(prompt: str) -> list[str]:
     return [name for name, pat in _DISCLOSURE_PATTERNS if pat.search(prompt or "")]
 
 
+#: Declaration of a function, with its name, for locating what a diff hunk sits inside.
+_FUNCTION_DEF = re.compile(
+    r"^\s*(?:async\s+)?(?:def|function)\s+(\w+)|^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*="
+)
+
+
+def _functions_touched(before: str, after: str) -> set[str]:
+    """Names of the functions whose bodies differ between the two versions."""
+    import difflib
+
+    old_lines, new_lines = before.splitlines(), after.splitlines()
+    enclosing: list[str | None] = []
+    current: str | None = None
+    for line in new_lines:
+        m = _FUNCTION_DEF.match(line)
+        if m:
+            current = m.group(1) or m.group(2)
+        enclosing.append(current)
+
+    touched: set[str] = set()
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    for tag, _i1, _i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        # A deletion has j1 == j2; attribute it to the function it was removed from.
+        for j in range(j1, max(j2, j1 + 1)):
+            name = enclosing[j] if j < len(enclosing) else None
+            if name:
+                touched.add(name)
+    return touched
+
+
+def prompt_names_changed_function(case: Case | dict[str, Any]) -> list[str]:
+    """Functions the reference solution changes that the prompt names outright.
+
+    The strongest prompt-side predictor measured on ``auto-v0``: of the cases carrying a
+    reference solution, the 62 whose prompt names a changed function average p_hat 0.876
+    against 0.717 for the 43 that do not. Naming it converts "find the defect" into "read this
+    function", which is the capability the tier above T1 is supposed to be measuring.
+    """
+    if isinstance(case, Case):
+        prompt = case.prompt
+        context = {f.path: f.content or "" for f in case.files}
+        gold = [(g.path, g.content or "") for g in case.grader.gold_files]
+    else:
+        prompt = str(case.get("prompt") or "")
+        context = {
+            str(f.get("path")): str(f.get("content") or "")
+            for f in ((case.get("context") or {}).get("files") or [])
+        }
+        gold = [
+            (str(g.get("path")), str(g.get("content") or ""))
+            for g in ((case.get("grader") or {}).get("gold_files") or [])
+        ]
+    named: set[str] = set()
+    for path, after in gold:
+        before = context.get(path)
+        if before is None:
+            continue
+        for name in _functions_touched(before, after):
+            # Short names collide with ordinary prose words.
+            if len(name) >= 4 and re.search(rf"\b{re.escape(name)}\b", prompt):
+                named.add(name)
+    return sorted(named)
+
+
 def merge_disclosure_findings(
     regex_hits: list[str],
     llm_disclosed: bool | None,
@@ -387,6 +453,17 @@ def check_tier_invariants(case: Case) -> TierCheck:
                 TierViolation(
                     "stub_has_bug_marker",
                     f"{declared} forbids defect markers in {marked}",
+                )
+            )
+        if named := prompt_names_changed_function(case):
+            # A warning, not an error. This fires on roughly half the measured set, so
+            # rejecting on it would halve the case count; the generator treats it as a
+            # signal to rewrite the prompt instead.
+            v.append(
+                TierViolation(
+                    "prompt_names_changed_function",
+                    f"{declared} prompt names the function the fix changes: {named}",
+                    severity="warn",
                 )
             )
 
