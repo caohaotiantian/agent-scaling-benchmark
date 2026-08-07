@@ -574,10 +574,19 @@ def main(argv: list[str] | None = None) -> int:
                 last: Exception | None = None
                 for fv in versions[:2]:
                     try:
-                        return reverse_case_from_versions(fv, draft=draft, chat=reverse_chat)
+                        case = reverse_case_from_versions(fv, draft=draft, chat=reverse_chat)
                     except Exception as e:
                         last = e
-                print(f"skip {path.name}: reverse construction failed: {last}")
+                        continue
+                    # Same reason the ordinary path prints: a run of minute-long model calls
+                    # with no output is indistinguishable from a hung command.
+                    print(
+                        f"  [reverse] {case['case_id']} <- {path.name} "
+                        f"({fv.get('path')}, {fv.get('edits')} edit(s))",
+                        flush=True,
+                    )
+                    return case
+                print(f"skip {path.name}: reverse construction failed: {last}", flush=True)
                 return None
             try:
                 if args.heuristic_only:
