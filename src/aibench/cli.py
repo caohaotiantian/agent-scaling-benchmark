@@ -87,6 +87,13 @@ def main(argv: list[str] | None = None) -> int:
     p_db.add_argument("--max-messages", type=int, default=60)
     p_db.add_argument("--all-agents", action="store_true")
     p_db.add_argument("--require-gold", action="store_true")
+    p_db.add_argument(
+        "--require-edits",
+        action="store_true",
+        help="Only traces that actually edited code. Reverse construction needs the before and "
+        "after of a real fix, and sampling by recency alone yields almost none: 150 recent rows "
+        "produced 1 usable pair against 21 with this predicate.",
+    )
     p_db.add_argument("--since", type=str, default=None)
     p_db.add_argument("--until", type=str, default=None)
     p_db.add_argument("--export-raw", type=Path, default=None)
@@ -453,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
             max_messages=args.max_messages,
             only_opencode=not args.all_agents,
             require_gold=args.require_gold,
+            require_edits=args.require_edits,
             since=args.since,
             until=args.until,
         )
