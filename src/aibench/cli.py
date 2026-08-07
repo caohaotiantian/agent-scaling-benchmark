@@ -109,7 +109,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Do not call LLM; normalize drafts only",
     )
-    p_gen.add_argument("--max-cases", type=int, default=50)
+    p_gen.add_argument("--max-cases", type=int, default=50, help="Maximum cases to write")
+    p_gen.add_argument(
+        "--oversample",
+        type=float,
+        default=1.5,
+        help="Drafts to attempt per case wanted (default 1.5). About a quarter of drafts are "
+        "skipped downstream, so some oversampling is needed to hit --max-cases; every extra "
+        "draft is a paid generation, so the factor is explicit rather than baked in.",
+    )
     p_gen.add_argument("--filter", action="store_true", help="Apply rule filter before generate")
     p_gen.add_argument(
         "--workers",
@@ -483,7 +491,17 @@ def main(argv: list[str] | None = None) -> int:
         out = args.output_dir
         out.mkdir(parents=True, exist_ok=True)
         validator = load_schema_validator()
-        paths = sorted(inp.glob("*.json"))[: max(args.max_cases * 3, args.max_cases)]
+        # `--max-cases` bounds what is WRITTEN; without bounding the slice too, every draft in
+        # the directory was generated and paid for and only the first N kept. A 600-case ask
+        # against 810 drafts billed all 810. Oversampling is right — about a quarter of drafts
+        # are skipped downstream — but the factor has to be explicit and visible.
+        attempts = max(int(args.max_cases * args.oversample), args.max_cases)
+        paths = sorted(inp.glob("*.json"))[:attempts]
+        print(
+            f"generating from {len(paths)} draft(s) to write at most {args.max_cases} case(s) "
+            f"(oversample x{args.oversample}); every draft here is a paid generation",
+            flush=True,
+        )
 
         min_tier_rank = TIER_ORDER.index(args.min_tier) if args.min_tier else -1
 
@@ -533,14 +551,31 @@ def main(argv: list[str] | None = None) -> int:
         generated = [c for c in parallel_map(_gen_one, paths, workers=args.workers) if c]
         n_ok = 0
         tier_counts: dict[str, int] = {}
+        written_ids: set[str] = set()
+        collisions: list[str] = []
         for case in generated:
             if n_ok >= args.max_cases:
                 break
-            write_json(out / f"{case['case_id']}.json", case)
+            cid = str(case["case_id"])
+            if cid in written_ids:
+                # The filename is the case_id, so a repeat silently overwrote its predecessor:
+                # a 600-case run reported 600 and left 575 files. Keep the first and say so,
+                # rather than lose a case with the count still claiming otherwise.
+                collisions.append(cid)
+                continue
+            written_ids.add(cid)
+            write_json(out / f"{cid}.json", case)
             settled = (case.get("metadata") or {}).get("tier") or "unset"
             tier_counts[settled] = tier_counts.get(settled, 0) + 1
             n_ok += 1
         print(f"generated {n_ok} cases -> {out}")
+        if collisions:
+            shown = ", ".join(sorted(set(collisions))[:5])
+            print(
+                f"WARNING: dropped {len(collisions)} case(s) whose case_id was already taken "
+                f"({len(set(collisions))} distinct: {shown}...). The generator produced the "
+                "same id for different drafts; the first one written wins."
+            )
         if tier_counts:
             print(
                 "tier distribution: "

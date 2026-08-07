@@ -491,9 +491,10 @@ runs:
 | `--input-dir` | Path | 必填 | 草稿目录 |
 | `--output-dir` | Path | 必填 | 输出 case 目录（目录名即后续 case-set 名） |
 | `--heuristic-only` | flag | 关 | 不调 LLM，仅 `heuristic_case_from_draft` |
-| `--max-cases` | int | `50` | 成功写出的最大条数 |
+| `--max-cases` | int | `50` | 成功**写出**的最大条数 |
+| `--oversample` | float | `1.5` | 每想要 1 条用例尝试多少条草稿。约 1/4 草稿会在下游被跳过（无参考解等），故需超采样；**每多一条草稿就是一次付费生成**。开跑前会打印「本次将从 N 条草稿生成」。<br>⚠️ 此前该系数写死为 `3` 且不可见：`--max-cases 600` 配 810 条草稿，会为**全部 810 次**生成付费而只写 600 条 |
 | `--filter` | flag | 关 | 生成前再跑 `rule_filter_draft`，不 keep 则跳过 |
-| `--workers` | int | `1` | 并行生成；内部会对最多约 `max_cases×3` 个草稿尝试 |
+| `--workers` | int | `1` | 并行生成；尝试条数由 `--max-cases × --oversample` 决定 |
 | `--secrets-scan` | flag | 关 | 生成后 `scan_case_dir`，写 `_secrets_scan.json` |
 | `--audit` | flag | 关 | 生成后对每条 `audit_case` + `annotate` metadata |
 | `--tier` | `T1..T5` | 草稿 `metadata.tier` | 强制目标层；不传则用 trace 推导的层（§13.5.3） |
@@ -504,6 +505,11 @@ runs:
 按目标层选用不同的生成 brief（`_TIER_BRIEFS`），产物再经 `settle_tier` 消毒定级，
 `metadata` 记录 `tier` / `tier_requested` / `tier_notes` / `capability_axes` / `tier_facts`。
 命令结束会打印实际定级分布，例如 `tier distribution: T2=31, T3=12`。
+
+> **case_id 重名会丢用例。** 文件名就是 `case_id`，所以生成器对不同草稿产出同一个 id 时，
+> 后写的会覆盖先写的。实测一次 600 条的构建报告 `generated 600 cases`、磁盘上只有 575 个文件，
+> 23 个 id 重复、32 次写入被吞掉。现在保留先到的那条、跳过后到的，并在结尾打印冲突数量与 id，
+> 且 `generated N cases` 这个数**保证等于磁盘文件数**。
 
 ### 8.8 `ablation` — 矩阵消融
 
