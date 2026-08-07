@@ -34,6 +34,9 @@ class LanguageSpec:
     #: A banner the runner prints only when it crashed loading a file — needed for runners
     #: that report a dead file as a failing test and so still print totals.
     uncollectable_output: re.Pattern[str] | None = None
+    #: Basenames this runner discovers as tests. Left None where the shared convention below
+    #: is right; set it wherever the runner has rules of its own.
+    test_file: re.Pattern[str] | None = None
     #: Matches a grader command actually driven by this runner. The tally and exit codes below
     #: describe *this* runner, so a case that greps its own output or runs a bare script must
     #: not be judged by them.
@@ -104,15 +107,37 @@ class LanguageSpec:
         return not (counts["passed"] or counts["failed"])
 
     def is_test_path(self, path: str) -> bool:
+        """Whether this runner would actually discover ``path`` as a test file.
+
+        Discovery is per-runner, not a shared convention. ``test_app.js`` reads as a test to
+        anyone who knows pytest and is silently never collected by ``node --test``: the suite
+        exits 0 having run nothing, the stub gate sees a pass and reports ``stub_passed_grader``.
+        Measured on an 11-case build, that accounted for all 7 JavaScript failures against 0 of
+        4 Python ones.
+        """
         name = path.rsplit("/", 1)[-1]
         if not path.endswith(self.source_suffixes):
             return False
+        if self.test_file is not None:
+            return bool(self.test_file.match(name))
         stem = name.rsplit(".", 1)[0]
         return (
             name.startswith("test_")
             or stem.endswith(("_test", ".test", ".spec", "_spec"))
             or stem == "test"
         )
+
+    def test_filename(self, impl_name: str) -> str:
+        """A test filename for ``impl_name`` that this runner is guaranteed to discover."""
+        for suffix in self.source_suffixes:
+            if impl_name.endswith(suffix):
+                stem = impl_name[: -len(suffix)]
+                candidate = (
+                    f"test_{stem}{suffix}" if self.name == "python" else f"{stem}.test{suffix}"
+                )
+                if self.is_test_path(candidate):
+                    return candidate
+        return f"test_{impl_name}"
 
     def hidden_test_name(self, visible_name: str, *, marker: str = "spec") -> str:
         """Name for the hidden half of a split test file.
@@ -146,6 +171,8 @@ PYTHON = LanguageSpec(
     # code. 2 is deliberately absent: pytest also returns it when a *test* raises
     # KeyboardInterrupt, and a genuine collection error already shows up as `N error`.
     uncollectable_exit_codes=(3, 4, 5),
+    # pytest's own default `python_files`. Verified: `clamp.spec.py` exits 5, "no tests ran".
+    test_file=re.compile(r"^(?:test_.+|.+_test)\.py$"),
     runner_command=re.compile(r"-m\s+pytest\b"),
 )
 
@@ -170,6 +197,11 @@ JAVASCRIPT = LanguageSpec(
     # banner forwarded into this output, and is then read as a load failure. Nothing shipped
     # does that, and the misreading only ever rejects a case, never ships one.
     uncollectable_output=re.compile(r"^Node\.js v\d", re.M),
+    # node --test discovers `*.test.*`, `*-test.*`, `*_test.*`, `test-*.*` and `test.*`, and
+    # nothing else. Notably NOT `test_app.js`, which every pytest habit produces: verified
+    # against node v24, `test_app.js` exits 0 having run no tests while `app.test.js` runs and
+    # fails. A suite that runs nothing is a pass, so such a case dies on `stub_passed_grader`.
+    test_file=re.compile(r"^(?:.+[.\-_]test|test|test[-.].+)\.(?:js|mjs|cjs|ts)$"),
     runner_command=re.compile(r"node\s+--test\b"),
 )
 

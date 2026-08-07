@@ -36,15 +36,35 @@ def _unified_ish_diff(pre: str, post: str, limit: int = 60) -> str:
     return "\n".join(lines[:limit])
 
 
-def build_prompt(fv: dict[str, Any], user_request: str) -> tuple[str, str]:
+#: How to ask each runner for a test file. Asking for "a pytest file" when the grader runs
+#: `node --test` produced a suite that passed on the pre-edit file every time: all 7 JavaScript
+#: cases in an 11-case build failed on `stub_passed_grader`, against 0 of 4 Python ones.
+_TEST_STYLE = {
+    "python": (
+        "a pytest file",
+        "import the module under test by its module name",
+        "def test_*() functions using plain `assert`",
+    ),
+    "javascript": (
+        "a Node.js test file using the built-in `node:test` runner",
+        "import the module under test with a relative specifier such as `./module.js`",
+        "`test(...)` blocks from `node:test` with assertions from `node:assert`",
+    ),
+}
+
+
+def build_prompt(
+    fv: dict[str, Any], user_request: str, *, language: str = "python"
+) -> tuple[str, str]:
     """The system and user messages that ask for tests and a symptom-only description."""
+    kind, import_hint, shape = _TEST_STYLE.get(language, _TEST_STYLE["python"])
     system = (
         "You are given a source file BEFORE and AFTER a real bug fix, and the request the "
-        "engineer was working on. Write a pytest file that FAILS on the BEFORE version and "
+        f"engineer was working on. Write {kind} that FAILS on the BEFORE version and "
         "PASSES on the AFTER version, plus a short task description.\n"
         "Return ONLY one JSON object with keys: prompt, test_path, test_content.\n"
-        "- test_content: a complete pytest file, at least 4 test functions, importing the "
-        "module under test by its module name. Cover the boundary the fix changed and at "
+        f"- test_content: {kind}, complete and runnable, with at least 4 tests written as "
+        f"{shape}. {import_hint.capitalize()}. Cover the boundary the fix changed and at "
         "least one case that already worked, so a solver cannot pass by rewriting blindly.\n"
         "- prompt: describes ONLY the observable symptom — what was expected and what "
         "happened. Never name the cause, the mechanism, the line, or the function that "
@@ -88,7 +108,7 @@ def reverse_case_from_versions(
     if not pre or not post or pre == post:
         raise ValueError("before/after pair is empty or unchanged")
 
-    system, user = build_prompt(fv, str(draft.get("prompt") or ""))
+    system, user = build_prompt(fv, str(draft.get("prompt") or ""), language=spec.name)
     data = _extract_json_object(
         chat(
             [
@@ -105,9 +125,11 @@ def reverse_case_from_versions(
         raise ValueError("model's test file does not parse")
 
     module = re.split(r"[\\/]", path)[-1]
-    test_path = str(data.get("test_path") or f"test_{module}")
+    # The fallback has to be a name this runner really discovers: `test_app.js` is invisible
+    # to `node --test`, so the suite runs nothing, exits 0, and the case dies on the stub gate.
+    test_path = str(data.get("test_path") or "")
     if not spec.is_test_path(test_path):
-        test_path = f"test_{module}"
+        test_path = spec.test_filename(module)
 
     prompt = redact_source(str(data.get("prompt") or "").strip())
     if len(prompt) < 20:

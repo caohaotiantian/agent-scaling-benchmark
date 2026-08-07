@@ -36,10 +36,35 @@ def test_spec_lookup_by_name_alias_and_path():
 
 def test_test_file_detection_per_language():
     assert infer_role("test_clamp.py") == "test"
+    assert infer_role("clamp_test.py") == "test"
     assert infer_role("clamp.test.mjs") == "test"
-    assert infer_role("clamp.spec.ts") == "test"
     assert infer_role("clamp.mjs") == "impl"
     assert infer_role("README.md") == "spec"
+
+
+def test_a_name_the_runner_will_not_discover_is_not_a_test_file():
+    """Verified against the runners themselves, not against convention.
+
+    node v24: `test_app.js` exits 0 having run nothing while `app.test.js` runs and fails.
+    pytest: `clamp.spec.py` exits 5, "no tests ran", while `test_clamp.py` runs and fails.
+    A suite that runs nothing is a pass, so naming a test file this way makes the stub gate
+    report `stub_passed_grader` — which is what happened to all 7 JavaScript cases in an
+    11-case build. This previously asserted `clamp.spec.ts` *was* a test file; neither runner
+    agrees.
+    """
+    assert infer_role("test_app.js") == "impl", "pytest's prefix, invisible to node --test"
+    assert infer_role("clamp.spec.ts") == "impl", "no runner here discovers .spec"
+    assert infer_role("clamp.spec.py") == "impl"
+    for name in ("app_test.js", "test-app.js", "test.js"):
+        assert infer_role(name) == "test", name
+
+
+def test_the_fallback_test_name_is_one_the_runner_discovers():
+    assert languages.spec_for("python").test_filename("clamp.py") == "test_clamp.py"
+    assert languages.spec_for("javascript").test_filename("app.js") == "app.test.js"
+    for lang, impl in (("python", "clamp.py"), ("javascript", "app.js")):
+        spec = languages.spec_for(lang)
+        assert spec.is_test_path(spec.test_filename(impl))
 
 
 def test_counting_tests_in_each_language():
