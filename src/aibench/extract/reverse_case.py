@@ -226,10 +226,33 @@ def chat_json(settings: dict[str, Any], *, timeout_s: float = 300.0) -> Any:
     return _chat
 
 
-def iter_file_versions(draft: dict[str, Any]) -> list[dict[str, Any]]:
-    """The before/after pairs a draft carries, largest change first."""
-    fvs = (draft.get("metadata") or {}).get("file_versions") or []
+def iter_file_versions(
+    draft: dict[str, Any], *, require_imports_satisfiable: bool = True
+) -> list[dict[str, Any]]:
+    """The before/after pairs a draft carries, largest change first.
+
+    Pairs whose file needs imports a one-file workspace cannot provide are dropped here rather
+    than after generation, because generation is the expensive step and the predicate is exact:
+    of 22 cases built without it, all 16 with an unsatisfiable import failed the validity gate,
+    and 5 of them had first passed it for the wrong reason.
+    """
+    from aibench.extract.file_versions import unsatisfiable_imports
+
+    fvs = [
+        fv
+        for fv in ((draft.get("metadata") or {}).get("file_versions") or [])
+        if isinstance(fv, dict)
+    ]
+    if require_imports_satisfiable:
+        fvs = [
+            fv
+            for fv in fvs
+            if not (
+                unsatisfiable_imports(str(fv.get("path") or ""), str(fv.get("pre") or ""))
+                | unsatisfiable_imports(str(fv.get("path") or ""), str(fv.get("post") or ""))
+            )
+        ]
     return sorted(
-        (fv for fv in fvs if isinstance(fv, dict)),
+        fvs,
         key=lambda f: -abs(len(str(f.get("post") or "")) - len(str(f.get("pre") or ""))),
     )

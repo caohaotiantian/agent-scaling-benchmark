@@ -173,3 +173,35 @@ def test_versions_are_offered_largest_change_first():
         }
     )
     assert [fv["path"] for fv in iter_file_versions(draft)] == ["big.py", "small.py"]
+
+
+def test_a_pair_needing_absent_packages_is_dropped_before_generation():
+    """The 41% loss, and worse: it also let cases pass the stub gate for the wrong reason."""
+    draft = _draft(
+        metadata={
+            "file_versions": [
+                {"path": "a.py", "pre": "import numpy\nx=1\n", "post": "import numpy\nx=2\n"},
+                {"path": "b.py", "pre": "import json\nx=1\n", "post": "import json\nx=2\n"},
+            ]
+        }
+    )
+    assert [fv["path"] for fv in iter_file_versions(draft)] == ["b.py"]
+    assert len(iter_file_versions(draft, require_imports_satisfiable=False)) == 2
+
+
+def test_a_sibling_import_counts_as_unsatisfiable_for_js():
+    """A one-file workspace has no siblings, so `./util` is as absent as a bare package."""
+    from aibench.extract.file_versions import unsatisfiable_imports
+
+    assert unsatisfiable_imports("m.ts", "import {a} from './util';") == {"./util"}
+    assert unsatisfiable_imports("m.ts", "import {a} from 'lodash';") == {"lodash"}
+    assert unsatisfiable_imports("m.ts", "import fs from 'node:fs';") == set()
+
+
+def test_python_stdlib_and_installed_packages_are_satisfiable():
+    from aibench.extract.file_versions import unsatisfiable_imports
+
+    assert unsatisfiable_imports("m.py", "import json\nimport pytest\n") == set()
+    assert unsatisfiable_imports("m.py", "import definitely_not_installed_xyz\n") == {
+        "definitely_not_installed_xyz"
+    }
