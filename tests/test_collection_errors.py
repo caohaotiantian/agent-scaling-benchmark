@@ -313,6 +313,50 @@ class TestStubGate:
         assert ok is True
         assert detail == "stub_failed_as_expected"
 
+    def test_a_complete_stub_that_cannot_be_collected_fails_even_when_the_gold_runs(self):
+        """The reverse-construction hole: the two versions differ by an import, not the defect.
+
+        Measured on 22 reverse-constructed cases, 5 of the 6 that passed this gate passed it
+        this way — the pre-edit file imported numpy, pandas or torch and the post-edit file did
+        not, so the tests separated the versions by which packages happened to be installed.
+        Three then failed to collect on 8 of 9 calibration attempts and scored as hard cases.
+        """
+        case = _case(
+            files=[
+                {
+                    "path": "impl.py",
+                    "content": "import nonexistent_dependency_xyz\n\ndef thing():\n    return 0\n",
+                },
+                {"path": "test_impl.py", "content": _TEST_IMPL},
+            ],
+            gold=[{"path": "impl.py", "content": "def thing():\n    return 1\n"}],
+            metadata={"generation": "reverse"},
+        )
+        report = audit_case(case)
+        # The gold collects and passes, so the old rule called the workspace sound.
+        assert report.checks["reference_solution"]["ok"] is True
+        assert report.checks["stub_fail"]["ok"] is False
+        assert report.checks["stub_fail"]["uncollectable"] is True
+
+    def test_a_hollowed_out_stub_may_still_be_uncollectable(self):
+        """Unchanged for forward generation, where the stub is the gold with a hole in it.
+
+        There an uncollectable stub is the ordinary "implement this" shape: the visible test
+        imports a symbol the stub has yet to define. Only a *complete* stub — one the trace
+        shipped as a working file — makes that reading impossible.
+        """
+        case = _case(
+            files=[
+                {"path": "impl.py", "content": "# TODO: implement thing()\n"},
+                {"path": "test_impl.py", "content": _TEST_IMPL},
+            ],
+            gold=[{"path": "impl.py", "content": "def thing():\n    return 1\n"}],
+            metadata={"generation": "llm"},
+        )
+        report = audit_case(case)
+        assert report.checks["stub_fail"]["ok"] is True
+        assert report.checks["stub_fail"]["uncollectable"] is False
+
     def test_a_case_with_no_reference_solution_is_not_also_counted_as_uncollectable(self):
         case = _case(
             files=[
