@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import quote_plus
 
+from aibench.extract.file_versions import replay_file_versions
 from aibench.extract.history_parse import (
     extract_user_agent,
     files_from_messages,
@@ -77,6 +78,7 @@ def fetch_chat_records(
     since: str | None = None,
     until: str | None = None,
     offset: int = 0,
+    require_edits: bool = False,
 ) -> list[ChatRecord]:
     from sqlalchemy import create_engine, text
 
@@ -102,6 +104,12 @@ def fetch_chat_records(
     if only_opencode:
         clauses.append("CAST(requests_tags AS CHAR) LIKE :ua")
         params["ua"] = "%opencode%"
+    if require_edits:
+        # Reverse construction needs traces that actually edited code, and most rows did not:
+        # sampling by recency alone, 51 of 150 carried any edit and they yielded one usable
+        # before/after pair. The scan is bounded by LIMIT, so MySQL stops once it has enough.
+        clauses.append("full_history LIKE :edit_tool")
+        params["edit_tool"] = '%"name": "edit"%'
 
     sql = f"""
         SELECT request_id, start_time, model, requests_tags, tools, full_history, key_alias, created_at
@@ -226,6 +234,7 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
     if not is_coding_record(user_agent=ua, tools=tools, user_text=user_text):
         return None
 
+    file_versions, replay_stats = replay_file_versions(messages)
     prompt = primary_user_prompt(messages)
     if not prompt or len(prompt) < 8:
         return None
@@ -315,6 +324,11 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             "tier_source": "trace_signals",
             "tier_reasons": tier_reasons,
             "trace_signals": signals.to_dict(),
+            # What the engineer actually changed, replayed from the trace's own edits. This is
+            # the material reverse construction builds on: the defect is then whatever they
+            # really got wrong, not what a model invents when asked for a benchmark case.
+            "file_versions": [fv.to_dict() for fv in file_versions],
+            "file_versions_stats": replay_stats.to_dict(),
         },
     }
 
@@ -353,6 +367,7 @@ def extract_case_drafts_from_db(
     require_gold: bool = False,
     since: str | None = None,
     until: str | None = None,
+    require_edits: bool = False,
 ) -> list[dict[str, Any]]:
     records = fetch_chat_records(
         db_url,
@@ -362,6 +377,7 @@ def extract_case_drafts_from_db(
         only_opencode=only_opencode,
         since=since,
         until=until,
+        require_edits=require_edits,
     )
     drafts: list[dict[str, Any]] = []
     seen: set[str] = set()
