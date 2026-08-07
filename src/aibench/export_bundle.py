@@ -39,6 +39,28 @@ def _substantive_lines(case: dict[str, Any]) -> list[str]:
     return out
 
 
+def _draft_source_lines(draft: dict[str, Any]) -> list[str]:
+    """Every substantive line a draft carries, including the ones the overlap gate could not see.
+
+    A draft holds production source in two places: `context.files`, and `metadata.file_versions`
+    — the real before and after of an edit, which is exactly what reverse construction ships as
+    the stub and the reference solution. Indexing only the first made the gate blind to the
+    second: measured on 8 reverse-constructed cases it reported 2.4%-23.9% verbatim while the
+    true overlap with production source was 13%-76%. The one gate that exists to answer "is
+    this production code?" could not see the production code.
+    """
+    out = _substantive_lines(draft)
+    for fv in (draft.get("metadata") or {}).get("file_versions") or []:
+        if not isinstance(fv, dict):
+            continue
+        for key in ("pre", "post"):
+            for line in str(fv.get(key) or "").splitlines():
+                s = line.strip()
+                if len(s) > _SUBSTANTIVE_LINE:
+                    out.append(s)
+    return out
+
+
 def draft_line_index(drafts_dir: Path) -> set[str]:
     """Every substantive line present in the private drafts, for the overlap check."""
     index: set[str] = set()
@@ -48,7 +70,7 @@ def draft_line_index(drafts_dir: Path) -> set[str]:
         if not is_case_json_path(p):
             continue
         try:
-            index.update(_substantive_lines(load_json(p)))
+            index.update(_draft_source_lines(load_json(p)))
         except (json.JSONDecodeError, OSError):
             continue
     return index
@@ -74,7 +96,14 @@ def _reject_reason(
     if validator is not None and list(validator.iter_errors(case)):
         return "schema"
     meta = case.get("metadata") or {}
-    if (meta.get("generation") or "") != "llm":
+    generation = str(meta.get("generation") or "")
+    if generation == "reverse":
+        # Not a mislabelling to wave through: reverse construction ships the file as the trace
+        # found it and as it left it, so these cases ARE production source by design, at a
+        # measured 13%-76% verbatim. Whether that may leave the building is the owner's call
+        # and not a default, so it is named for what it is rather than filed under "provenance".
+        return "production_derived"
+    if generation != "llm":
         # The heuristic path deep-copies the draft, so these cases are production code.
         return "provenance"
     if require_audit and not meta.get("validity_ok"):

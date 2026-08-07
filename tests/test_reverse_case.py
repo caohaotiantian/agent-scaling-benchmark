@@ -247,3 +247,41 @@ def test_node_builtins_are_satisfiable_with_or_without_the_prefix():
     src = "const fs=require('fs');const vm=require('vm');import path from 'node:path';"
     assert unsatisfiable_imports("m.js", src) == set()
     assert unsatisfiable_imports("m.js", "const x=require('lodash');") == {"lodash"}
+
+
+def test_the_shipped_source_path_is_not_the_engineers_home_directory():
+    """Every one of 8 built cases carried a real account name and an internal project name."""
+    from aibench.extract.sessions import redact_source_path
+
+    out = redact_source_path("/home/li/git/neo-designer/src/access/sdk/coreSdk.ts")
+    assert out.startswith("coreSdk.ts#")
+    assert "/home/li" not in out and "neo-designer" not in out
+    # Distinct files must stay distinct, which is all the full path was ever used for.
+    assert redact_source_path("/a/x.py") != redact_source_path("/b/x.py")
+
+
+def test_machine_paths_in_shipped_source_are_replaced_without_breaking_the_file():
+    from aibench.extract.sessions import redact_paths
+
+    src = 'ROOT = "/home/tc/opencode-work/a-first"\n\ndef f():\n    return ROOT\n'
+    out = redact_paths(src, path="m.py")
+    assert "/home/tc" not in out
+    compile(out, "<t>", "exec")
+
+
+def test_redaction_never_hands_back_source_that_stopped_parsing():
+    """The veto only protects files that parsed to begin with.
+
+    A gold file that stops parsing ships as a hard case and corrupts the measurement, so a
+    rewrite that breaks one is discarded. A file that never parsed has nothing to protect, and
+    withholding the redaction there would leak the path for no gain.
+    """
+    from aibench.extract.sessions import redact_paths
+
+    good = 'ROOT = "/home/tc/a"\nx = 1\n'
+    out = redact_paths(good, path="m.py")
+    assert "/home/tc" not in out
+    compile(out, "<t>", "exec")
+
+    already_broken = 'x = "/home/tc/a\n'
+    assert "/home/tc" not in redact_paths(already_broken, path="m.py")
