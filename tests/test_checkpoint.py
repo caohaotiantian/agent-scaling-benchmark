@@ -192,3 +192,21 @@ def test_a_reverse_case_is_not_waved_through_as_a_labelling_mistake():
     assert reason({"generation": "reverse", "validity_ok": True}) == "production_derived"
     assert reason({"generation": "heuristic", "validity_ok": True}) == "provenance"
     assert reason({"generation": "llm", "validity_ok": True}) is None
+
+
+def test_the_bundle_does_not_carry_this_machines_paths():
+    """Audit detail is a runner transcript; every failure message names a local temp dir."""
+    from aibench.export_bundle import _scrubbed
+
+    case = {
+        "case_id": "c1",
+        "metadata": {
+            "tier": "T2",
+            "validity_ok": True,
+            "validity_issues": [{"message": "ImportError ... /Users/someone/tmp/aibench_x/ws"}],
+        },
+    }
+    out = _scrubbed(case)
+    assert "validity_issues" not in out["metadata"]
+    assert out["metadata"]["tier"] == "T2", "only the local detail goes"
+    assert "validity_issues" in case["metadata"], "the caller's copy is untouched"

@@ -190,6 +190,14 @@ def main(argv: list[str] | None = None) -> int:
         "repository rather than sit one `git add` away from its history",
     )
     p_exp.add_argument(
+        "--allow-production-derived",
+        action="store_true",
+        help="Include reverse-constructed cases, which carry source from real repositories "
+        "verbatim (measured 13%%-76%% of their lines). This skips no check — every other gate "
+        "still applies — it records that shipping production source is intended, and the "
+        "MANIFEST names each source and its measured share.",
+    )
+    p_exp.add_argument(
         "--drafts-dir",
         type=Path,
         default=None,
@@ -820,6 +828,7 @@ def main(argv: list[str] | None = None) -> int:
                 max_verbatim=args.max_verbatim,
                 require_audit=not args.no_require_audit,
                 dry_run=args.dry_run,
+                allow_production_derived=args.allow_production_derived,
             )
         except (FileNotFoundError, ValueError) as e:
             print(str(e))
