@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -80,7 +81,7 @@ def fetch_chat_records(
     offset: int = 0,
     require_edits: bool = False,
 ) -> list[ChatRecord]:
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import create_engine
 
     engine = create_engine(
         db_url,
@@ -121,25 +122,33 @@ def fetch_chat_records(
     from aibench.retry import retry_call
 
     def _fetch() -> list[ChatRecord]:
-        rows_out: list[ChatRecord] = []
-        with engine.connect() as conn:
-            rows = conn.execute(text(sql), params).mappings().all()
-            for r in rows:
-                rows_out.append(
-                    ChatRecord(
-                        request_id=str(r["request_id"]),
-                        start_time=r.get("start_time"),
-                        model=r.get("model"),
-                        requests_tags=r.get("requests_tags"),
-                        tools=r.get("tools"),
-                        full_history=r.get("full_history"),
-                        key_alias=r.get("key_alias"),
-                        created_at=r.get("created_at"),
-                    )
-                )
-        return rows_out
+        return list(_iter_rows(engine, sql, params))
 
     return retry_call(_fetch, label="db_fetch_llm_chat_records")
+
+
+def _iter_rows(engine: Any, sql: str, params: dict[str, Any]) -> Iterator[ChatRecord]:
+    """Yield rows as the server sends them.
+
+    `full_history` is the whole conversation, so materialising the result set first costs
+    memory proportional to the entire scan: a 4,687-row pull sat at 1.25 GB and climbing with
+    nothing written yet. Streaming bounds that to a batch, and lets the caller persist each
+    draft as it is built instead of at the end.
+    """
+    from sqlalchemy import text as _text
+
+    with engine.connect().execution_options(stream_results=True, yield_per=100) as conn:
+        for r in conn.execute(_text(sql), params).mappings():
+            yield ChatRecord(
+                request_id=str(r["request_id"]),
+                start_time=r.get("start_time"),
+                model=r.get("model"),
+                requests_tags=r.get("requests_tags"),
+                tools=r.get("tools"),
+                full_history=r.get("full_history"),
+                key_alias=r.get("key_alias"),
+                created_at=r.get("created_at"),
+            )
 
 
 def chat_record_to_session(rec: ChatRecord) -> SessionRecord | None:
@@ -368,7 +377,13 @@ def extract_case_drafts_from_db(
     since: str | None = None,
     until: str | None = None,
     require_edits: bool = False,
+    on_draft: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
+    """Build drafts from the trace store.
+
+    ``on_draft`` is called with each draft the moment it is built. Without it a run that dies
+    part-way leaves nothing behind, however long it ran.
+    """
     records = fetch_chat_records(
         db_url,
         limit=limit,
@@ -391,6 +406,8 @@ def extract_case_drafts_from_db(
         if fp in seen:
             continue
         seen.add(fp)
+        if on_draft is not None:
+            on_draft(draft)
         drafts.append(draft)
         if len(drafts) >= max_cases:
             break
