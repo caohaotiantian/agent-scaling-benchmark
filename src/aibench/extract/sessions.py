@@ -347,3 +347,50 @@ def load_sessions_from_export(rows: list[dict[str, Any]]) -> list[SessionRecord]
 
 def session_record_to_dict(session: SessionRecord) -> dict[str, Any]:
     return asdict(session)
+
+
+#: Home directories and drive-rooted project trees, which carry the engineer's account name
+#: and the internal project name. Measured on 8 reverse-constructed cases: every one had a real
+#: username in `metadata.reverse_source_path` (/home/plh, /home/mark, /home/tc, /home/li) and
+#: two still had one in the shipped source. Reverse construction ships real files, so these
+#: arrive by construction rather than by accident.
+_USER_PATH = re.compile(
+    r"(?:/home/[A-Za-z0-9._-]+|/Users/[A-Za-z0-9._-]+|[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9._-]+)",
+)
+_DRIVE_TREE = re.compile(r"(?:/mnt/[a-z]/|[A-Za-z]:[\\/]+)(?![\\/])")
+
+
+def redact_paths(text: str, *, path: str | None = None) -> str:
+    """Replace machine-specific path prefixes, keeping the file parseable.
+
+    Same veto as :func:`redact_source`: a rewrite that stops the file parsing is discarded,
+    because a reference solution that no longer parses ships as a hard case and corrupts the
+    measurement, while a leaked path is caught by review.
+    """
+    if not text:
+        return text
+    from aibench.languages import registered_spec, spec_for_path
+
+    spec = (spec_for_path(path) if path else None) or registered_spec(None)
+    before = spec.parses(text) if spec else None
+    out = _USER_PATH.sub("/workspace", text)
+    out = _DRIVE_TREE.sub("/workspace/", out)
+    if out == text:
+        return text
+    if before is True and spec is not None and spec.parses(out) is False:
+        return text
+    return out
+
+
+def redact_source_path(path: str) -> str:
+    """A source path safe to ship: the filename, plus a digest so distinct files stay distinct.
+
+    The full path is only ever used to tell one source file from another. Keeping it whole
+    published `/home/li/git/neo-designer/src/access/sdk/coreSdk.ts` — an account name and an
+    unreleased project — for no gain the digest does not provide.
+    """
+    import hashlib
+
+    name = re.split(r"[\\/]", str(path or "").strip())[-1]
+    digest = hashlib.sha256(str(path or "").encode("utf-8")).hexdigest()[:12]
+    return f"{name}#{digest}"

@@ -150,3 +150,45 @@ def test_an_exhausted_budget_is_not_retried_as_if_it_were_throttling():
     assert is_retryable_error(throttle) is True
     assert is_retryable_error(RuntimeError("insufficient_quota")) is False
     assert is_retryable_error(RuntimeError("503 Service Unavailable")) is True
+
+
+def test_the_overlap_gate_can_see_the_source_reverse_construction_actually_ships(tmp_path):
+    """It indexed only context.files while a reverse stub comes from metadata.file_versions.
+
+    Measured on 8 cases: the gate reported 2.4%-23.9% verbatim while true overlap with
+    production source was 13%-76%. The one gate meant to answer "is this production code?"
+    could not see the production code.
+    """
+    from aibench.export_bundle import draft_line_index, verbatim_share
+
+    secret_line = "    result = compute_the_internal_thing(payload, tolerance=0.5)"
+    (tmp_path / "d1.json").write_text(
+        json.dumps(
+            {
+                "case_id": "d1",
+                "context": {"files": []},
+                "metadata": {"file_versions": [{"path": "a.py", "pre": secret_line, "post": "x"}]},
+            }
+        )
+    )
+    idx = draft_line_index(tmp_path)
+    case = {"context": {"files": [{"content": secret_line}]}}
+    assert verbatim_share(case, idx) == 1.0
+
+
+def test_a_reverse_case_is_not_waved_through_as_a_labelling_mistake():
+    """It ships real production source by design, so it is named for that, not for its label."""
+    from aibench.export_bundle import _reject_reason
+
+    def reason(meta):
+        return _reject_reason(
+            {"case_id": "x", "metadata": meta},
+            validator=None,
+            draft_lines=set(),
+            max_verbatim=0.05,
+            require_audit=True,
+        )
+
+    assert reason({"generation": "reverse", "validity_ok": True}) == "production_derived"
+    assert reason({"generation": "heuristic", "validity_ok": True}) == "provenance"
+    assert reason({"generation": "llm", "validity_ok": True}) is None

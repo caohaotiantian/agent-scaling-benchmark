@@ -17,7 +17,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from aibench.extract.sessions import redact_source, task_fingerprint
+from aibench.extract.sessions import (
+    redact_paths,
+    redact_source,
+    redact_source_path,
+    task_fingerprint,
+)
 from aibench.languages import spec_for_path
 
 #: Enough of each version for the model to see the change without paying for whole large files.
@@ -151,7 +156,7 @@ def reverse_case_from_versions(
     if not spec.is_test_path(test_path):
         test_path = prescribed_test
 
-    prompt = redact_source(str(data.get("prompt") or "").strip())
+    prompt = redact_paths(redact_source(str(data.get("prompt") or "").strip()))
     if len(prompt) < 20:
         raise ValueError("model returned no usable prompt")
 
@@ -165,10 +170,16 @@ def reverse_case_from_versions(
         "prompt": prompt,
         "context": {
             "files": [
-                {"path": impl_name, "content": redact_source(pre, path=impl_name), "role": "impl"},
+                {
+                    "path": impl_name,
+                    "content": redact_paths(redact_source(pre, path=impl_name), path=impl_name),
+                    "role": "impl",
+                },
                 {
                     "path": test_path,
-                    "content": redact_source(test_content, path=test_path),
+                    "content": redact_paths(
+                        redact_source(test_content, path=test_path), path=test_path
+                    ),
                     "role": "test",
                 },
             ],
@@ -177,7 +188,12 @@ def reverse_case_from_versions(
         "grader": {
             "mode": "script",
             "command": "python -m pytest -q" if spec.name == "python" else "node --test",
-            "gold_files": [{"path": impl_name, "content": redact_source(post, path=impl_name)}],
+            "gold_files": [
+                {
+                    "path": impl_name,
+                    "content": redact_paths(redact_source(post, path=impl_name), path=impl_name),
+                }
+            ],
         },
         "metadata": {
             "generation": "reverse",
@@ -187,7 +203,9 @@ def reverse_case_from_versions(
             "split": "auto",
             "weak_grader": False,
             "tier_requested": tier,
-            "reverse_source_path": path,
+            # The filename plus a digest, never the full path: keeping it whole published an
+            # engineer's account name and an unreleased project name in every case built.
+            "reverse_source": redact_source_path(path),
             "reverse_edits": fv.get("edits"),
         },
     }
