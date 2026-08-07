@@ -63,3 +63,30 @@ print(collections.Counter(band(x) for x in v), statistics.mean(v))
 两份指纹不同不一定意味着行为不同 —— 例如 `5961d65` 只给 agent 配置加了
 `capability_axes` 声明（供 `unfit_anchors` 做适配性检查），不改 agent 行为。
 比较前请先确认差异是什么，不要因为指纹相同就假定可比，也不要因为不同就放弃比较。
+
+### 已核查的指纹差异
+
+| 面板 | 指纹 | 可与 `auto-v0` 比较 |
+|---|---|---|
+| `auto-v0_3anchor_20260805` 当时的面板 | `f3913d65b0d0bf00` | — |
+| 当前 `configs/runs/anchor-panel.yaml` | `5f5233c7214879f4` | **可以** |
+
+两者差异的全部内容是 `5961d65` 给 `openai_compat.yaml` 与 `tool_loop.yaml`
+各加了一行 `capability_axes:` 和注释。已核查该字段的读取点只有
+`calibrate.py:127`（`unfit_anchors`）与 `models.py` 的解析，
+**从不进入 agent 执行路径**；三个锚点的名称、模型配置、run 配置逐一相同。
+所以这两份指纹描述的是**行为相同的面板**，跨这条边界的比较成立。
+
+### 分辨率：`p_hat` 是被量化的，别把分辨率红利当成难度变化
+
+`p_hat` 只能取 `k/(anchors×repeats)`。上表四份结果都是 `repeats=2`，即每例 6 次尝试：
+
+| 每例尝试数 | 难档 `p<0.2` 可取值 | 易档 `p>0.8` 可取值 |
+|---:|---|---|
+| 6（`repeats=2`） | `0, 0.167` | `0.833, 1.000` |
+| 9（`repeats=3`） | `0, 0.111` | `0.889, 1.000` |
+
+`auto-v0` 那 60 条里 39 条 `p_hat` 恰好等于 1.000，**其中一部分只是 6 次尝试
+分不开 0.9 与 1.0**。提高 `repeats` 不改变被估计的量，只降低噪声，
+所以跨 `repeats` 比较 `p_hat` 合法；但**档位占比会仅因分辨率而移动**，
+拿不同 `repeats` 的档位分布对比时必须声明这一点。
