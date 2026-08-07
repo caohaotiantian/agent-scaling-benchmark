@@ -229,6 +229,7 @@ def check_stub_fails(
     *,
     case_set: str | None = None,
     reference_collects: bool | None = None,
+    stub_is_complete: bool = False,
 ) -> tuple[bool, str]:
     """Return (ok, detail). ok=True means stub correctly fails (gate passed).
 
@@ -241,6 +242,16 @@ def check_stub_fails(
     symbol the stub has yet to define. ``None`` is not evidence either way, and reporting it
     as a broken workspace would restate a case already rejected for having no reference
     solution, inflating the count of workspaces this gate claims to have found.
+
+    ``stub_is_complete`` says the stub is a whole, working file rather than a hollowed-out
+    one, which is what reverse construction produces: both sides are real versions of the same
+    file. There "uncollectable" can never be the legitimate "implement this" shape, and
+    ``reference_collects is True`` stops being evidence that the stub's workspace is sound —
+    it only proves the *gold's* dependencies resolve. Measured on 22 reverse-constructed
+    cases: 5 of the 6 that passed this gate did so because the pre-edit file imported numpy,
+    pandas or torch and the post-edit file did not. The tests separated the two versions by
+    which packages were installed, not by the defect, and three of those cases then failed to
+    collect on 8 of 9 calibration attempts.
     """
     if case.grader.mode != "script" or not case.grader.command:
         return True, "skipped_non_script"
@@ -254,7 +265,7 @@ def check_stub_fails(
             return False, f"infra: {grade.detail}"
         if grade.passed:
             return False, "stub_passed_grader"
-        if grade.collection_error and reference_collects is False:
+        if grade.collection_error and (stub_is_complete or reference_collects is False):
             # The stub is *supposed* to fail, so a workspace that cannot even be collected
             # satisfies this gate by accident. That is how a case whose hidden test does not
             # parse reaches the shipped set looking like a hard one. The reference solution is
@@ -348,8 +359,14 @@ def audit_case(
     else:
         reference_collects = None
 
+    # Reverse construction ships the file as the trace found it, so the stub is complete and
+    # an uncollectable one is always a broken workspace rather than an unimplemented function.
+    stub_is_complete = str((case.metadata or {}).get("generation") or "") == "reverse"
     stub_ok, stub_detail = check_stub_fails(
-        case, case_set=case_set, reference_collects=reference_collects
+        case,
+        case_set=case_set,
+        reference_collects=reference_collects,
+        stub_is_complete=stub_is_complete,
     )
     checks["stub_fail"] = {
         "ok": stub_ok,
