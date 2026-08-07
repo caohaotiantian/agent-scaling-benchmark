@@ -130,3 +130,23 @@ def test_the_callback_stops_at_max_cases_like_the_return_value_does(monkeypatch)
     seen = []
     m.extract_case_drafts_from_db("mysql://x", max_cases=2, on_draft=seen.append)
     assert len(seen) == 2
+
+
+def test_an_exhausted_budget_is_not_retried_as_if_it_were_throttling():
+    """A gateway reports both "too fast" and "out of money" as HTTP 429.
+
+    Matching on the status code alone retried a permanent failure five times with backoff for
+    every draft: 489 retries in one run, 0 cases produced. Worse, the failures then looked
+    transient, so --resume would have paid to discover them again.
+    """
+    from aibench.retry import is_retryable_error
+
+    budget = RuntimeError(
+        "Client error '429 Too Many Requests' ... Budget has been exceeded! "
+        "Key=00617558 Current cost: 100741139.0, Max budget: 100000000.0"
+    )
+    assert is_retryable_error(budget) is False
+    throttle = RuntimeError("Client error '429 Too Many Requests': rate limit exceeded")
+    assert is_retryable_error(throttle) is True
+    assert is_retryable_error(RuntimeError("insufficient_quota")) is False
+    assert is_retryable_error(RuntimeError("503 Service Unavailable")) is True
