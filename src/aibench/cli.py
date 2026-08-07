@@ -18,7 +18,7 @@ from aibench.calibrate import (
     select_cases,
 )
 from aibench.cases import load_schema_validator, validate_case_set
-from aibench.env_config import load_dotenv
+from aibench.env_config import load_dotenv, openai_settings
 from aibench.export_bundle import DEFAULT_MAX_VERBATIM, export_bundle
 from aibench.export_results import export_ablation_csv, export_ablation_xlsx
 from aibench.extract.filter_rules import rule_filter_draft
@@ -28,6 +28,11 @@ from aibench.extract.llm_chat_records import (
     resolve_db_url,
 )
 from aibench.extract.llm_soft_filter import llm_soft_filter_draft
+from aibench.extract.reverse_case import (
+    chat_json,
+    iter_file_versions,
+    reverse_case_from_versions,
+)
 from aibench.extract.sessions import (
     filter_and_draft,
     load_sessions_from_export,
@@ -149,6 +154,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         choices=list(TIER_ORDER),
         help="Force a target tier for every draft (default: the tier its trace suggests)",
+    )
+    p_gen.add_argument(
+        "--reverse",
+        action="store_true",
+        help="Reverse-construct: the stub is the file as the trace found it and the reference "
+        "solution is the file as the trace left it, so the defect is a real one. The model only "
+        "writes the tests, which the stub-fail and solvability gates then verify. Needs drafts "
+        "carrying metadata.file_versions (extract-from-db --require-edits).",
     )
     p_gen.add_argument(
         "--min-tier",
@@ -542,9 +555,29 @@ def main(argv: list[str] | None = None) -> int:
 
         min_tier_rank = TIER_ORDER.index(args.min_tier) if args.min_tier else -1
 
+        reverse_chat = None
+        if args.reverse:
+            settings = openai_settings()
+            if not all((settings["api_key"], settings["base_url"], settings["model"])):
+                print("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL required for --reverse")
+                return 1
+            reverse_chat = chat_json(settings)
+
         def _gen_one(path: Path) -> dict[str, Any] | None:
             draft = load_json(path)
             if args.filter and not rule_filter_draft(draft).keep:
+                return None
+            if args.reverse:
+                versions = iter_file_versions(draft)
+                if not versions:
+                    return None
+                last: Exception | None = None
+                for fv in versions[:2]:
+                    try:
+                        return reverse_case_from_versions(fv, draft=draft, chat=reverse_chat)
+                    except Exception as e:
+                        last = e
+                print(f"skip {path.name}: reverse construction failed: {last}")
                 return None
             try:
                 if args.heuristic_only:
