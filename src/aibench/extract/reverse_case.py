@@ -151,6 +151,24 @@ def reverse_case_from_versions(
     }
 
 
+#: A reasoning model spends its budget thinking before it answers, and the answer here is a
+#: whole test file. Measured on a real draft: at 4096 the model used every token on reasoning
+#: and returned empty content; the same draft at 16384 finished in 3996 with valid JSON.
+DEFAULT_MAX_TOKENS = 16384
+#: Escalation ceiling, so a model that reasons without converging fails instead of costing more.
+MAX_MAX_TOKENS = 49152
+
+
+class TruncatedAnswer(RuntimeError):
+    """The model ran out of output budget before emitting an answer.
+
+    Distinct from a malformed answer, because it says what to do about it: spend more tokens.
+    The first reverse run lost 20 of 22 drafts to this and reported it as ten "Expecting
+    property name" plus eight "no JSON object" — the JSON parser's opinion of a reasoning
+    transcript, which named neither the cause nor the fix.
+    """
+
+
 def chat_json(settings: dict[str, Any], *, timeout_s: float = 300.0) -> Any:
     """A `chat(messages) -> str` bound to the configured gateway."""
     import httpx
@@ -159,7 +177,7 @@ def chat_json(settings: dict[str, Any], *, timeout_s: float = 300.0) -> Any:
 
     base = str(settings["base_url"]).rstrip("/")
 
-    def _chat(messages: list[dict[str, str]], max_tokens: int = 4096) -> str:
+    def _ask(messages: list[dict[str, str]], max_tokens: int) -> str:
         def _once() -> str:
             with httpx.Client(timeout=timeout_s) as client:
                 resp = client.post(
@@ -176,16 +194,34 @@ def chat_json(settings: dict[str, Any], *, timeout_s: float = 300.0) -> Any:
                     },
                 )
                 resp.raise_for_status()
-                msg = resp.json()["choices"][0]["message"]
-                text = (
-                    str(msg.get("content") or "").strip()
-                    or str(msg.get("reasoning_content") or "").strip()
-                )
-                if not text:
+                choice = resp.json()["choices"][0]
+                msg = choice.get("message") or {}
+                content = str(msg.get("content") or "").strip()
+                if content:
+                    return content
+                # Only now consider the reasoning stream. Some gateways put the whole answer
+                # there, but a truncated response puts *thinking* there, and returning that
+                # hands prose to a JSON parser and blames the model for malformed output.
+                if str(choice.get("finish_reason") or "") == "length":
+                    raise TruncatedAnswer(
+                        f"model hit the {max_tokens}-token output cap before answering"
+                    )
+                reasoning = str(msg.get("reasoning_content") or "").strip()
+                if not reasoning:
                     raise ValueError("empty content from gateway")
-                return text
+                return reasoning
 
         return retry_call(_once, label="reverse_case_chat")
+
+    def _chat(messages: list[dict[str, str]], max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
+        budget = max_tokens
+        while True:
+            try:
+                return _ask(messages, budget)
+            except TruncatedAnswer:
+                if budget >= MAX_MAX_TOKENS:
+                    raise
+                budget = min(budget * 2, MAX_MAX_TOKENS)
 
     return _chat
 
