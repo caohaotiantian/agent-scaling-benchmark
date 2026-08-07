@@ -164,6 +164,12 @@ def main(argv: list[str] | None = None) -> int:
         "carrying metadata.file_versions (extract-from-db --require-edits).",
     )
     p_gen.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue a run that did not finish: drafts already written or already rejected "
+        "for a reason that will repeat are not sent to the model again.",
+    )
+    p_gen.add_argument(
         "--min-tier",
         type=str,
         default=None,
@@ -465,8 +471,23 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeError as e:
             print(str(e))
             return 1
+        out = args.output_dir
+        out.mkdir(parents=True, exist_ok=True)
+        written = 0
+
+        def _persist(d: dict[str, Any]) -> None:
+            # Written as each draft is built rather than after the whole scan: a pull of
+            # several thousand traces runs for many minutes, and a run killed part-way used to
+            # leave an empty directory with nothing to show for the time.
+            nonlocal written
+            write_json(out / f"{d['case_id']}.json", d)
+            written += 1
+            if written % 100 == 0:
+                print(f"  {written} drafts written", flush=True)
+
         drafts = extract_case_drafts_from_db(
             db_url,
+            on_draft=_persist,
             limit=args.limit,
             max_cases=args.max_cases,
             min_messages=args.min_messages,
@@ -477,10 +498,6 @@ def main(argv: list[str] | None = None) -> int:
             since=args.since,
             until=args.until,
         )
-        out = args.output_dir
-        out.mkdir(parents=True, exist_ok=True)
-        for d in drafts:
-            write_json(out / f"{d['case_id']}.json", d)
         if args.export_raw:
             meta = [
                 {
@@ -535,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "generate-cases":
+        from aibench.checkpoint import CaseSink
         from aibench.parallel_util import parallel_map
 
         inp = args.input_dir
@@ -564,6 +582,14 @@ def main(argv: list[str] | None = None) -> int:
 
         min_tier_rank = TIER_ORDER.index(args.min_tier) if args.min_tier else -1
 
+        sink = CaseSink(out, max_cases=args.max_cases, resume=args.resume)
+        if sink.resumed:
+            print(
+                f"resuming: {sink.resumed} case(s) already written and "
+                f"{len(sink.done)} draft(s) already settled; those are not re-generated",
+                flush=True,
+            )
+
         reverse_chat = None
         if args.reverse:
             settings = openai_settings()
@@ -572,13 +598,34 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             reverse_chat = chat_json(settings)
 
+        tier_counts_seen: dict[str, int] = {}
+
+        def _keep(path: Path, case: dict[str, Any], label: str) -> dict[str, Any] | None:
+            """Write the case now. A run killed later keeps everything it already paid for."""
+            status = sink.emit(path.name, case)
+            if status == "full":
+                return None
+            if status == "collision":
+                print(f"skip {path.name}: case_id {case['case_id']} already written", flush=True)
+                return None
+            settled = (case.get("metadata") or {}).get("tier") or "unset"
+            tier_counts_seen[settled] = tier_counts_seen.get(settled, 0) + 1
+            print(f"  {label} {case['case_id']} <- {path.name}", flush=True)
+            return case
+
         def _gen_one(path: Path) -> dict[str, Any] | None:
+            # Checked before the draft is even read: past --max-cases every further model call
+            # is money spent on a case that cannot be written.
+            if sink.is_full() or sink.skip_draft(path.name):
+                return None
             draft = load_json(path)
             if args.filter and not rule_filter_draft(draft).keep:
+                sink.note_skip(path.name, "rule_filter")
                 return None
             if args.reverse:
                 versions = iter_file_versions(draft)
                 if not versions:
+                    sink.note_skip(path.name, "no_importable_file_versions")
                     return None
                 last: Exception | None = None
                 for fv in versions[:2]:
@@ -589,13 +636,12 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     # Same reason the ordinary path prints: a run of minute-long model calls
                     # with no output is indistinguishable from a hung command.
-                    print(
-                        f"  [reverse] {case['case_id']} <- {path.name} "
-                        f"({fv.get('path')}, {fv.get('edits')} edit(s))",
-                        flush=True,
+                    return _keep(
+                        path, case, f"[reverse] ({fv.get('path')}, {fv.get('edits')} edit(s))"
                     )
-                    return case
                 print(f"skip {path.name}: reverse construction failed: {last}", flush=True)
+                # Not journalled: the last failure may have been a timeout, and a resumed run
+                # should try again rather than inherit a verdict a retry might overturn.
                 return None
             try:
                 if args.heuristic_only:
@@ -615,6 +661,7 @@ def main(argv: list[str] | None = None) -> int:
                 errors = sorted(validator.iter_errors(case), key=lambda e: list(e.path))
                 if errors:
                     print(f"skip invalid {path.name}: {errors[0].message}")
+                    sink.note_skip(path.name, "schema")
                     return None
                 grader = case.get("grader") or {}
                 if grader.get("mode") == "script" and not grader.get("gold_files"):
@@ -622,40 +669,25 @@ def main(argv: list[str] | None = None) -> int:
                     # reference solution and was quietly producing what the LLM path had just
                     # rejected: all 21 unverifiable cases in a 126-case build came from it.
                     print(f"skip {path.name}: no reference solution, solvability unverifiable")
+                    sink.note_skip(path.name, "no_reference_solution")
                     return None
                 settled = (case.get("metadata") or {}).get("tier")
                 if min_tier_rank >= 0 and (
                     not settled or TIER_ORDER.index(settled) < min_tier_rank
                 ):
                     print(f"skip {path.name}: settled at {settled or 'none'} < {args.min_tier}")
+                    sink.note_skip(path.name, "below_min_tier")
                     return None
                 # LLM generation can take minutes per draft; without this the command looks hung.
-                print(f"  [{settled or 'untiered'}] {case['case_id']} <- {path.name}", flush=True)
-                return case
+                return _keep(path, case, f"[{settled or 'untiered'}]")
             except Exception as e:
                 print(f"skip {path.name}: {e}")
                 return None
 
-        generated = [c for c in parallel_map(_gen_one, paths, workers=args.workers) if c]
-        n_ok = 0
-        tier_counts: dict[str, int] = {}
-        written_ids: set[str] = set()
-        collisions: list[str] = []
-        for case in generated:
-            if n_ok >= args.max_cases:
-                break
-            cid = str(case["case_id"])
-            if cid in written_ids:
-                # The filename is the case_id, so a repeat silently overwrote its predecessor:
-                # a 600-case run reported 600 and left 575 files. Keep the first and say so,
-                # rather than lose a case with the count still claiming otherwise.
-                collisions.append(cid)
-                continue
-            written_ids.add(cid)
-            write_json(out / f"{cid}.json", case)
-            settled = (case.get("metadata") or {}).get("tier") or "unset"
-            tier_counts[settled] = tier_counts.get(settled, 0) + 1
-            n_ok += 1
+        parallel_map(_gen_one, paths, workers=args.workers)
+        n_ok = sink.written
+        tier_counts = dict(sorted(tier_counts_seen.items()))
+        collisions = sink.collisions
         print(f"generated {n_ok} cases -> {out}")
         if collisions:
             shown = ", ".join(sorted(set(collisions))[:5])
