@@ -526,6 +526,44 @@ runs:
 | `--export-csv` | flag | 关 | 写 `ablation_overview.csv` |
 | `--export-xlsx` | flag | 关 | 写 xlsx（依赖 openpyxl） |
 
+### 8.8.1 `export-bundle` — 导出可共享用例包（仓库之外）
+
+用例**不入库**。要把用例交给别人复现，用这条路径导出到仓库之外的任意目录，再走你自己的共享渠道。
+
+```bash
+uv run python -m aibench export-bundle --from-set <set> \
+  --output-dir /path/outside/repo/bundle \
+  --drafts-dir benchmarks/ai_coding/cases/<该集合的草稿目录>
+```
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--from-set` | str | 必填 | 源 case set |
+| `--output-dir` | Path | 必填 | 任意路径，**刻意不是 case-set 名** —— 包要离开仓库，走 case-set 命名空间等于把生产代码放在离 git 历史一个 `git add` 的地方 |
+| `--drafts-dir` | Path | 无 | 该集合所源自的私有草稿目录，用于逐行重合检查。**不传会告警**（stderr），因为那等于没做这项检查 |
+| `--max-verbatim` | float | `0.05` | 逐行重合率上限 |
+| `--no-require-audit` | flag | 关 | 允许导出审计未通过的用例（默认必须通过） |
+| `--dry-run` | flag | 关 | 只出清单不写文件 |
+
+**五道门禁，全部机器判定，任一不过即排除**：schema、`metadata.validity_ok`、secrets 扫描干净、
+`metadata.generation == "llm"`（来源）、逐行重合 ≤ 阈值。**没有 `--force`** ——
+一个能一键绕过来源门禁的开关，迟早会在赶时间时被用掉，而那正是它要防的事。
+
+**为什么来源必须机器判**（实测 `_scaleprobe` 575 条 vs 其草稿）：
+
+| 生成路径 | 条数 | 实质代码行 | 逐行重合 |
+|---|---:|---:|---:|
+| `llm` | 541 | 8,156 | **1.7%**（全是样板） |
+| `heuristic` | 34 | 11,777 | **100%** —— `heuristic_case_from_draft` 是深拷贝草稿 |
+
+两类混在同一个目录里，**肉眼分不出来**；那 34 条逐字包含生产代码与内部路径。
+
+**为什么重合检查是独立的第二道门**：LLM 那 541 条的重合率中位数是 0，但 p99 是 0.167，
+**36 条超过 5%**。只看来源会把这批放行 —— 实测导出时正是 33 条因重合被拒。
+
+产物含 `MANIFEST.json`：各门禁的通过/拒绝计数、**每条被拒用例的 id 与原因**、所用阈值、
+tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程，不必选择相信我们（§5.1）。
+
 ### 8.9 `promote` — 人工门控发布
 
 **作用**：把候选集中**通过门控**的 case 复制到正式集（如 `prod-v0`），并改 `review_status=published`。

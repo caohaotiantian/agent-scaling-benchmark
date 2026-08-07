@@ -19,6 +19,7 @@ from aibench.calibrate import (
 )
 from aibench.cases import load_schema_validator, validate_case_set
 from aibench.env_config import load_dotenv
+from aibench.export_bundle import DEFAULT_MAX_VERBATIM, export_bundle
 from aibench.export_results import export_ablation_csv, export_ablation_xlsx
 from aibench.extract.filter_rules import rule_filter_draft
 from aibench.extract.generate_case import generate_case_with_llm, heuristic_case_from_draft
@@ -149,6 +150,34 @@ def main(argv: list[str] | None = None) -> int:
         choices=list(TIER_ORDER),
         help="Drop generated cases that settle below this tier",
     )
+
+    p_exp = sub.add_parser(
+        "export-bundle",
+        help="Export a shareable case bundle outside the repo, with provenance gated by machine",
+    )
+    p_exp.add_argument("--from-set", type=str, required=True)
+    p_exp.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Any path, deliberately not a case-set name: the bundle is meant to leave the "
+        "repository rather than sit one `git add` away from its history",
+    )
+    p_exp.add_argument(
+        "--drafts-dir",
+        type=Path,
+        default=None,
+        help="The private drafts this set was generated from. Every case is checked line by "
+        "line against them; over a 575-case build the LLM path overlapped 1.7% and the "
+        "heuristic fallback 100%, because it deep-copies the draft.",
+    )
+    p_exp.add_argument("--max-verbatim", type=float, default=DEFAULT_MAX_VERBATIM)
+    p_exp.add_argument(
+        "--no-require-audit",
+        action="store_true",
+        help="Export cases whose audit did not pass (default: audit must pass)",
+    )
+    p_exp.add_argument("--dry-run", action="store_true")
 
     p_abl = sub.add_parser("ablation", help="Run agent/model matrix and aggregate tables")
     p_abl.add_argument("--matrix", type=Path, required=True)
@@ -689,6 +718,28 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.fail_on_error and rep["failed"] > 0:
             return 2
+        return 0
+
+    if args.cmd == "export-bundle":
+        try:
+            manifest = export_bundle(
+                source_set=args.from_set,
+                output_dir=args.output_dir,
+                drafts_dir=args.drafts_dir,
+                max_verbatim=args.max_verbatim,
+                require_audit=not args.no_require_audit,
+                dry_run=args.dry_run,
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(str(e))
+            return 1
+        print(json.dumps(manifest, ensure_ascii=False, indent=2))
+        if not args.drafts_dir:
+            print(
+                "WARNING: no --drafts-dir, so nothing checked how much of these cases is "
+                "copied verbatim from private source material.",
+                file=sys.stderr,
+            )
         return 0
 
     if args.cmd == "secrets-scan":
