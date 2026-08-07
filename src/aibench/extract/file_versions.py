@@ -65,6 +65,49 @@ class ReplayStats:
         }
 
 
+_PY_IMPORT = re.compile(r"^[ \t]*(?:from|import)[ \t]+([A-Za-z_][\w]*)", re.M)
+_JS_IMPORT = re.compile(r"""(?:from|import)\s+['"]([^'"]+)['"]""")
+_JS_REQUIRE = re.compile(r"""require\(\s*['"]([^'"]+)['"]""")
+
+
+def unsatisfiable_imports(path: str, content: str) -> set[str]:
+    """Imports this file needs that a one-file workspace cannot provide.
+
+    A case is graded with the file under test and a test file, nothing else. A real file from
+    a real repository routinely imports numpy, or a sibling module from its own tree, and
+    neither is there at grading time.
+
+    That is not merely lost yield. Measured on 22 reverse-constructed cases, an unsatisfiable
+    import let five of them pass the stub gate for the wrong reason: the pre-edit file imported
+    numpy and the post-edit file did not, so the tests separated the two versions by which
+    packages happened to be installed rather than by the defect. Every one of the 16 cases with
+    an unsatisfiable import failed the corrected gate, and the one case that survived it had
+    none — so this predicate is worth applying before paying for generation, not after.
+    """
+    if path.endswith(".py"):
+        import importlib.util
+        import sys
+
+        out: set[str] = set()
+        for mod in _PY_IMPORT.findall(content or ""):
+            if mod in sys.stdlib_module_names:
+                continue
+            try:
+                if importlib.util.find_spec(mod) is None:
+                    out.add(mod)
+            except (ImportError, ValueError):
+                # A parent package that itself fails to import is no more available than a
+                # missing one; either way the suite cannot be collected.
+                out.add(mod)
+        return out
+    if path.endswith((".js", ".mjs", ".cjs", ".ts")):
+        specs = set(_JS_IMPORT.findall(content or "")) | set(_JS_REQUIRE.findall(content or ""))
+        # `node:` builtins ship with the runtime. Everything else is either a package that
+        # needs node_modules or a relative path to a sibling file the case does not carry.
+        return {s for s in specs if not s.startswith("node:")}
+    return set()
+
+
 def _first(args: dict[str, Any], keys: tuple[str, ...]) -> str:
     for k in keys:
         v = args.get(k)
