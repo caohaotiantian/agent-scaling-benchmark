@@ -38,9 +38,26 @@ def retry_config() -> tuple[int, float, float]:
     return max_attempts, base, cap
 
 
+#: Checked before the retryable list, because these arrive wearing a retryable status code.
+#: A gateway reports an exhausted budget as HTTP 429 — the same code it uses for "you are
+#: going too fast" — so a substring match on "429" alone retried a permanent failure five
+#: times with backoff, per draft. Measured: 489 such retries in one run, 0 cases produced, and
+#: the failures looked transient enough that --resume would have tried them all again.
+NON_RETRYABLE_SUBSTRINGS = (
+    "budget has been exceeded",
+    "budget_exceeded",
+    "insufficient_quota",
+    "exceeded your current quota",
+    "invalid_api_key",
+    "authentication",
+)
+
+
 def is_retryable_error(exc: BaseException) -> bool:
     name = type(exc).__name__.lower()
     msg = str(exc).lower()
+    if any(s in msg for s in NON_RETRYABLE_SUBSTRINGS):
+        return False
     if "timeout" in name or "connection" in name:
         return True
     # httpx
