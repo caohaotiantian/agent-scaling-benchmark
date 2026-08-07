@@ -65,6 +65,49 @@ class ReplayStats:
         }
 
 
+#: Node builtins are importable bare, so flagging them would drop pairs that grade fine.
+_NODE_BUILTINS = frozenset(
+    [
+        "assert",
+        "buffer",
+        "child_process",
+        "cluster",
+        "console",
+        "constants",
+        "crypto",
+        "dgram",
+        "dns",
+        "domain",
+        "events",
+        "fs",
+        "http",
+        "http2",
+        "https",
+        "inspector",
+        "module",
+        "net",
+        "os",
+        "path",
+        "perf_hooks",
+        "process",
+        "punycode",
+        "querystring",
+        "readline",
+        "repl",
+        "stream",
+        "string_decoder",
+        "timers",
+        "tls",
+        "tty",
+        "url",
+        "util",
+        "v8",
+        "vm",
+        "worker_threads",
+        "zlib",
+    ]
+)
+
 _PY_IMPORT = re.compile(r"^[ \t]*(?:from|import)[ \t]+([A-Za-z_][\w]*)", re.M)
 _JS_IMPORT = re.compile(r"""(?:from|import)\s+['"]([^'"]+)['"]""")
 _JS_REQUIRE = re.compile(r"""require\(\s*['"]([^'"]+)['"]""")
@@ -102,9 +145,12 @@ def unsatisfiable_imports(path: str, content: str) -> set[str]:
         return out
     if path.endswith((".js", ".mjs", ".cjs", ".ts")):
         specs = set(_JS_IMPORT.findall(content or "")) | set(_JS_REQUIRE.findall(content or ""))
-        # `node:` builtins ship with the runtime. Everything else is either a package that
-        # needs node_modules or a relative path to a sibling file the case does not carry.
-        return {s for s in specs if not s.startswith("node:")}
+        # Builtins ship with the runtime, whether or not they carry the `node:` prefix —
+        # `require("fs")` resolves exactly as `require("node:fs")` does. Everything else is
+        # either a package needing node_modules or a sibling file the case does not carry.
+        return {
+            s for s in specs if not s.startswith("node:") and s.split("/")[0] not in _NODE_BUILTINS
+        }
     return set()
 
 

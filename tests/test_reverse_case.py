@@ -205,3 +205,45 @@ def test_python_stdlib_and_installed_packages_are_satisfiable():
     assert unsatisfiable_imports("m.py", "import definitely_not_installed_xyz\n") == {
         "definitely_not_installed_xyz"
     }
+
+
+def test_the_prompt_states_the_flat_workspace_the_case_actually_ships():
+    """Tests referenced the original repo layout, which the case does not reproduce.
+
+    Observed in one build: `from src.odoo_client.config_loader import ...`, `./lifecycleTypes.js`
+    for a file shipped as `.ts`, and a test placed under `projects/smart-todo-app/prototype/`.
+    Each is a faithful reading of "File: <original path>" and each fails to resolve.
+    """
+    fv = {"path": "/repo/src/pkg/clamp.py", "pre": PRE, "post": POST}
+    _system, user = build_prompt(fv, "req", language="python", test_name="test_clamp.py")
+    assert "ONLY two files" in user
+    assert "clamp.py" in user and "test_clamp.py" in user
+    assert "nothing else exists in the workspace" in user
+
+
+def test_a_test_path_from_the_original_repo_is_flattened_beside_the_impl():
+    case = reverse_case_from_versions(
+        {
+            "path": "/repo/prototype/app.js",
+            "pre": "export const a=1;\n",
+            "post": "export const a=2;\n",
+        },
+        draft=_draft(),
+        chat=_chat_returning(
+            {
+                "prompt": "The exported value is stale after an update.",
+                "test_path": "projects/smart-todo-app/prototype/app.test.js",
+                "test_content": "import {test} from 'node:test';\ntest('a',()=>{});\n",
+            }
+        ),
+    )
+    paths = [f["path"] for f in case["context"]["files"]]
+    assert paths == ["app.js", "app.test.js"], paths
+
+
+def test_node_builtins_are_satisfiable_with_or_without_the_prefix():
+    from aibench.extract.file_versions import unsatisfiable_imports
+
+    src = "const fs=require('fs');const vm=require('vm');import path from 'node:path';"
+    assert unsatisfiable_imports("m.js", src) == set()
+    assert unsatisfiable_imports("m.js", "const x=require('lodash');") == {"lodash"}

@@ -54,10 +54,15 @@ _TEST_STYLE = {
 
 
 def build_prompt(
-    fv: dict[str, Any], user_request: str, *, language: str = "python"
+    fv: dict[str, Any], user_request: str, *, language: str = "python", test_name: str = ""
 ) -> tuple[str, str]:
     """The system and user messages that ask for tests and a symptom-only description."""
+    from aibench.languages import spec_for
+
     kind, import_hint, shape = _TEST_STYLE.get(language, _TEST_STYLE["python"])
+    if not test_name:
+        impl = re.split(r"[\\/]", str(fv.get("path") or "module.py"))[-1]
+        test_name = spec_for(language).test_filename(impl)
     system = (
         "You are given a source file BEFORE and AFTER a real bug fix, and the request the "
         f"engineer was working on. Write {kind} that FAILS on the BEFORE version and "
@@ -73,10 +78,21 @@ def build_prompt(
         "would have caught it."
     )
     path = str(fv.get("path") or "module.py")
-    module = re.split(r"[\\/]", path)[-1].rsplit(".", 1)[0]
+    impl_name = re.split(r"[\\/]", path)[-1]
+    module = impl_name.rsplit(".", 1)[0]
+    # The workspace is flat and holds exactly two files. Saying only "File: <original path>"
+    # got tests that imported `src.odoo_client.config_loader`, `./lifecycleTypes.js` for a
+    # `.ts` file, and a test placed under `projects/smart-todo-app/prototype/` — every one a
+    # faithful reference to a repository layout the case does not reproduce.
+    where = f"`{module}`" if language == "python" else f"`./{impl_name}` (exactly this filename)"
     user = (
         f"Engineer's request:\n{user_request[:600]}\n\n"
-        f"File: {path}  (import it as `{module}`)\n\n"
+        f"The graded workspace contains ONLY two files, side by side in one flat directory:\n"
+        f"  {impl_name}   <- the file below\n"
+        f"  {test_name}   <- the file you are writing; use exactly this name for test_path\n"
+        f"Import the module under test as {where}. Do not reference any other path, package "
+        f"or directory from the original repository — nothing else exists in the workspace.\n\n"
+        f"Original path (for context only): {path}\n\n"
         f"--- BEFORE ---\n{str(fv.get('pre') or '')[:_MAX_FILE_CHARS]}\n\n"
         f"--- AFTER ---\n{str(fv.get('post') or '')[:_MAX_FILE_CHARS]}\n\n"
         f"--- WHAT CHANGED ---\n{_unified_ish_diff(str(fv.get('pre') or ''), str(fv.get('post') or ''))}\n\n"
@@ -108,7 +124,11 @@ def reverse_case_from_versions(
     if not pre or not post or pre == post:
         raise ValueError("before/after pair is empty or unchanged")
 
-    system, user = build_prompt(fv, str(draft.get("prompt") or ""), language=spec.name)
+    module = re.split(r"[\\/]", path)[-1]
+    prescribed_test = spec.test_filename(module)
+    system, user = build_prompt(
+        fv, str(draft.get("prompt") or ""), language=spec.name, test_name=prescribed_test
+    )
     data = _extract_json_object(
         chat(
             [
@@ -124,12 +144,12 @@ def reverse_case_from_versions(
     if spec.parses(test_content) is False:
         raise ValueError("model's test file does not parse")
 
-    module = re.split(r"[\\/]", path)[-1]
-    # The fallback has to be a name this runner really discovers: `test_app.js` is invisible
-    # to `node --test`, so the suite runs nothing, exits 0, and the case dies on the stub gate.
-    test_path = str(data.get("test_path") or "")
+    # Only the basename is kept: a test at `projects/smart-todo-app/prototype/app.test.js`
+    # sits in a directory the impl is not in, so its relative import of the impl cannot
+    # resolve. The workspace is flat and the test belongs beside the file it tests.
+    test_path = re.split(r"[\\/]", str(data.get("test_path") or ""))[-1]
     if not spec.is_test_path(test_path):
-        test_path = spec.test_filename(module)
+        test_path = prescribed_test
 
     prompt = redact_source(str(data.get("prompt") or "").strip())
     if len(prompt) < 20:
