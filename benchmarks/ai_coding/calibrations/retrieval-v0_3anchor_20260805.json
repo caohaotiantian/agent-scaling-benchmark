@@ -1,0 +1,570 @@
+{
+  "policy": {
+    "p_max": 0.9,
+    "p_min": 0.05,
+    "min_rpb": 0.15
+  },
+  "anchors": [
+    "mid-frugal-loop",
+    "strong-full-loop",
+    "weak-frugal-loop"
+  ],
+  "run_count": 6,
+  "total_cases": 27,
+  "kept_count": 16,
+  "dropped_count": 11,
+  "p_hat_distribution": {
+    "0.0-0.2": 1,
+    "0.2-0.5": 2,
+    "0.5-0.8": 6,
+    "0.8-1.0": 18
+  },
+  "kept_p_hat_distribution": {
+    "0.0-0.2": 1,
+    "0.2-0.5": 2,
+    "0.5-0.8": 6,
+    "0.8-1.0": 7
+  },
+  "tier_distribution": {
+    "T4": 15,
+    "unset": 1
+  },
+  "cases": [
+    {
+      "case_id": "bugfix-binary-search-loop-bound-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "8e4d4f1a4266a179",
+      "by_anchor": {
+        "weak-frugal-loop": 0.5,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.7687358284022845,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "bugfix_count_vowels_case-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "1356f5f7a6bacf91",
+      "by_anchor": {
+        "weak-frugal-loop": 1.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix_discount_boundary_001-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "b50fb2ec5353410e",
+      "by_anchor": {
+        "weak-frugal-loop": 1.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix_template_merge-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "e76c2ccd51ceba12",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.9116085512728413,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "commit_analyzer_impact_inversion-retrieval",
+      "tier": "T4",
+      "attempts": 5,
+      "passes": 4,
+      "p_hat": 0.8,
+      "confidence_interval": "[37.6%, 96.4%]",
+      "fingerprint": "4b52af2e4bd93c2e",
+      "by_anchor": {
+        "weak-frugal-loop": 0.5,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.6077390341818942,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "commit_hash_normalizer_001-retrieval",
+      "tier": "T4",
+      "attempts": 5,
+      "passes": 5,
+      "p_hat": 1.0,
+      "confidence_interval": "[56.6%, 100.0%]",
+      "fingerprint": "4cd6de5bf996627a",
+      "by_anchor": {
+        "weak-frugal-loop": 1.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.7687358284022845,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "commit_hash_validator_short_hash-retrieval",
+      "tier": "T4",
+      "attempts": 5,
+      "passes": 4,
+      "p_hat": 0.8,
+      "confidence_interval": "[37.6%, 96.4%]",
+      "fingerprint": "3d11935fd0ff500f",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.9116085512728413,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "coredump_crash_frame_t1-retrieval",
+      "tier": "T4",
+      "attempts": 4,
+      "passes": 4,
+      "p_hat": 1.0,
+      "confidence_interval": "[51.0%, 100.0%]",
+      "fingerprint": "2deb20cf319874fb",
+      "by_anchor": {
+        "weak-frugal-loop": 1.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.6077390341818942,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "db-268966e6-aa3-f3f586321728cf28-retrieval",
+      "tier": null,
+      "attempts": 3,
+      "passes": 3,
+      "p_hat": 1.0,
+      "confidence_interval": "[43.8%, 100.0%]",
+      "fingerprint": "9048fb998b891bd7",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.859472784523561,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "dnf5_fedora38_deprecation_boundary-retrieval",
+      "tier": "T4",
+      "attempts": 4,
+      "passes": 4,
+      "p_hat": 1.0,
+      "confidence_interval": "[51.0%, 100.0%]",
+      "fingerprint": "e8a9669e8fccca03",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.9116085512728413,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "gaussdb_order_by_clause_builder_001-retrieval",
+      "tier": "T4",
+      "attempts": 3,
+      "passes": 3,
+      "p_hat": 1.0,
+      "confidence_interval": "[43.8%, 100.0%]",
+      "fingerprint": "e295c5dab446bf8a",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.5320545808955378,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "kmod_news_analyzer_001-retrieval",
+      "tier": "T4",
+      "attempts": 4,
+      "passes": 3,
+      "p_hat": 0.75,
+      "confidence_interval": "[30.1%, 95.4%]",
+      "fingerprint": "c995afbbeb0bca07",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.859472784523561,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "mi_similar_compilations_skill_md_doi_prefix-retrieval",
+      "tier": "T4",
+      "attempts": 5,
+      "passes": 5,
+      "p_hat": 1.0,
+      "confidence_interval": "[56.6%, 100.0%]",
+      "fingerprint": "2b2069260923b7fc",
+      "by_anchor": {
+        "weak-frugal-loop": 1.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.7687358284022845,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "peering_activate_map_history_sync-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 2,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[9.7%, 70.0%]",
+      "fingerprint": "ce522da557e38b42",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 0.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.6945588962078791,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "py-bugfix-commit-report-001-retrieval",
+      "tier": "T4",
+      "attempts": 4,
+      "passes": 4,
+      "p_hat": 1.0,
+      "confidence_interval": "[51.0%, 100.0%]",
+      "fingerprint": "a1124725eb61dcae",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.9116085512728413,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_change_categorizer_scope_case-retrieval",
+      "tier": "T4",
+      "attempts": 4,
+      "passes": 3,
+      "p_hat": 0.75,
+      "confidence_interval": "[30.1%, 95.4%]",
+      "fingerprint": "2b20a7e135f9df87",
+      "by_anchor": {
+        "mid-frugal-loop": 0.5,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.6548364072560464,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "py_palindrome_normalize-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "72cc0169e60d8b77",
+      "by_anchor": {
+        "weak-frugal-loop": 0.5,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.7687358284022845,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "py_rate_limiter_boundary-retrieval",
+      "tier": "T4",
+      "attempts": 5,
+      "passes": 4,
+      "p_hat": 0.8,
+      "confidence_interval": "[37.6%, 96.4%]",
+      "fingerprint": "ea9e299508a34d08",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.9116085512728413,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "rpm_patch_find_spec_subdir-retrieval",
+      "tier": "T4",
+      "attempts": 5,
+      "passes": 5,
+      "p_hat": 1.0,
+      "confidence_interval": "[56.6%, 100.0%]",
+      "fingerprint": "78b6b33189dc9961",
+      "by_anchor": {
+        "weak-frugal-loop": 1.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.7687358284022845,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "shm_logger_level_filter-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "f83e3729dfa856f9",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.9116085512728413,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "t1_json_pretty_print_indent-retrieval",
+      "tier": null,
+      "attempts": 6,
+      "passes": 3,
+      "p_hat": 0.5,
+      "confidence_interval": "[18.8%, 81.2%]",
+      "fingerprint": "444eb9a66eedb520",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 0.5,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.859472784523561,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "truncate_message_boundary-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "5f025075c6e7648e",
+      "by_anchor": {
+        "weak-frugal-loop": 0.5,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.38436791420114225,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "vllm_symbol_mapper_prefix_bug-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "99defeef66ae161e",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.9116085512728413,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "vmstat_docs_simplified_flow_step_count-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "5617c08b777f61f9",
+      "by_anchor": {
+        "weak-frugal-loop": 0.5,
+        "mid-frugal-loop": 1.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.7687358284022845,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "vmstat_iowait_threshold-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "b5df9f38aaf550bb",
+      "by_anchor": {
+        "weak-frugal-loop": 1.0,
+        "mid-frugal-loop": 0.5,
+        "strong-full-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": -1.8288604640282347e-17,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.00<0.15)"
+      ]
+    },
+    {
+      "case_id": "white_screen_timer_tick_rounding-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 1,
+      "p_hat": 0.16666666666666666,
+      "confidence_interval": "[3.0%, 56.4%]",
+      "fingerprint": "23381058cd5e4abf",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 0.0,
+        "strong-full-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.4392776162298769,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "win_build_stub_arch_select-retrieval",
+      "tier": "T4",
+      "attempts": 6,
+      "passes": 2,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[9.7%, 70.0%]",
+      "fingerprint": "d8a10463fb49b316",
+      "by_anchor": {
+        "weak-frugal-loop": 0.0,
+        "mid-frugal-loop": 0.0,
+        "strong-full-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.6945588962078791,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    }
+  ],
+  "case_set": "retrieval-v0",
+  "repeats": 2,
+  "anchor_fingerprint": "e701e8f16f7cdfea",
+  "unfit_anchors": [],
+  "reused_case_count": 0,
+  "recalibrated_case_count": 27
+}

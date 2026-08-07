@@ -1,0 +1,577 @@
+{
+  "policy": {
+    "p_max": 0.9,
+    "p_min": 0.05,
+    "min_rpb": 0.15
+  },
+  "anchors": [
+    "mid-frugal-loop",
+    "weak-frugal-loop"
+  ],
+  "run_count": 4,
+  "total_cases": 28,
+  "kept_count": 13,
+  "dropped_count": 15,
+  "p_hat_distribution": {
+    "0.0-0.2": 3,
+    "0.2-0.5": 4,
+    "0.5-0.8": 10,
+    "0.8-1.0": 11
+  },
+  "kept_p_hat_distribution": {
+    "0.0-0.2": 0,
+    "0.2-0.5": 3,
+    "0.5-0.8": 10,
+    "0.8-1.0": 0
+  },
+  "tier_distribution": {
+    "T3": 13
+  },
+  "cases": [
+    {
+      "case_id": "bugfix-binary-search-loop-bound",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 4,
+      "p_hat": 1.0,
+      "confidence_interval": "[51.0%, 100.0%]",
+      "fingerprint": "8e4d4f1a4266a179",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix_count_vowels_case",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 3,
+      "p_hat": 0.75,
+      "confidence_interval": "[30.1%, 95.4%]",
+      "fingerprint": "1356f5f7a6bacf91",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5145078616372869,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "bugfix_discount_boundary_001",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 4,
+      "p_hat": 1.0,
+      "confidence_interval": "[51.0%, 100.0%]",
+      "fingerprint": "b50fb2ec5353410e",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix_template_merge",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 4,
+      "p_hat": 1.0,
+      "confidence_interval": "[51.0%, 100.0%]",
+      "fingerprint": "e76c2ccd51ceba12",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "commit_analyzer_impact_inversion",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 2,
+      "p_hat": 0.5,
+      "confidence_interval": "[15.0%, 85.0%]",
+      "fingerprint": "4b52af2e4bd93c2e",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8911537572493988,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "commit_hash_normalizer_001",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 2,
+      "p_hat": 0.5,
+      "confidence_interval": "[15.0%, 85.0%]",
+      "fingerprint": "4cd6de5bf996627a",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8911537572493988,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "commit_hash_validator_short_hash",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 3,
+      "p_hat": 0.75,
+      "confidence_interval": "[30.1%, 95.4%]",
+      "fingerprint": "3d11935fd0ff500f",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5145078616372869,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "coredump_crash_frame_t1",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 3,
+      "p_hat": 0.75,
+      "confidence_interval": "[30.1%, 95.4%]",
+      "fingerprint": "2deb20cf319874fb",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5145078616372869,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "db-004b5bfd-d07-ffd1e3c60f1b3600",
+      "tier": null,
+      "attempts": 4,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 49.0%]",
+      "fingerprint": "dac939419730460a",
+      "by_anchor": {
+        "mid-frugal-loop": 0.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-268966e6-aa3-f3f586321728cf28",
+      "tier": "T1",
+      "attempts": 4,
+      "passes": 4,
+      "p_hat": 1.0,
+      "confidence_interval": "[51.0%, 100.0%]",
+      "fingerprint": "9048fb998b891bd7",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "dnf5_fedora38_deprecation_boundary",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 2,
+      "p_hat": 0.5,
+      "confidence_interval": "[15.0%, 85.0%]",
+      "fingerprint": "e8a9669e8fccca03",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8911537572493988,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "gaussdb_order_by_clause_builder_001",
+      "tier": "T3",
+      "attempts": 3,
+      "passes": 1,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[6.1%, 79.2%]",
+      "fingerprint": "e295c5dab446bf8a",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "kmod_news_analyzer_001",
+      "tier": "T3",
+      "attempts": 3,
+      "passes": 1,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[6.1%, 79.2%]",
+      "fingerprint": "c995afbbeb0bca07",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "mi_similar_compilations_skill_md_doi_prefix",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 2,
+      "p_hat": 0.5,
+      "confidence_interval": "[15.0%, 85.0%]",
+      "fingerprint": "2b2069260923b7fc",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8911537572493988,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "peering_activate_map_history_sync",
+      "tier": "T3",
+      "attempts": 3,
+      "passes": 1,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[6.1%, 79.2%]",
+      "fingerprint": "ce522da557e38b42",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "py-bugfix-commit-report-001",
+      "tier": "T3",
+      "attempts": 1,
+      "passes": 1,
+      "p_hat": 1.0,
+      "confidence_interval": "[20.7%, 100.0%]",
+      "fingerprint": "a1124725eb61dcae",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_change_categorizer_scope_case",
+      "tier": "T3",
+      "attempts": 1,
+      "passes": 1,
+      "p_hat": 1.0,
+      "confidence_interval": "[20.7%, 100.0%]",
+      "fingerprint": "2b20a7e135f9df87",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_palindrome_normalize",
+      "tier": "T3",
+      "attempts": 1,
+      "passes": 1,
+      "p_hat": 1.0,
+      "confidence_interval": "[20.7%, 100.0%]",
+      "fingerprint": "72cc0169e60d8b77",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_rate_limiter_boundary",
+      "tier": "T3",
+      "attempts": 1,
+      "passes": 1,
+      "p_hat": 1.0,
+      "confidence_interval": "[20.7%, 100.0%]",
+      "fingerprint": "ea9e299508a34d08",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "rpm_patch_find_spec_subdir",
+      "tier": "T3",
+      "attempts": 1,
+      "passes": 1,
+      "p_hat": 1.0,
+      "confidence_interval": "[20.7%, 100.0%]",
+      "fingerprint": "78b6b33189dc9961",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "shm_logger_level_filter",
+      "tier": "T3",
+      "attempts": 3,
+      "passes": 2,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[20.8%, 93.9%]",
+      "fingerprint": "f83e3729dfa856f9",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8911537572493988,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "t1_json_pretty_print_indent",
+      "tier": "T1",
+      "attempts": 2,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 65.8%]",
+      "fingerprint": "444eb9a66eedb520",
+      "by_anchor": {
+        "mid-frugal-loop": 0.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "truncate_message_boundary",
+      "tier": "T3",
+      "attempts": 1,
+      "passes": 1,
+      "p_hat": 1.0,
+      "confidence_interval": "[20.7%, 100.0%]",
+      "fingerprint": "5f025075c6e7648e",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.8849535220161334,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "vllm_symbol_mapper_prefix_bug",
+      "tier": "T3",
+      "attempts": 2,
+      "passes": 2,
+      "p_hat": 1.0,
+      "confidence_interval": "[34.2%, 100.0%]",
+      "fingerprint": "99defeef66ae161e",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": 0.8911537572493988,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "vmstat_docs_simplified_flow_step_count",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 3,
+      "p_hat": 0.75,
+      "confidence_interval": "[30.1%, 95.4%]",
+      "fingerprint": "5617c08b777f61f9",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5145078616372869,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "vmstat_iowait_threshold",
+      "tier": "T3",
+      "attempts": 3,
+      "passes": 1,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[6.1%, 79.2%]",
+      "fingerprint": "b5df9f38aaf550bb",
+      "by_anchor": {
+        "mid-frugal-loop": 0.0,
+        "weak-frugal-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": -0.5145078616372869,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.51<0.15)"
+      ]
+    },
+    {
+      "case_id": "white_screen_timer_tick_rounding",
+      "tier": "T3",
+      "attempts": 3,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 56.2%]",
+      "fingerprint": "23381058cd5e4abf",
+      "by_anchor": {
+        "mid-frugal-loop": 0.0,
+        "weak-frugal-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "win_build_stub_arch_select",
+      "tier": "T3",
+      "attempts": 4,
+      "passes": 3,
+      "p_hat": 0.75,
+      "confidence_interval": "[30.1%, 95.4%]",
+      "fingerprint": "d8a10463fb49b316",
+      "by_anchor": {
+        "mid-frugal-loop": 1.0,
+        "weak-frugal-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5145078616372869,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    }
+  ],
+  "case_set": "disc-v0",
+  "note": "rebuilt from a calibration whose process was killed after 4 of 6 passes; strong-full-loop never ran, so these numbers describe a 2-anchor panel",
+  "anchors_configured": [
+    "mid-frugal-loop",
+    "strong-full-loop",
+    "weak-frugal-loop"
+  ],
+  "anchors_with_rows_this_run": {
+    "mid-frugal-loop": 56,
+    "weak-frugal-loop": 56
+  },
+  "anchors_of_record": [
+    "mid-frugal-loop",
+    "weak-frugal-loop"
+  ],
+  "anchors_missing": [
+    "strong-full-loop"
+  ]
+}
