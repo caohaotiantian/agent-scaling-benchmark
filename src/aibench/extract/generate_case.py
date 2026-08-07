@@ -156,14 +156,18 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
+    # strict=False tolerates literal newlines and tabs inside strings, which is how a model
+    # emitting a source file as a JSON value routinely writes it. Observed as "Invalid control
+    # character at: line 4 column 30". It only widens what parses; nothing that parsed before
+    # stops parsing, and the content still has to survive every gate downstream.
     try:
-        data = json.loads(raw)
+        data = json.loads(raw, strict=False)
     except json.JSONDecodeError:
         start = raw.find("{")
         end = raw.rfind("}")
         if start < 0 or end <= start:
             raise ValueError(f"no JSON object in LLM content: {raw[:200]!r}") from None
-        data = json.loads(raw[start : end + 1])
+        data = json.loads(raw[start : end + 1], strict=False)
     if not isinstance(data, dict):
         raise ValueError("LLM JSON root must be object")
     return data
