@@ -38,5 +38,6 @@ benchmarks/ai_coding/cases/.calibrating-*/
 benchmarks/ai_coding/cases/_t4probe*/
 benchmarks/ai_coding/cases/_p5*/
 benchmarks/ai_coding/cases/_scaleprobe*/
+benchmarks/ai_coding/cases/_calsubset*/
 benchmarks/ai_coding/cases/_compose*/
 benchmarks/ai_coding/cases/retrieval-v0/
