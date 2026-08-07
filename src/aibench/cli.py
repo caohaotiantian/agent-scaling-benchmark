@@ -547,9 +547,18 @@ def main(argv: list[str] | None = None) -> int:
         # are skipped downstream — but the factor has to be explicit and visible.
         attempts = max(int(args.max_cases * args.oversample), args.max_cases)
         paths = sorted(inp.glob("*.json"))[:attempts]
+        # `--reverse` rejects a draft before the model is called when it carries no before/after
+        # pair a one-file workspace could import, so most of these cost nothing. Saying "every
+        # draft is a paid generation" there would overstate the bill by more than an order of
+        # magnitude, and this line exists precisely so the bill is not a surprise.
+        billing = (
+            "only drafts carrying an importable before/after pair are paid generations"
+            if args.reverse
+            else "every draft here is a paid generation"
+        )
         print(
             f"generating from {len(paths)} draft(s) to write at most {args.max_cases} case(s) "
-            f"(oversample x{args.oversample}); every draft here is a paid generation",
+            f"(oversample x{args.oversample}); {billing}",
             flush=True,
         )
 
