@@ -8,9 +8,18 @@ boilerplate like ``from __future__ import annotations``. The 34 that fell back t
 cases *are* the production code, internal paths and all.
 
 Nothing distinguishes them by eye, so the provenance check is a gate here rather than a note in
-a runbook. Everything that fails any gate is excluded and its reason recorded, and there is no
-override flag: a switch that skips the provenance check would eventually be used on a deadline,
-which is the exact situation it exists for.
+a runbook. Everything that fails any gate is excluded and its reason recorded, and that check
+has no override: a switch that skips it would eventually be used on a deadline, which is the
+exact situation it exists for.
+
+Reverse-constructed cases are a separate matter, and ``--allow-production-derived`` is not an
+exception to the above. Those cases ship the file as the trace found it and as the trace left
+it, so they are production source *by design* rather than by accident — measured across 8 of
+them, 13% to 76% of their substantive lines appear verbatim in the private drafts. There is no
+version of them that is not production code, so a gate can only ask whether the owner intends
+to send that out. The flag records that intent; it skips nothing, every other gate still
+applies, and the manifest names each source project and its measured share so whoever receives
+the bundle knows what they are holding.
 """
 
 from __future__ import annotations
@@ -91,28 +100,33 @@ def _reject_reason(
     draft_lines: set[str],
     max_verbatim: float,
     require_audit: bool,
+    allow_production_derived: bool = False,
 ) -> str | None:
     """Why this case cannot ship, or ``None`` if it can."""
     if validator is not None and list(validator.iter_errors(case)):
         return "schema"
     meta = case.get("metadata") or {}
     generation = str(meta.get("generation") or "")
-    if generation == "reverse":
+    if generation == "reverse" and not allow_production_derived:
         # Not a mislabelling to wave through: reverse construction ships the file as the trace
         # found it and as it left it, so these cases ARE production source by design, at a
         # measured 13%-76% verbatim. Whether that may leave the building is the owner's call
         # and not a default, so it is named for what it is rather than filed under "provenance".
         return "production_derived"
-    if generation != "llm":
-        # The heuristic path deep-copies the draft, so these cases are production code.
+    if generation not in ("llm", "reverse"):
+        # The heuristic path deep-copies the draft, so these cases are production code. This
+        # one has no override and is not meant to acquire one.
         return "provenance"
     if require_audit and not meta.get("validity_ok"):
         return "audit"
     if scan_case_dict(case):
         return "secrets"
     share = verbatim_share(case, draft_lines)
-    if share > max_verbatim:
+    if share > max_verbatim and generation != "reverse":
         return f"verbatim:{share:.3f}"
+    # For a reverse case the share is not a leak detector — high is the expected reading, and
+    # enforcing a 5% threshold on cases that are 13%-76% verbatim by construction would reject
+    # every one while implying the survivors had been sanitised. It is recorded instead.
     return None
 
 
@@ -124,6 +138,7 @@ def export_bundle(
     max_verbatim: float = DEFAULT_MAX_VERBATIM,
     require_audit: bool = True,
     dry_run: bool = False,
+    allow_production_derived: bool = False,
 ) -> dict[str, Any]:
     """Copy the cases that pass every gate into ``output_dir`` and write a MANIFEST.
 
@@ -146,6 +161,7 @@ def export_bundle(
 
     accepted: list[tuple[str, dict[str, Any]]] = []
     rejected: dict[str, list[str]] = {}
+    derived: list[dict[str, Any]] = []
     for path in sorted(p for p in src.glob("*.json") if is_case_json_path(p)):
         case = load_json(path)
         cid = str(case.get("case_id") or path.stem)
@@ -155,16 +171,29 @@ def export_bundle(
             draft_lines=draft_lines,
             max_verbatim=max_verbatim,
             require_audit=require_audit,
+            allow_production_derived=allow_production_derived,
         )
         if reason:
             rejected.setdefault(reason.split(":")[0], []).append(cid)
-        else:
-            accepted.append((cid, case))
+            continue
+        accepted.append((cid, case))
+        meta = case.get("metadata") or {}
+        if str(meta.get("generation") or "") == "reverse":
+            # Recorded per case, because "this bundle contains production source" is not
+            # actionable while "this case is 76% of KernHLight/server.py" is.
+            derived.append(
+                {
+                    "case_id": cid,
+                    "language": case.get("language"),
+                    "source": meta.get("reverse_source") or meta.get("reverse_source_path"),
+                    "verbatim_share": round(verbatim_share(case, draft_lines), 3),
+                }
+            )
 
     if not dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
         for cid, case in accepted:
-            write_json(output_dir / f"{cid}.json", case)
+            write_json(output_dir / f"{cid}.json", _scrubbed(case))
 
     manifest = {
         "source_set": source_set,
@@ -184,9 +213,40 @@ def export_bundle(
         "tier_distribution": _count(accepted, "tier"),
         "case_ids": sorted(cid for cid, _ in accepted),
     }
+    if derived:
+        manifest["production_derived"] = {
+            "acknowledged": True,
+            "what_this_means": (
+                "These cases carry source from real repositories verbatim: the stub is a file "
+                "as an engineer found it and the reference solution is that file as they left "
+                "it. verbatim_share is the fraction of each case's substantive lines found in "
+                "the private drafts. Treat this bundle as production source."
+            ),
+            "count": len(derived),
+            "max_verbatim_share": max(d["verbatim_share"] for d in derived),
+            "cases": sorted(derived, key=lambda d: -d["verbatim_share"]),
+        }
     if not dry_run:
         write_json(output_dir / "MANIFEST.json", manifest)
     return manifest
+
+
+#: Audit detail is a runner transcript, so it carries the absolute path of whatever temporary
+#: workspace this machine happened to use — `/Users/<name>/...` in every failure message.
+#: Useful locally, and nothing a recipient can act on.
+_AUDIT_DETAIL_KEYS = ("validity_issues", "validity_checks")
+
+
+def _scrubbed(case: dict[str, Any]) -> dict[str, Any]:
+    """A copy without the local-machine detail the audit left in metadata."""
+    import copy
+
+    out = copy.deepcopy(case)
+    meta = out.get("metadata")
+    if isinstance(meta, dict):
+        for key in _AUDIT_DETAIL_KEYS:
+            meta.pop(key, None)
+    return out
 
 
 def _count(rows: list[tuple[str, dict[str, Any]]], key: str) -> dict[str, int]:
