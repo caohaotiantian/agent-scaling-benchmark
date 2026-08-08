@@ -3,41 +3,55 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>aibench 文档站 · docs/html</title>
+  <title>AI-Coding-Assist Benchmark · 文档站</title>
   <link rel="stylesheet" href="assets/site.css" />
 </head>
 <body>
-<nav class="site-nav" aria-label="文档导航"><div class="site-nav-inner"><a class="brand" href="index.html">aibench · docs/html</a><a href="index.html" class="active">文档首页</a><a href="project-overview.html">项目介绍</a><a href="reference.html">参考手册</a><a href="user-guide.html">用户向导</a><a href="agentic-scaling-benchmark.html">结果表设计</a><a href="tables.html">字段字典</a><a href="configs.html">生产配置</a><a href="remaining-work.html">未尽事项</a><a href="handoff.html">交接文档</a></div></nav>
+<nav class="site-nav" aria-label="文档导航"><div class="site-nav-inner"><a class="brand" href="index.html">aibench · docs/html</a><a href="index.html" class="active">首页</a><a href="overview.html">项目介绍</a><a href="manual.html">用户手册</a><a href="reference.html">参考资料</a></div></nav>
 <div class="page">
 
 <header class="hero">
-  <h1>AI-Coding-Assist Benchmark · 文档站</h1>
-  <p>本目录归档与项目介绍演示相关的全部 HTML 页面：介绍、参考手册、用户向导、结果表设计与字段字典、生产配置与未尽事项。统一样式，顶部导航可互相跳转。</p>
+  <h1>AI-Coding-Assist Benchmark</h1>
+  <p>从现网真实会话记录生成具备能力区分度的编程 benchmark 用例，并给出可复现的度量流程。</p>
   <div class="meta">
-    <span class="pill">docs/html</span>
-    <span class="pill">Benchmark · AI-Coding-Assist</span>
-    <span class="pill">展示形态 · HTML</span>
+    <span class="pill">数据来源 · 现网 trace</span>
+    <span class="pill">度量 · 三锚点校准</span>
+    <span class="pill">当前集合 · 31 条</span>
   </div>
 </header>
 <section class="md-body" style="margin-top:22px">
-  <h2 style="margin-top:0">页面索引</h2>
-  <p>推荐从 <a href="project-overview.html"><strong>项目介绍演示</strong></a> 开始，参数细节查 <a href="reference.html">参考手册</a>。</p>
-  <div class="card-grid"><a class="card" href="project-overview.html"><h3>项目介绍演示</h3><p>目标、架构、操作规程、CLI 参数、科学效度、产物与设计表映射</p><span class="tag">打开 →</span></a><a class="card" href="reference.html"><h3>参考手册 REFERENCE</h3><p>参数级权威参考：CLI / 配置 / Schema / 门禁 / 映射 / FAQ</p><span class="tag">打开 →</span></a><a class="card" href="user-guide.html"><h3>用户向导 USER_GUIDE</h3><p>环境准备、快速上手、日常操作速查</p><span class="tag">打开 →</span></a><a class="card" href="agentic-scaling-benchmark.html"><h3>结果表设计报告</h3><p>统一粒度、综述表、通用总表、落盘与落地阶段</p><span class="tag">打开 →</span></a><a class="card" href="tables.html"><h3>结果表字段字典</h3><p>综述表样例、通用总表列、字段说明</p><span class="tag">打开 →</span></a><a class="card" href="configs.html"><h3>生产配置说明</h3><p>configs/ 下 Agent / 模型 / Run / 消融矩阵</p><span class="tag">打开 →</span></a><a class="card" href="remaining-work.html"><h3>未尽事项</h3><p>已完成能力与可选增强</p><span class="tag">打开 →</span></a></div>
-  <h2>与源文件对应</h2>
-  <table>
-    <thead><tr><th>HTML 页面</th><th>源文件</th></tr></thead>
+  <h2 style="margin-top:0">文档导航</h2>
+  <div class="card-grid">
+    <a class="card" href="overview.html"><h3>项目介绍</h3>
+      <p>背景与目标、流水线架构、反向构造原理、关键模块技术细节、实测难度分布与用例样例</p>
+      <span class="tag">打开 →</span></a>
+    <a class="card" href="manual.html"><h3>用户手册</h3>
+      <p>环境准备、六步端到端流程、每个参数的含义与实测效果、难度调整、对外分发、故障排查</p>
+      <span class="tag">打开 →</span></a>
+    <a class="card" href="reference.html"><h3>参考资料</h3>
+      <p>方案设计依据、用例与校准结果的数据格式、效度门禁规则、已发布数据、术语表</p>
+      <span class="tag">打开 →</span></a>
+  </div>
+
+  <h2>一分钟了解</h2>
+  <p>让大模型直接编题，会稳定产出送分题——基线集合中 <strong>75.2%</strong> 的用例所有配置都能解出。
+     三次独立干预实验证明，无论输入什么，生成器都输出同一种难度。</p>
+  <p>本项目改为<strong>反向构造</strong>：从真实会话中重放出文件被修改前与修改后的两个版本，
+     以前者为待修复代码、后者为参考解，模型只负责编写能区分两版的测试。
+     缺陷来自真人真错，模型无法把任务改简单。</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>指标</th><th>模型编题 <code>auto-v0</code></th><th>反向构造 <code>reverse-v1</code></th></tr></thead>
     <tbody>
-      <tr><td><a href="project-overview.html">project-overview.html</a></td><td>docs/html/_src/project-overview.html</td></tr>
-      <tr><td><a href="handoff.html">handoff.html</a></td><td>docs/HANDOFF.md</td></tr>
-      <tr><td><a href="reference.html">reference.html</a></td><td>docs/REFERENCE.md</td></tr>
-      <tr><td><a href="user-guide.html">user-guide.html</a></td><td>docs/USER_GUIDE.md</td></tr>
-      <tr><td><a href="agentic-scaling-benchmark.html">agentic-scaling-benchmark.html</a></td><td>docs/html/_src/agentic-scaling-benchmark.html</td></tr>
-      <tr><td><a href="tables.html">tables.html</a></td><td>docs/html/_src/tables.md</td></tr>
-      <tr><td><a href="configs.html">configs.html</a></td><td>configs/README.md</td></tr>
-      <tr><td><a href="remaining-work.html">remaining-work.html</a></td><td>docs/REMAINING_WORK.md</td></tr>
+      <tr><td>易 / 中 / 难</td><td>75.2 / 16.2 / 8.6</td><td><strong>22.6 / 74.2 / 3.2</strong></td></tr>
+      <tr><td>平均通过率</td><td>0.677</td><td><strong>0.527</strong></td></tr>
+      <tr><td>有区分度占比</td><td>22.2%</td><td><strong>83.9%</strong></td></tr>
     </tbody>
-  </table>
-  <p>重建本站：<code>uv run python scripts/build_docs_html.py</code></p>
+  </table></div>
+  <p>中档 74.2%（95% 区间 [56.8%, 86.3%]）已达成 70% 的目标。
+     完整数据、置信区间与已知边界见<a href="overview.html#distribution">项目介绍</a>。</p>
+
+  <h2>重建本站</h2>
+  <p><code>uv run python scripts/build_docs_html.py</code>　—　内容源文件位于 <code>docs/html/_src/</code>。</p>
 </section>
 
 <footer class="site-footer">
