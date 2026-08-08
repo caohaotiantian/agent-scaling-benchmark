@@ -123,12 +123,24 @@ def _split_test_body(
     return prelude, blocks
 
 
-def split_tests_for_hiding(case_dict: dict[str, Any], *, keep_visible: int = 1) -> int:
-    """Move all but ``keep_visible`` test functions out of the workspace into hidden tests.
+def split_tests_for_hiding(
+    case_dict: dict[str, Any], *, keep_visible: int = 1, hide_count: int | None = None
+) -> int:
+    """Move test functions out of the workspace into hidden tests. Returns how many moved.
 
-    The agent keeps a smoke test that shows the task's shape; the rest of the specification is
-    only applied at grading time, so passing what it can see is no longer evidence of a fix.
-    Returns the number of test functions hidden.
+    ``keep_visible`` fixes how many stay behind; ``hide_count`` fixes how many leave and takes
+    precedence. The difference matters more than it looks. Measured on 31 reverse cases across
+    three calibrations, what moves the strongest anchor is the number *hidden*, not the number
+    left visible:
+
+        hidden   1      2      3      4      5+
+        strong   87.5%  50.0%  46.7%  33.3%  0.0%     (from 80-96% with none hidden)
+
+    Because the model writes 4-10 tests, `keep_visible=3` hides a median of 2 and
+    `keep_visible=1` hides a median of 4 — both already past the collapse, which is why those
+    two settings produced nearly the same result (strong 52.7% vs 47.3%) and both drove 12-14
+    of 31 cases into "nobody solves". Holding the hidden count fixed is the only way to land
+    between.
     """
     ctx = case_dict.setdefault("context", {})
     grader = case_dict.setdefault("grader", {})
@@ -143,9 +155,11 @@ def split_tests_for_hiding(case_dict: dict[str, Any], *, keep_visible: int = 1) 
         prelude, blocks = _split_test_body(
             f.get("content") or "", language=case_dict.get("language")
         )
-        if len(blocks) <= keep_visible:
+        cut = len(blocks) - hide_count if hide_count is not None else keep_visible
+        cut = max(1, min(cut, len(blocks)))  # always leave at least one test in the workspace
+        if len(blocks) <= cut:
             continue
-        visible, hidden = blocks[:keep_visible], blocks[keep_visible:]
+        visible, hidden = blocks[:cut], blocks[cut:]
         f["content"] = prelude.rstrip() + "\n\n\n" + "\n\n".join(src for _, src in visible)
         spec = languages.spec_for(case_dict.get("language"))
         name = str(f.get("path")).rsplit("/", 1)[-1]
