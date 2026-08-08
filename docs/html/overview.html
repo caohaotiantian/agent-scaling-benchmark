@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>项目介绍 · AI-Coding-Assist Benchmark</title>
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+<nav class="site-nav" aria-label="文档导航"><div class="site-nav-inner"><a class="brand" href="index.html">aibench · docs/html</a><a href="index.html">首页</a><a href="overview.html" class="active">项目介绍</a><a href="manual.html">用户手册</a><a href="reference.html">参考资料</a></div></nav>
+<div class="page">
+<header class="hero">
+  <h1>项目介绍</h1>
+  <p>本项目从现网 AI 编程助手的真实会话记录中，生成能够区分不同 Agent 能力的 benchmark 用例，并给出可复现的度量流程。</p>
+  <div class="meta">
+    <span class="pill">AI-Coding-Assist Benchmark</span>
+    <span class="pill">数据来源 · 现网 trace</span>
+    <span class="pill">度量 · 三锚点校准</span>
+  </div>
+</header>
+
+<section class="md-body">
+
+<h2 id="background">1. 背景</h2>
+
+<p>评测一个编程 Agent，需要一批<strong>能区分能力差异</strong>的题目。如果一批题目所有配置都能做对，或所有配置都做不对，那么无论运行多少次，都无法比较两个配置的强弱。</p>
+
+<p>本项目最初用大模型直接生成用例：把一条真实会话交给模型，让它写出一道编程题。这条路线的产物有一个稳定的问题——<strong>题目太简单</strong>。在 126 条用例的基线集合 <code>auto-v0</code> 上实测：</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 150" role="img" aria-label="auto-v0 难度分布：易 75.2%、中 16.2%、难 8.6%">
+  <text x="0" y="16" font-size="13" fill="#667085">auto-v0（模型自行编题，n=126）</text>
+  <rect x="0" y="30" width="541" height="34" fill="#f0b429" rx="3"/>
+  <rect x="541" y="30" width="117" height="34" fill="#27628f" rx="3"/>
+  <rect x="658" y="30" width="62" height="34" fill="#18324d" rx="3"/>
+  <text x="270" y="52" font-size="14" fill="#3d2f00" text-anchor="middle" font-weight="700">易 75.2%</text>
+  <text x="599" y="52" font-size="13" fill="#ffffff" text-anchor="middle">中 16.2%</text>
+  <text x="689" y="52" font-size="12" fill="#ffffff" text-anchor="middle">难 8.6%</text>
+  <text x="0" y="92" font-size="13" fill="#667085">理想分布（正态形，中间厚两端薄）</text>
+  <rect x="0" y="106" width="108" height="34" fill="#f0b429" rx="3"/>
+  <rect x="108" y="106" width="504" height="34" fill="#27628f" rx="3"/>
+  <rect x="612" y="106" width="108" height="34" fill="#18324d" rx="3"/>
+  <text x="54" y="128" font-size="12" fill="#3d2f00" text-anchor="middle">易 15%</text>
+  <text x="360" y="128" font-size="14" fill="#ffffff" text-anchor="middle" font-weight="700">中 70%</text>
+  <text x="666" y="128" font-size="12" fill="#ffffff" text-anchor="middle">难 15%</text>
+</svg>
+<figcaption>三档按通过率 <code>p_hat</code> 划分：易 &gt; 0.8，难 &lt; 0.2，其余为中。四分之三是送分题，几乎不产生区分度。</figcaption>
+</figure>
+
+<p>为定位原因，项目做了三次独立干预实验，每次都以「干预之后难度是否改变」为判据：</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>假设</th><th>实测结果</th><th>结论</th></tr></thead>
+<tbody>
+<tr><td>用例做得更大、更贴近真实代码 ⇒ 更难</td><td>相关系数 <code>+0.07</code>，方向相反</td><td>否定</td></tr>
+<tr><td>题面不点名被修改的函数 ⇒ 更难</td><td>干预本身成功（<code>p = 3e-09</code>），难度未变</td><td>否定</td></tr>
+<tr><td>源会话越复杂 ⇒ 用例越难</td><td>全部 <code>|r| ≤ 0.225</code>，不显著</td><td>否定</td></tr>
+</tbody>
+</table></div>
+
+<p>三次实验共同指向同一个解释：<strong>无论输入什么，生成器都输出同一种难度</strong>。60 条校准用例中有 39 条通过率恰好为 1.000。问题不在于参数没调对，而在于「让模型自己编题」这一步本身。</p>
+
+<h2 id="goal">2. 项目目标</h2>
+
+<ol>
+<li><strong>用现网真实数据生成用例</strong>，而不是让模型凭空编题。</li>
+<li><strong>用例具备能力区分度</strong>：不同强度的 Agent 配置在同一批题上应表现出可测量的差异。</li>
+<li><strong>难度分布接近 15 : 70 : 15</strong>（易 : 中 : 难），即中间厚、两端薄。</li>
+<li><strong>可复现</strong>：环境就绪的前提下，他人可以重跑全流程并核对我们报告的每一个数字。</li>
+</ol>
+
+<h2 id="architecture">3. 项目架构</h2>
+
+<p>整条流水线是单向的：真实会话记录 → 草稿 → 用例 → 校准 → 可用集合 → 度量。每一步都有独立的命令与产物，可以单独重跑。</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 760 330" role="img" aria-label="流水线架构图">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#27628f"/>
+    </marker>
+  </defs>
+  <g font-size="12.5" fill="#18212f">
+    <rect x="0" y="14" width="140" height="52" rx="8" fill="#e4f0f8" stroke="#27628f"/>
+    <text x="70" y="36" text-anchor="middle" font-weight="700">现网会话库</text>
+    <text x="70" y="54" text-anchor="middle" font-size="11" fill="#667085">llm_chat_records</text>
+
+    <rect x="185" y="14" width="150" height="52" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="260" y="36" text-anchor="middle" font-weight="700">草稿 drafts</text>
+    <text x="260" y="54" text-anchor="middle" font-size="11" fill="#667085">extract-from-db</text>
+
+    <rect x="380" y="14" width="150" height="52" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="455" y="36" text-anchor="middle" font-weight="700">用例 cases</text>
+    <text x="455" y="54" text-anchor="middle" font-size="11" fill="#667085">generate-cases</text>
+
+    <rect x="575" y="14" width="150" height="52" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="650" y="36" text-anchor="middle" font-weight="700">效度审计</text>
+    <text x="650" y="54" text-anchor="middle" font-size="11" fill="#667085">audit-cases</text>
+
+    <rect x="575" y="122" width="150" height="52" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="650" y="144" text-anchor="middle" font-weight="700">难度校准</text>
+    <text x="650" y="162" text-anchor="middle" font-size="11" fill="#667085">calibrate-cases</text>
+
+    <rect x="380" y="122" width="150" height="52" rx="8" fill="#e5f4ed" stroke="#166534"/>
+    <text x="455" y="144" text-anchor="middle" font-weight="700">可用集合</text>
+    <text x="455" y="162" text-anchor="middle" font-size="11" fill="#667085">select-cases</text>
+
+    <rect x="185" y="122" width="150" height="52" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="260" y="144" text-anchor="middle" font-weight="700">度量 / 消融</text>
+    <text x="260" y="162" text-anchor="middle" font-size="11" fill="#667085">run · ablation</text>
+
+    <rect x="0" y="122" width="140" height="52" rx="8" fill="#ece7f7" stroke="#5b3fa8"/>
+    <text x="70" y="144" text-anchor="middle" font-weight="700">对外分发</text>
+    <text x="70" y="162" text-anchor="middle" font-size="11" fill="#667085">export-bundle</text>
+
+    <path d="M142 40 H183" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+    <path d="M337 40 H378" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+    <path d="M532 40 H573" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+    <path d="M650 68 V120" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+    <path d="M573 148 H532" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+    <path d="M378 148 H337" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+    <path d="M183 148 H142" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+
+    <rect x="0" y="228" width="725" height="86" rx="8" fill="#f5f7fa" stroke="#d6dee8"/>
+    <text x="14" y="250" font-size="12.5" font-weight="700" fill="#18324d">贯穿全流程的三条约束</text>
+    <text x="14" y="272" font-size="12">① 密钥与内部路径脱敏：secrets-scan / redact_paths，扫描覆盖隐藏测试</text>
+    <text x="14" y="292" font-size="12">② 断点续跑：用例一产出即落盘，_progress.jsonl 记录已结案草稿，--resume 不重复付费</text>
+    <text x="14" y="308" font-size="12">③ 溯源门禁：export-bundle 拒绝一切来源不明或含生产代码的用例，除非显式声明</text>
+  </g>
+</svg>
+<figcaption>上行为构建，下行为使用。每一步产物落盘后可独立重跑，无需回到上一步。</figcaption>
+</figure>
+
+<h2 id="principle">4. 实现原理</h2>
+
+<h3>4.1 反向构造：缺陷不由模型决定</h3>
+
+<p>既然「让模型编题」会把一切输入压成同一种难度，那就<strong>不让模型决定缺陷是什么</strong>。</p>
+
+<p>一条真实会话里，工程师对文件做过若干次编辑。把这些编辑按时间顺序重放，可以还原出该文件<strong>修改前</strong>和<strong>修改后</strong>的两个版本。于是：</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 260" role="img" aria-label="反向构造原理图">
+  <g font-size="12.5" fill="#18212f">
+    <rect x="0" y="10" width="720" height="58" rx="8" fill="#f5f7fa" stroke="#d6dee8"/>
+    <text x="14" y="32" font-weight="700">真实会话记录</text>
+    <text x="14" y="52" font-size="11.5" fill="#667085">read(file) → edit(oldString → newString) → edit(...) → edit(...)</text>
+
+    <path d="M160 70 L110 104" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+    <path d="M560 70 L610 104" stroke="#27628f" fill="none" marker-end="url(#ar)"/>
+
+    <rect x="0" y="108" width="215" height="66" rx="8" fill="#fff4d6" stroke="#8a5a00"/>
+    <text x="107" y="132" text-anchor="middle" font-weight="700">编辑前版本</text>
+    <text x="107" y="152" text-anchor="middle" font-size="11.5">→ 用例的 stub（待修复代码）</text>
+
+    <rect x="505" y="108" width="215" height="66" rx="8" fill="#e5f4ed" stroke="#166534"/>
+    <text x="612" y="132" text-anchor="middle" font-weight="700">编辑后版本</text>
+    <text x="612" y="152" text-anchor="middle" font-size="11.5">→ 参考解 gold_files</text>
+
+    <rect x="248" y="108" width="224" height="66" rx="8" fill="#e4f0f8" stroke="#27628f"/>
+    <text x="360" y="130" text-anchor="middle" font-weight="700">模型的唯一职责</text>
+    <text x="360" y="149" text-anchor="middle" font-size="11.5">写出能区分两版的测试 + 题面</text>
+    <text x="360" y="165" text-anchor="middle" font-size="11" fill="#667085">不碰缺陷本身</text>
+
+    <rect x="0" y="196" width="720" height="54" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="14" y="218" font-weight="700" fill="#18324d">为什么这个设计能自动验证</text>
+    <text x="14" y="238" font-size="12">测试若在 stub 上不失败，或在 gold 上不通过，用例直接被门禁拒绝——模型写歪了会被自动发现。</text>
+  </g>
+</svg>
+<figcaption>缺陷来自真人真错，模型只负责描述它。模型无法把任务改简单，只可能描述失败。</figcaption>
+</figure>
+
+<p>重放采用<strong>严格顺序匹配</strong>：只在会话确实读取过的内容上应用编辑。宽松匹配（在任意历史快照里搜索）能得到更高的重建率，但一次匹配到错误版本，就会重建出一个从未存在过的中间状态，用例便成了「带着真实代码的虚构」。本项目选择前者。</p>
+
+<h3>4.2 难度如何度量</h3>
+
+<p>难度不是主观标注，而是<strong>相对一组固定参照配置的通过率</strong>。参照组称为锚点面板，包含三个能力档次：</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>锚点</th><th>构成</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td><code>weak-single-turn</code></td><td>单轮改写，无工具</td><td>能力下限。此处也能过的题是送分题</td></tr>
+<tr><td><code>mid-single-turn</code></td><td>同一脚手架，更强模型</td><td>隔离「模型」这一变量</td></tr>
+<tr><td><code>strong-tool-loop</code></td><td>多步工具循环，可运行测试并据此修改</td><td>能力上限。隔离「脚手架」这一变量</td></tr>
+</tbody>
+</table></div>
+
+<p>每个锚点独立运行 <code>repeats</code> 次，<code>p_hat</code> 是全部尝试的通过比例。注意它是<strong>量化</strong>的：只能取 <code>k /（锚点数 × repeats）</code>。<code>repeats=3</code> 时每条用例 9 次尝试，难档 <code>p&lt;0.2</code> 只有 0 与 0.111 两个可取值。</p>
+
+<h2 id="modules">5. 关键模块技术细节</h2>
+
+<div class="two-col">
+<div class="step">
+<h3><span class="num">A</span>语言规格 <code>languages.py</code></h3>
+<p>每种语言登记一份规格：测试文件命名规则、测试声明写法、运行命令、如何从运行输出中读回通过/失败计数。</p>
+<p><strong>只登记本机真能执行的语言。</strong> 登记一个跑不起来的工具链，会让用例在所有配置上一律失败——那看起来是难题，实际是坏题。</p>
+<p class="callout warn">命名规则按运行器实测确定，而非沿用惯例。实测：<code>node --test</code> 不发现 <code>test_app.js</code>（退出 0、零测试运行），pytest 不发现 <code>a.spec.py</code>（退出 5）。空跑退出 0 会被读成「stub 通过」，从而误判用例无效。</p>
+</div>
+
+<div class="step">
+<h3><span class="num">B</span>效度门禁 <code>validity.py</code></h3>
+<p>三道错误级门禁，任一不过则用例不可用：</p>
+<dl class="kv">
+<dt>stub_fail</dt><dd>测试必须在待修复版本上失败</dd>
+<dt>solvability</dt><dd>测试必须在参考解上通过</dd>
+<dt>collection</dt><dd>失败必须是「测试判定为不通过」，而非「工作区跑不起来」</dd>
+</dl>
+<p>第三条最关键：缺依赖、语法错、导入失败，都会让所有配置一律失败，与真正的难题不可区分。判定依据取自运行器自己报告的用例计数，而非在输出文本里匹配错误特征。</p>
+</div>
+
+<div class="step">
+<h3><span class="num">C</span>导入可满足性过滤</h3>
+<p>评分工作区只有两个文件：待修复文件与测试文件。真实仓库里的文件常常导入第三方包或同仓库的兄弟模块，两者都不在工作区内。</p>
+<p>这类用例在生成<strong>之前</strong>就被剔除，因为生成是花钱的一步。实测该判据是完美预测器：16 条导入不可满足的用例，16 条全部未通过效度门禁。</p>
+</div>
+
+<div class="step">
+<h3><span class="num">D</span>断点续跑 <code>checkpoint.py</code></h3>
+<p>用例一产出即落盘，并向 <code>_progress.jsonl</code> 追加一行（逐行 flush）。<code>--resume</code> 读取它，已结案的草稿不再送模型。</p>
+<p>确定性拒绝记账（下次判还是同样结果），瞬时失败不记账（超时、限流应当重试）。日志永不压过文件系统：用例被删则不计为已写；被杀时写坏的最后一行跳过，不因一行残缺丢弃整批。</p>
+</div>
+</div>
+
+<h2 id="distribution">6. 生成用例的分布与样例</h2>
+
+<h3>6.1 实测难度分布</h3>
+
+<p>反向构造集合 <code>reverse-v1</code>，31 条用例、三锚点、<code>repeats=3</code>，共 279 次尝试，其中「工作区跑不起来」仅 1 次。</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 210" role="img" aria-label="reverse-v1 与 auto-v0 难度分布对比">
+  <g font-size="12.5" fill="#18212f">
+    <text x="0" y="14" fill="#667085">auto-v0（模型编题，n=126）</text>
+    <rect x="0" y="24" width="541" height="30" fill="#f0b429" rx="3"/>
+    <rect x="541" y="24" width="117" height="30" fill="#27628f" rx="3"/>
+    <rect x="658" y="24" width="62" height="30" fill="#18324d" rx="3"/>
+    <text x="270" y="44" font-size="13" fill="#3d2f00" text-anchor="middle" font-weight="700">易 75.2%</text>
+    <text x="599" y="44" font-size="12" fill="#fff" text-anchor="middle">中 16.2%</text>
+
+    <text x="0" y="86" fill="#667085">reverse-v1（反向构造，n=31）</text>
+    <rect x="0" y="96" width="163" height="30" fill="#f0b429" rx="3"/>
+    <rect x="163" y="96" width="534" height="30" fill="#27628f" rx="3"/>
+    <rect x="697" y="96" width="23" height="30" fill="#18324d" rx="3"/>
+    <text x="81" y="116" font-size="12" fill="#3d2f00" text-anchor="middle">易 22.6%</text>
+    <text x="430" y="116" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">中 74.2%</text>
+
+    <text x="0" y="158" fill="#667085">目标</text>
+    <rect x="0" y="168" width="108" height="30" fill="#f0b429" rx="3" opacity="0.55"/>
+    <rect x="108" y="168" width="504" height="30" fill="#27628f" rx="3" opacity="0.55"/>
+    <rect x="612" y="168" width="108" height="30" fill="#18324d" rx="3" opacity="0.55"/>
+    <text x="54" y="188" font-size="12" fill="#3d2f00" text-anchor="middle">15%</text>
+    <text x="360" y="188" font-size="12" fill="#fff" text-anchor="middle">70%</text>
+    <text x="666" y="188" font-size="12" fill="#fff" text-anchor="middle">15%</text>
+  </g>
+</svg>
+<figcaption>中档 74.2%，95% 置信区间 [56.8%, 86.3%]，包含目标值 70%。易档 22.6%，区间 [11.4%, 39.8%]，包含 15%。难档 3.2% 未达标。</figcaption>
+</figure>
+
+<div class="table-wrap"><table>
+<thead><tr><th>指标</th><th><code>auto-v0</code></th><th><code>reverse-v1</code></th></tr></thead>
+<tbody>
+<tr><td>用例数</td><td>126</td><td>31</td></tr>
+<tr><td>平均通过率 <code>p_hat</code></td><td>0.677</td><td><strong>0.527</strong></td></tr>
+<tr><td>判定为有区分度</td><td>28（22.2%）</td><td><strong>26（83.9%）</strong></td></tr>
+<tr><td>区分度中位数 <code>spread</code></td><td>—</td><td>1.000</td></tr>
+</tbody>
+</table></div>
+
+<p>与基线的差异检验：假设真实易档比例仍为 <code>auto-v0</code> 的 75.2%，则观察到 31 条中仅 7 条为易档的概率为 <code>1.15e-09</code>。</p>
+
+<h3>6.2 按能力档次分类</h3>
+
+<p>按 <code>p_hat</code> 分档之外，更贴近使用目的的看法是：<strong>哪一档能力能解出这道题</strong>。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>类别</th><th>占比</th><th>对区分度的价值</th></tr></thead>
+<tbody>
+<tr><td>三档全部解出（送分题）</td><td>12.9%</td><td>无</td></tr>
+<tr><td><strong>仅最强配置解出</strong></td><td><strong>45.2%</strong></td><td>最高</td></tr>
+<tr><td>介于两者之间</td><td>41.9%</td><td>有</td></tr>
+<tr><td>三档均无法解出</td><td>0%</td><td>无</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout">
+<p><strong>关于难档 3.2% 未达标。</strong> <code>p_hat &lt; 0.2</code> 要求 9 次尝试中至多通过 1 次，即最强锚点也几乎全败。实测最强锚点平均通过率 90.3%，且 31 条中有 23 条它是三次全过——这些用例的 <code>p_hat</code> 下限被钉在 1/3，<strong>在算术上就不可能进入难档</strong>。</p>
+<p>已验证：没有任何输入特征能改变这一点（编辑次数 <code>|t|=1.22</code>、改动行数 <code>1.57</code>、文件行数 <code>1.80</code>，均不显著）。真正起作用的是<strong>任务形态</strong>——见下节。</p>
+</div>
+
+<h3>6.3 隐藏测试：唯一能撼动最强锚点的杠杆</h3>
+
+<p>把模型写的测试拆成两半：一部分留在工作区供 Agent 查看和迭代，其余仅在评分时注入。能运行测试的 Agent 便无法靠「反复跑到全绿」收敛。</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 220" role="img" aria-label="隐藏测试条数与最强锚点通过率的剂量反应曲线">
+  <g font-size="12" fill="#18212f">
+    <line x1="56" y1="170" x2="700" y2="170" stroke="#d6dee8"/>
+    <line x1="56" y1="20" x2="56" y2="170" stroke="#d6dee8"/>
+    <text x="12" y="26" fill="#667085">100%</text>
+    <text x="20" y="98" fill="#667085">50%</text>
+    <text x="30" y="174" fill="#667085">0%</text>
+    <polyline points="90,33 195,45 300,95 405,100 510,120 615,170 690,170"
+              fill="none" stroke="#b42318" stroke-width="2.5"/>
+    <g fill="#b42318">
+      <circle cx="90" cy="33" r="4.5"/><circle cx="195" cy="45" r="4.5"/>
+      <circle cx="300" cy="95" r="4.5"/><circle cx="405" cy="100" r="4.5"/>
+      <circle cx="510" cy="120" r="4.5"/><circle cx="615" cy="170" r="4.5"/>
+    </g>
+    <g text-anchor="middle" font-size="11.5">
+      <text x="90" y="192">0 条</text><text x="195" y="192">1 条</text>
+      <text x="300" y="192">2 条</text><text x="405" y="192">3 条</text>
+      <text x="510" y="192">4 条</text><text x="615" y="192">5 条以上</text>
+    </g>
+    <g text-anchor="middle" font-size="11" fill="#b42318">
+      <text x="90" y="24">90.3%</text><text x="195" y="36">87.5%</text>
+      <text x="300" y="86">50.0%</text><text x="405" y="91">46.7%</text>
+      <text x="510" y="111">33.3%</text><text x="615" y="161">0%</text>
+    </g>
+    <text x="380" y="212" text-anchor="middle" fill="#667085">隐藏的测试函数条数</text>
+    <text x="14" y="100" font-size="11.5" fill="#667085" transform="rotate(-90 14 100)" text-anchor="middle">最强锚点通过率</text>
+  </g>
+</svg>
+<figcaption>剂量反应清晰：隐藏 1 条几乎无影响，隐藏 2 条通过率腰斩，隐藏 5 条以上归零。配对检验（最强锚点能否解出）：15 条由能解变不能解，反向 0 条，精确双侧 <code>p = 6.1e-05</code>。</figcaption>
+</figure>
+
+<div class="callout warn">
+<p><strong>该杠杆需要按「隐藏条数」控制，而非「保留条数」。</strong> 模型通常写 4–10 条测试，因此「保留 3 条」实际隐藏中位数 2 条、「保留 1 条」隐藏中位数 4 条——两者都已越过崩塌点，实测结果几乎相同（最强锚点 52.7% 与 47.3%）。</p>
+<p>过度隐藏的代价是把「仅最强能解」变成「无人能解」：区分度用例从 26 条降至 11 条，而无人能解的题与送分题一样不产生区分度。</p>
+</div>
+
+<h3>6.4 用例样例</h3>
+
+<p>一条完整用例是单个 JSON 文件。以下为真实产物的结构（内容已省略）：</p>
+
+<pre><code>{
+  "case_id": "rev-1f1563e5cdce9714",
+  "schema_version": "0.1",
+  "task_type": "bugfix",
+  "language": "javascript",
+  "prompt": "……仅描述可观察到的症状，不提及原因、机制或被修改的函数……",
+  "context": {
+    "files": [
+      { "path": "qeditor_zh_CN.ts", "content": "……编辑前的真实文件……", "role": "impl" },
+      { "path": "qeditor_zh_CN.test.ts", "content": "……模型编写的测试……", "role": "test" }
+    ]
+  },
+  "grader": {
+    "mode": "script",
+    "command": "node --test",
+    "gold_files": [
+      { "path": "qeditor_zh_CN.ts", "content": "……编辑后的真实文件……" }
+    ],
+    "hidden_tests": [
+      { "path": "qeditor_zh_CN_spec.test.ts", "content": "……仅评分时注入……" }
+    ]
+  },
+  "metadata": {
+    "generation": "reverse",
+    "reverse_source": "qeditor_zh_CN.ts#15710efa548a",
+    "reverse_edits": 1,
+    "fingerprint": "v3:6ca25578d8d5e833",
+    "validity_ok": true,
+    "uncollectable_stub": false,
+    "uncollectable_reference": false
+  }
+}</code></pre>
+
+<p>字段含义见<a href="reference.html">参考资料</a>。<code>reverse_source</code> 只保留文件名与摘要，不含原始路径——原始路径包含工程师账号名与内部项目名。</p>
+
+<h2 id="limits">7. 已知边界</h2>
+
+<ul>
+<li><strong>样本量</strong>：当前 31 条。消融实验若要达到既定检验效能，需要 153 条。当前结论均附 95% 置信区间，应作为方向性结论使用。</li>
+<li><strong>语言覆盖</strong>：仅支持 Python 与 JavaScript / TypeScript。实测真实工程师改动的文件中约 76% 属于本机无法执行的语言（C++、Rust 等），这是产量的主要上限。</li>
+<li><strong>难档</strong>：受最强锚点能力封顶。当模型能力提升时，需要相应调整任务形态，否则集合会饱和。</li>
+<li><strong>用例含生产代码</strong>：反向构造的用例按定义逐字包含真实仓库源码，实测逐字比例 13%–75.2%。对外分发受专门门禁约束，详见<a href="manual.html#export">用户手册</a>。</li>
+</ul>
+
+</section>
+
+<footer class="site-footer">
+  AI-Coding-Assist Benchmark · 文档站点 docs/html · 本地打开即可浏览
+</footer>
+</div>
+</body>
+</html>
