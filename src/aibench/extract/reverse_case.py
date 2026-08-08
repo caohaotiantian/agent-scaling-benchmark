@@ -23,6 +23,7 @@ from aibench.extract.sessions import (
     redact_source_path,
     task_fingerprint,
 )
+from aibench.extract.tier_shaping import split_tests_for_hiding
 from aibench.languages import spec_for_path
 
 #: Enough of each version for the model to see the change without paying for whole large files.
@@ -112,6 +113,7 @@ def reverse_case_from_versions(
     draft: dict[str, Any],
     chat: Any,
     tier: str = "T2",
+    hide_tests: bool = True,
 ) -> dict[str, Any]:
     """Assemble a case from a real before/after pair plus model-written tests.
 
@@ -162,7 +164,7 @@ def reverse_case_from_versions(
 
     impl_name = module
     case_id = f"rev-{task_fingerprint(prompt, [impl_name])}"
-    return {
+    case = {
         "case_id": case_id,
         "schema_version": "0.1",
         "task_type": "bugfix",
@@ -209,6 +211,16 @@ def reverse_case_from_versions(
             "reverse_edits": fv.get("edits"),
         },
     }
+    # Measured on 31 calibrated reverse cases: strong-tool-loop passes 90.3%, and on 23 of
+    # them all three of its attempts pass — which puts p_hat >= 1/3 arithmetically, so those
+    # cases cannot reach the hard band at all. An agent that can run the tests iterates until
+    # they are green, so leaving the whole specification visible is what sets that ceiling.
+    # Keeping one smoke test and grading against the rest is the only lever that acts on it;
+    # no property of the input does, which is why edits, diff size and line count all came in
+    # insignificant.
+    if hide_tests:
+        split_tests_for_hiding(case, keep_visible=1)
+    return case
 
 
 #: A reasoning model spends its budget thinking before it answers, and the answer here is a
