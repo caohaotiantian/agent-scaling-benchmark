@@ -1047,6 +1047,15 @@ INDEX_BODY = """
   <p>中档 74.2%（95% 区间 [56.8%, 86.3%]）已达成 70% 的目标。
      完整数据、置信区间与已知边界见<a href="overview.html#distribution">项目介绍</a>。</p>
 
+  <h2>待讨论</h2>
+  <div class="callout warn">
+    <p><strong>语言覆盖是当前产量的首要上限。</strong> 3,312 条草稿中可重建的文件版本里，
+       <strong>4,472 个因语言未注册被丢弃</strong>，而最终可用的仅 194 个——丢弃量约为可用量的 23 倍。
+       C++ 与 Rust 需要编译，而评分工作区只有两个文件。</p>
+    <p>问题陈述、实测数据、技术阻塞点、四个可选方案及其代价与风险，
+       见<a href="overview.html#open-lang">项目介绍 · 第 8 节</a>。</p>
+  </div>
+
   <h2>重建本站</h2>
   <p><code>uv run python scripts/build_docs_html.py</code>　—　内容源文件位于 <code>docs/html/_src/</code>。</p>
 </section>
