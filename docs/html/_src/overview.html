@@ -211,6 +211,18 @@
 </div>
 
 <h2 id="distribution">6. 生成用例的分布与样例</h2>
+<div class="callout warn" style="margin-top:18px">
+<p><strong>⚠️ 本节所有难度数字正在重测（2026-08-09）。</strong></p>
+<p>模型消融过程中查出三个 agent 适配器缺陷，其中两个位于 <code>tool_loop</code> ——
+而它是<strong>所有校准面板的最强锚点</strong>：截断响应时把推理正文当答案、
+<code>json.loads</code> 直吃整个回复、固定 8192 输出预算。三者共同**系统性地惩罚重推理模型**。</p>
+<p>影响量级：同一批用例、同一模型，<strong>仅修 harness 就使 GLM-5.2 的通过率从 25.8% 升到 83.9%</strong>，
+跨度 58 个百分点，期间未改动任何模型参数。</p>
+<p>因此下列数字<strong>暂不可作为结论使用</strong>：本节的难度分布、按能力档次的分类占比、
+隐藏测试剂量曲线的各测点、以及「最强锚点通过率 90.3%」。
+修复见提交 <code>85a3688</code> 与 <code>d5a44b5</code>，重新校准进行中，完成后本节将按实测更新。</p>
+</div>
+
 
 <h3>6.1 实测难度分布</h3>
 
@@ -428,7 +440,39 @@
 <li><strong>用例含生产代码</strong>：反向构造的用例按定义逐字包含真实仓库源码，实测逐字比例 13%–75.2%。对外分发受专门门禁约束，详见<a href="manual.html#export">用户手册</a>。</li>
 </ul>
 
-<h2 id="open-lang">8. 待决问题：语言覆盖</h2>
+
+<h2 id="ablation">8. 模型消融：这批用例区分不出同档次的模型</h2>
+
+<p>五个模型、同一批 31 条用例、同一工具循环脚手架、同一凭据，只有模型不同。<strong>解析失败 0 次</strong>，失败原因全部是行为性的。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>模型</th><th>通过率</th><th>失败构成</th><th>对基线配对 McNemar</th></tr></thead>
+<tbody>
+<tr><td>GLM-5</td><td>90.3%</td><td>步数超限 2、真跑没过 1</td><td>p = 0.6875</td></tr>
+<tr><td>Qwen3.7-Plus</td><td>90.3%</td><td>步数超限 2、真跑没过 1</td><td>p = 0.6875</td></tr>
+<tr><td>Deepseek-V4-Flash</td><td>90.3%</td><td>真跑没过 2、步数超限 1</td><td>p = 0.5000</td></tr>
+<tr><td>GLM-5.2（基线）</td><td>83.9%</td><td>真跑没过 2、步数超限 2、超时 1</td><td>—</td></tr>
+<tr><td>GLM-5.1</td><td>71.0%</td><td>步数超限 7、真跑没过 2</td><td>p = 0.2891</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout warn">
+<p><strong>四个配对比较无一显著。</strong> 31 条中有 19 条被五个模型全部解出，仅 35.5% 产生区分。
+按本轮观测的不一致率，达到 80% 检验效能需要：对 GLM-5.1 约 112 条，对 Deepseek 约 60 条，
+对 GLM-5 与 Qwen3.7-Plus 约 353 条。</p>
+</div>
+
+<p><strong>这批用例区分的是脚手架档次，不是同档次内的模型。</strong>
+单轮 25%–42% 与工具循环 84%–90% 的差距，远大于模型之间的差距；
+而校准面板的 <code>spread</code> 主要来自前者 —— 即区分度一直来自脚手架轴。</p>
+
+<div class="callout">
+<p><strong>过程本身是这一节最重要的部分。</strong> 单轮脚手架下的前三轮消融给出过三套互相矛盾的排名，
+每一轮的差异都来自我修掉的一个 harness 缺陷，而非模型。GLM-5.2 在三轮中依次为
+25.8% → 48.4% → 67.7%，换用工具循环后 83.9%。<strong>在确认失败原因之前，任何排名都不能当作能力测量。</strong></p>
+</div>
+
+<h2 id="open-lang">9. 待决问题：语言覆盖</h2>
 
 <p class="callout"><strong>本节供内部讨论使用。</strong> 陈述问题、实测数据、技术阻塞点与可选方案及其代价，不预设结论。</p>
 
