@@ -1,0 +1,1222 @@
+{
+ "matrix": "configs/runs/ablation-two-models.yaml",
+ "skip_weak_grader": true,
+ "baseline_experiment": "two-glm51-r1",
+ "parallel": 3,
+ "runs": [
+  {
+   "stratified_by_tier": {
+    "unknown": {
+     "n": 31,
+     "successes": 22,
+     "success_rate": 0.7096774193548387,
+     "confidence_interval": "[53.4%, 83.9%]"
+    }
+   },
+   "experiment_name": "two-deepseek-r1",
+   "run_id": "two-deepseek-r1",
+   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r1",
+   "algorithm_name": "Deepseek-V4-Flash",
+   "agent_name": "tool_loop",
+   "main_model": "Deepseek-V4-Flash-0731",
+   "success_rate": 0.7096774193548387,
+   "success_count": 22,
+   "case_count": 31,
+   "pass_at_1": 0.7096774193548387,
+   "pass_at_k": 0.7096774193548387,
+   "attempts_per_case": 1.0,
+   "cost_curve": [
+    {
+     "budget_tokens": 30108,
+     "solved": 5,
+     "success_rate": 0.16129032258064516
+    },
+    {
+     "budget_tokens": 95322,
+     "solved": 13,
+     "success_rate": 0.41935483870967744
+    },
+    {
+     "budget_tokens": 270995,
+     "solved": 19,
+     "success_rate": 0.6129032258064516
+    },
+    {
+     "budget_tokens": 362447,
+     "solved": 21,
+     "success_rate": 0.6774193548387096
+    },
+    {
+     "budget_tokens": 891745,
+     "solved": 22,
+     "success_rate": 0.7096774193548387
+    }
+   ],
+   "effective_case_count": 31,
+   "infra_error_count": 0,
+   "infra_error_rate": 0.0,
+   "total_tokens": 5303278,
+   "total_cost": 5.303278,
+   "total_wall_time_h": 0.8859156713664157,
+   "overview_row": {
+    "算法名称": "Deepseek-V4-Flash",
+    "Agent与模型": "tool_loop｜main=Deepseek-V4-Flash-0731",
+    "基础/主模型": "Deepseek-V4-Flash-0731",
+    "Benchmark": "AI-Coding-Assist",
+    "Case数": 31,
+    "主指标名称": "task_success_rate",
+    "主指标值": "71.0%",
+    "总体耗时(h)": 0.8859156713664157,
+    "总体Token消耗": 5303278,
+    "相对基线收益": "-6.5pp"
+   },
+   "general_row": {
+    "运行ID": "two-deepseek-r1",
+    "实验名称": "prod-tool-loop",
+    "实验时间": "2026-08-10",
+    "代码版本": "aibench@0.1.0 / agent@1.0.0",
+    "Benchmark名称": "AI-Coding-Assist",
+    "Case集合": "_revmixed",
+    "Case数量": 31,
+    "有效Case数": 31,
+    "分组口径": "task_type",
+    "算法名称": "Deepseek-V4-Flash",
+    "算法版本": "v1.0",
+    "预算轴": "steps",
+    "预算值": "max_steps=40, max_wall_time_s=600",
+    "分支数": 1,
+    "最大Attempt数": 1,
+    "最大Step数": 40,
+    "选择策略": "first-submit",
+    "Agent名称": "tool_loop",
+    "Agent版本": "1.0.0",
+    "主模型": "Deepseek-V4-Flash-0731",
+    "草稿模型": null,
+    "Panel模型": null,
+    "聚合模型": null,
+    "验证模型": null,
+    "Fallback模型": null,
+    "模型组合摘要": "main=Deepseek-V4-Flash-0731",
+    "采样参数": "temperature=0.0, max_tokens=8192",
+    "评判类型": "半确定性",
+    "主指标名称": "task_success_rate",
+    "主指标值": 0.7096774193548387,
+    "成功数": 22,
+    "成功率": 0.7096774193548387,
+    "完成数": 23,
+    "完成率": 0.7419354838709677,
+    "空Patch数": 1,
+    "基础设施错误数": 0,
+    "基础设施错误率": 0.0,
+    "总Token": 5303278,
+    "平均Token/Case": 171073.48387096773,
+    "平均Token/成功Case": 241058.0909090909,
+    "总墙钟": 0.8859156713664157,
+    "吞吐": 34.992043827587246,
+    "平均耗时/Case": 1.7146754929672563,
+    "总Step数": 1447,
+    "平均Step/Case": 46.67741935483871,
+    "总模型调用次数": 766,
+    "平均模型调用/Case": 24.70967741935484,
+    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r1"
+   },
+   "failure_diagnostics": {
+    "failed_count": 9,
+    "by_category": {
+     "预算耗尽失败": 6,
+     "模型推理失败": 3
+    },
+    "by_agent_status": {
+     "timeout": 6,
+     "completed": 3
+    },
+    "top_reasons": [
+     {
+      "reason": "script_exit=1",
+      "count": 9
+     }
+    ],
+    "samples": [
+     {
+      "case_id": "rev-2ca580a0192883ce",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-45d9a8eedc412aa7",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-5e56df47ee4f862c",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-62ef1cb54b48c416",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-724174b7d8074da8",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-ac427816b0ed447b",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-d326423b2e842029",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-dd703d1eb36b1620",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-e57d50ae4bf90593",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     }
+    ]
+   },
+   "index": 0,
+   "relative_success_lift": -0.06451612903225801,
+   "token_amplification": 1.2702133693308053
+  },
+  {
+   "stratified_by_tier": {
+    "unknown": {
+     "n": 31,
+     "successes": 24,
+     "success_rate": 0.7741935483870968,
+     "confidence_interval": "[60.2%, 88.6%]"
+    }
+   },
+   "experiment_name": "two-glm51-r1",
+   "run_id": "two-glm51-r1",
+   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-glm51-r1",
+   "algorithm_name": "GLM-5.1",
+   "agent_name": "tool_loop",
+   "main_model": "GLM-5.1",
+   "success_rate": 0.7741935483870968,
+   "success_count": 24,
+   "case_count": 31,
+   "pass_at_1": 0.7741935483870968,
+   "pass_at_k": 0.7741935483870968,
+   "attempts_per_case": 1.0,
+   "cost_curve": [
+    {
+     "budget_tokens": 54051,
+     "solved": 6,
+     "success_rate": 0.1935483870967742
+    },
+    {
+     "budget_tokens": 86956,
+     "solved": 13,
+     "success_rate": 0.41935483870967744
+    },
+    {
+     "budget_tokens": 215794,
+     "solved": 19,
+     "success_rate": 0.6129032258064516
+    },
+    {
+     "budget_tokens": 281691,
+     "solved": 23,
+     "success_rate": 0.7419354838709677
+    },
+    {
+     "budget_tokens": 520102,
+     "solved": 24,
+     "success_rate": 0.7741935483870968
+    }
+   ],
+   "effective_case_count": 31,
+   "infra_error_count": 0,
+   "infra_error_rate": 0.0,
+   "total_tokens": 4175108,
+   "total_cost": 4.175108,
+   "total_wall_time_h": 0.9619158701741415,
+   "overview_row": {
+    "算法名称": "GLM-5.1",
+    "Agent与模型": "tool_loop｜main=GLM-5.1",
+    "基础/主模型": "GLM-5.1",
+    "Benchmark": "AI-Coding-Assist",
+    "Case数": 31,
+    "主指标名称": "task_success_rate",
+    "主指标值": "77.4%",
+    "总体耗时(h)": 0.9619158701741415,
+    "总体Token消耗": 4175108,
+    "相对基线收益": "+0.0pp"
+   },
+   "general_row": {
+    "运行ID": "two-glm51-r1",
+    "实验名称": "prod-tool-loop",
+    "实验时间": "2026-08-10",
+    "代码版本": "aibench@0.1.0 / agent@1.0.0",
+    "Benchmark名称": "AI-Coding-Assist",
+    "Case集合": "_revmixed",
+    "Case数量": 31,
+    "有效Case数": 31,
+    "分组口径": "task_type",
+    "算法名称": "GLM-5.1",
+    "算法版本": "v1.0",
+    "预算轴": "steps",
+    "预算值": "max_steps=40, max_wall_time_s=600",
+    "分支数": 1,
+    "最大Attempt数": 1,
+    "最大Step数": 40,
+    "选择策略": "first-submit",
+    "Agent名称": "tool_loop",
+    "Agent版本": "1.0.0",
+    "主模型": "GLM-5.1",
+    "草稿模型": null,
+    "Panel模型": null,
+    "聚合模型": null,
+    "验证模型": null,
+    "Fallback模型": null,
+    "模型组合摘要": "main=GLM-5.1",
+    "采样参数": "temperature=0.0, max_tokens=8192",
+    "评判类型": "半确定性",
+    "主指标名称": "task_success_rate",
+    "主指标值": 0.7741935483870968,
+    "成功数": 24,
+    "成功率": 0.7741935483870968,
+    "完成数": 26,
+    "完成率": 0.8387096774193549,
+    "空Patch数": 1,
+    "基础设施错误数": 0,
+    "基础设施错误率": 0.0,
+    "总Token": 4175108,
+    "平均Token/Case": 134680.90322580645,
+    "平均Token/成功Case": 173962.83333333334,
+    "总墙钟": 0.9619158701741415,
+    "吞吐": 32.227350604359906,
+    "平均耗时/Case": 1.8617726519499511,
+    "总Step数": 1295,
+    "平均Step/Case": 41.774193548387096,
+    "总模型调用次数": 809,
+    "平均模型调用/Case": 26.096774193548388,
+    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-glm51-r1"
+   },
+   "failure_diagnostics": {
+    "failed_count": 7,
+    "by_category": {
+     "预算耗尽失败": 4,
+     "模型推理失败": 3
+    },
+    "by_agent_status": {
+     "timeout": 4,
+     "completed": 3
+    },
+    "top_reasons": [
+     {
+      "reason": "script_exit=1",
+      "count": 7
+     }
+    ],
+    "samples": [
+     {
+      "case_id": "rev-2ca580a0192883ce",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-429688dd814e45fe",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-461e8d91390e3915",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-5e56df47ee4f862c",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-ac427816b0ed447b",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-dd703d1eb36b1620",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-e57d50ae4bf90593",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     }
+    ]
+   },
+   "index": 1,
+   "relative_success_lift": 0.0,
+   "token_amplification": 1.0
+  },
+  {
+   "stratified_by_tier": {
+    "unknown": {
+     "n": 31,
+     "successes": 26,
+     "success_rate": 0.8387096774193549,
+     "confidence_interval": "[67.4%, 92.9%]"
+    }
+   },
+   "experiment_name": "two-deepseek-r2",
+   "run_id": "two-deepseek-r2",
+   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r2",
+   "algorithm_name": "Deepseek-V4-Flash",
+   "agent_name": "tool_loop",
+   "main_model": "Deepseek-V4-Flash-0731",
+   "success_rate": 0.8387096774193549,
+   "success_count": 26,
+   "case_count": 31,
+   "pass_at_1": 0.8387096774193549,
+   "pass_at_k": 0.8387096774193549,
+   "attempts_per_case": 1.0,
+   "cost_curve": [
+    {
+     "budget_tokens": 31879,
+     "solved": 7,
+     "success_rate": 0.22580645161290322
+    },
+    {
+     "budget_tokens": 122976,
+     "solved": 14,
+     "success_rate": 0.45161290322580644
+    },
+    {
+     "budget_tokens": 255970,
+     "solved": 20,
+     "success_rate": 0.6451612903225806
+    },
+    {
+     "budget_tokens": 339581,
+     "solved": 24,
+     "success_rate": 0.7741935483870968
+    },
+    {
+     "budget_tokens": 592426,
+     "solved": 26,
+     "success_rate": 0.8387096774193549
+    }
+   ],
+   "effective_case_count": 31,
+   "infra_error_count": 0,
+   "infra_error_rate": 0.0,
+   "total_tokens": 4741437,
+   "total_cost": 4.741437,
+   "total_wall_time_h": 0.7399285261563879,
+   "overview_row": {
+    "算法名称": "Deepseek-V4-Flash",
+    "Agent与模型": "tool_loop｜main=Deepseek-V4-Flash-0731",
+    "基础/主模型": "Deepseek-V4-Flash-0731",
+    "Benchmark": "AI-Coding-Assist",
+    "Case数": 31,
+    "主指标名称": "task_success_rate",
+    "主指标值": "83.9%",
+    "总体耗时(h)": 0.7399285261563879,
+    "总体Token消耗": 4741437,
+    "相对基线收益": "+6.5pp"
+   },
+   "general_row": {
+    "运行ID": "two-deepseek-r2",
+    "实验名称": "prod-tool-loop",
+    "实验时间": "2026-08-10",
+    "代码版本": "aibench@0.1.0 / agent@1.0.0",
+    "Benchmark名称": "AI-Coding-Assist",
+    "Case集合": "_revmixed",
+    "Case数量": 31,
+    "有效Case数": 31,
+    "分组口径": "task_type",
+    "算法名称": "Deepseek-V4-Flash",
+    "算法版本": "v1.0",
+    "预算轴": "steps",
+    "预算值": "max_steps=40, max_wall_time_s=600",
+    "分支数": 1,
+    "最大Attempt数": 1,
+    "最大Step数": 40,
+    "选择策略": "first-submit",
+    "Agent名称": "tool_loop",
+    "Agent版本": "1.0.0",
+    "主模型": "Deepseek-V4-Flash-0731",
+    "草稿模型": null,
+    "Panel模型": null,
+    "聚合模型": null,
+    "验证模型": null,
+    "Fallback模型": null,
+    "模型组合摘要": "main=Deepseek-V4-Flash-0731",
+    "采样参数": "temperature=0.0, max_tokens=8192",
+    "评判类型": "半确定性",
+    "主指标名称": "task_success_rate",
+    "主指标值": 0.8387096774193549,
+    "成功数": 26,
+    "成功率": 0.8387096774193549,
+    "完成数": 24,
+    "完成率": 0.7741935483870968,
+    "空Patch数": 3,
+    "基础设施错误数": 0,
+    "基础设施错误率": 0.0,
+    "总Token": 4741437,
+    "平均Token/Case": 152949.5806451613,
+    "平均Token/成功Case": 182362.96153846153,
+    "总墙钟": 0.7399285261563879,
+    "吞吐": 41.89593846453216,
+    "平均耗时/Case": 1.4321197280446216,
+    "总Step数": 1366,
+    "平均Step/Case": 44.064516129032256,
+    "总模型调用次数": 711,
+    "平均模型调用/Case": 22.93548387096774,
+    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r2"
+   },
+   "failure_diagnostics": {
+    "failed_count": 5,
+    "by_category": {
+     "预算耗尽失败": 3,
+     "模型推理失败": 2
+    },
+    "by_agent_status": {
+     "timeout": 3,
+     "completed": 2
+    },
+    "top_reasons": [
+     {
+      "reason": "script_exit=1",
+      "count": 5
+     }
+    ],
+    "samples": [
+     {
+      "case_id": "rev-45d9a8eedc412aa7",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-461e8d91390e3915",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-ac427816b0ed447b",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-dd703d1eb36b1620",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-e57d50ae4bf90593",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     }
+    ]
+   },
+   "index": 2,
+   "relative_success_lift": 0.06451612903225812,
+   "token_amplification": 1.1356441557918981
+  },
+  {
+   "stratified_by_tier": {
+    "unknown": {
+     "n": 31,
+     "successes": 20,
+     "success_rate": 0.6451612903225806,
+     "confidence_interval": "[46.9%, 78.9%]"
+    }
+   },
+   "experiment_name": "two-glm51-r2",
+   "run_id": "two-glm51-r2",
+   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_011924_two-glm51-r2",
+   "algorithm_name": "GLM-5.1",
+   "agent_name": "tool_loop",
+   "main_model": "GLM-5.1",
+   "success_rate": 0.6451612903225806,
+   "success_count": 20,
+   "case_count": 31,
+   "pass_at_1": 0.6451612903225806,
+   "pass_at_k": 0.6451612903225806,
+   "attempts_per_case": 1.0,
+   "cost_curve": [
+    {
+     "budget_tokens": 42423,
+     "solved": 5,
+     "success_rate": 0.16129032258064516
+    },
+    {
+     "budget_tokens": 93829,
+     "solved": 11,
+     "success_rate": 0.3548387096774194
+    },
+    {
+     "budget_tokens": 171063,
+     "solved": 17,
+     "success_rate": 0.5483870967741935
+    },
+    {
+     "budget_tokens": 281818,
+     "solved": 19,
+     "success_rate": 0.6129032258064516
+    },
+    {
+     "budget_tokens": 448175,
+     "solved": 20,
+     "success_rate": 0.6451612903225806
+    }
+   ],
+   "effective_case_count": 31,
+   "infra_error_count": 0,
+   "infra_error_rate": 0.0,
+   "total_tokens": 3898288,
+   "total_cost": 3.898288,
+   "total_wall_time_h": 0.987166978043614,
+   "overview_row": {
+    "算法名称": "GLM-5.1",
+    "Agent与模型": "tool_loop｜main=GLM-5.1",
+    "基础/主模型": "GLM-5.1",
+    "Benchmark": "AI-Coding-Assist",
+    "Case数": 31,
+    "主指标名称": "task_success_rate",
+    "主指标值": "64.5%",
+    "总体耗时(h)": 0.987166978043614,
+    "总体Token消耗": 3898288,
+    "相对基线收益": "-12.9pp"
+   },
+   "general_row": {
+    "运行ID": "two-glm51-r2",
+    "实验名称": "prod-tool-loop",
+    "实验时间": "2026-08-10",
+    "代码版本": "aibench@0.1.0 / agent@1.0.0",
+    "Benchmark名称": "AI-Coding-Assist",
+    "Case集合": "_revmixed",
+    "Case数量": 31,
+    "有效Case数": 31,
+    "分组口径": "task_type",
+    "算法名称": "GLM-5.1",
+    "算法版本": "v1.0",
+    "预算轴": "steps",
+    "预算值": "max_steps=40, max_wall_time_s=600",
+    "分支数": 1,
+    "最大Attempt数": 1,
+    "最大Step数": 40,
+    "选择策略": "first-submit",
+    "Agent名称": "tool_loop",
+    "Agent版本": "1.0.0",
+    "主模型": "GLM-5.1",
+    "草稿模型": null,
+    "Panel模型": null,
+    "聚合模型": null,
+    "验证模型": null,
+    "Fallback模型": null,
+    "模型组合摘要": "main=GLM-5.1",
+    "采样参数": "temperature=0.0, max_tokens=8192",
+    "评判类型": "半确定性",
+    "主指标名称": "task_success_rate",
+    "主指标值": 0.6451612903225806,
+    "成功数": 20,
+    "成功率": 0.6451612903225806,
+    "完成数": 21,
+    "完成率": 0.6774193548387096,
+    "空Patch数": 3,
+    "基础设施错误数": 0,
+    "基础设施错误率": 0.0,
+    "总Token": 3898288,
+    "平均Token/Case": 125751.2258064516,
+    "平均Token/成功Case": 194914.4,
+    "总墙钟": 0.987166978043614,
+    "吞吐": 31.40299532854754,
+    "平均耗时/Case": 1.9106457639553818,
+    "总Step数": 1310,
+    "平均Step/Case": 42.25806451612903,
+    "总模型调用次数": 832,
+    "平均模型调用/Case": 26.838709677419356,
+    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_011924_two-glm51-r2"
+   },
+   "failure_diagnostics": {
+    "failed_count": 11,
+    "by_category": {
+     "预算耗尽失败": 8,
+     "模型推理失败": 3
+    },
+    "by_agent_status": {
+     "timeout": 8,
+     "completed": 3
+    },
+    "top_reasons": [
+     {
+      "reason": "script_exit=1",
+      "count": 10
+     },
+     {
+      "reason": "script_exit=2",
+      "count": 1
+     }
+    ],
+    "samples": [
+     {
+      "case_id": "rev-2ca580a0192883ce",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-45d9a8eedc412aa7",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-461e8d91390e3915",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-5e56df47ee4f862c",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-772a0200c25e3bb1",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=2"
+     },
+     {
+      "case_id": "rev-9029660c5a575277",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-ac427816b0ed447b",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-d326423b2e842029",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-dd703d1eb36b1620",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-e57d50ae4bf90593",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-ea040c6cc651d689",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     }
+    ]
+   },
+   "index": 3,
+   "relative_success_lift": -0.12903225806451613,
+   "token_amplification": 0.9336975235131643
+  },
+  {
+   "stratified_by_tier": {
+    "unknown": {
+     "n": 31,
+     "successes": 27,
+     "success_rate": 0.8709677419354839,
+     "confidence_interval": "[71.1%, 94.9%]"
+    }
+   },
+   "experiment_name": "two-deepseek-r3",
+   "run_id": "two-deepseek-r3",
+   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_012345_two-deepseek-r3",
+   "algorithm_name": "Deepseek-V4-Flash",
+   "agent_name": "tool_loop",
+   "main_model": "Deepseek-V4-Flash-0731",
+   "success_rate": 0.8709677419354839,
+   "success_count": 27,
+   "case_count": 31,
+   "pass_at_1": 0.8709677419354839,
+   "pass_at_k": 0.8709677419354839,
+   "attempts_per_case": 1.0,
+   "cost_curve": [
+    {
+     "budget_tokens": 24888,
+     "solved": 6,
+     "success_rate": 0.1935483870967742
+    },
+    {
+     "budget_tokens": 108833,
+     "solved": 14,
+     "success_rate": 0.45161290322580644
+    },
+    {
+     "budget_tokens": 276613,
+     "solved": 22,
+     "success_rate": 0.7096774193548387
+    },
+    {
+     "budget_tokens": 331179,
+     "solved": 24,
+     "success_rate": 0.7741935483870968
+    },
+    {
+     "budget_tokens": 539354,
+     "solved": 27,
+     "success_rate": 0.8709677419354839
+    }
+   ],
+   "effective_case_count": 31,
+   "infra_error_count": 0,
+   "infra_error_rate": 0.0,
+   "total_tokens": 4868047,
+   "total_cost": 4.868047,
+   "total_wall_time_h": 0.7183348137031135,
+   "overview_row": {
+    "算法名称": "Deepseek-V4-Flash",
+    "Agent与模型": "tool_loop｜main=Deepseek-V4-Flash-0731",
+    "基础/主模型": "Deepseek-V4-Flash-0731",
+    "Benchmark": "AI-Coding-Assist",
+    "Case数": 31,
+    "主指标名称": "task_success_rate",
+    "主指标值": "87.1%",
+    "总体耗时(h)": 0.7183348137031135,
+    "总体Token消耗": 4868047,
+    "相对基线收益": "+9.7pp"
+   },
+   "general_row": {
+    "运行ID": "two-deepseek-r3",
+    "实验名称": "prod-tool-loop",
+    "实验时间": "2026-08-10",
+    "代码版本": "aibench@0.1.0 / agent@1.0.0",
+    "Benchmark名称": "AI-Coding-Assist",
+    "Case集合": "_revmixed",
+    "Case数量": 31,
+    "有效Case数": 31,
+    "分组口径": "task_type",
+    "算法名称": "Deepseek-V4-Flash",
+    "算法版本": "v1.0",
+    "预算轴": "steps",
+    "预算值": "max_steps=40, max_wall_time_s=600",
+    "分支数": 1,
+    "最大Attempt数": 1,
+    "最大Step数": 40,
+    "选择策略": "first-submit",
+    "Agent名称": "tool_loop",
+    "Agent版本": "1.0.0",
+    "主模型": "Deepseek-V4-Flash-0731",
+    "草稿模型": null,
+    "Panel模型": null,
+    "聚合模型": null,
+    "验证模型": null,
+    "Fallback模型": null,
+    "模型组合摘要": "main=Deepseek-V4-Flash-0731",
+    "采样参数": "temperature=0.0, max_tokens=8192",
+    "评判类型": "半确定性",
+    "主指标名称": "task_success_rate",
+    "主指标值": 0.8709677419354839,
+    "成功数": 27,
+    "成功率": 0.8709677419354839,
+    "完成数": 24,
+    "完成率": 0.7741935483870968,
+    "空Patch数": 0,
+    "基础设施错误数": 0,
+    "基础设施错误率": 0.0,
+    "总Token": 4868047,
+    "平均Token/Case": 157033.7741935484,
+    "平均Token/成功Case": 180298.03703703705,
+    "总墙钟": 0.7183348137031135,
+    "吞吐": 43.155363499912795,
+    "平均耗时/Case": 1.3903254458769938,
+    "总Step数": 1420,
+    "平均Step/Case": 45.806451612903224,
+    "总模型调用次数": 739,
+    "平均模型调用/Case": 23.838709677419356,
+    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_012345_two-deepseek-r3"
+   },
+   "failure_diagnostics": {
+    "failed_count": 4,
+    "by_category": {
+     "预算耗尽失败": 2,
+     "模型推理失败": 2
+    },
+    "by_agent_status": {
+     "timeout": 2,
+     "completed": 2
+    },
+    "top_reasons": [
+     {
+      "reason": "script_exit=1",
+      "count": 4
+     }
+    ],
+    "samples": [
+     {
+      "case_id": "rev-45d9a8eedc412aa7",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-ac427816b0ed447b",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-e57d50ae4bf90593",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-ea040c6cc651d689",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     }
+    ]
+   },
+   "index": 4,
+   "relative_success_lift": 0.09677419354838712,
+   "token_amplification": 1.1659691198407323
+  },
+  {
+   "stratified_by_tier": {
+    "unknown": {
+     "n": 31,
+     "successes": 24,
+     "success_rate": 0.7741935483870968,
+     "confidence_interval": "[60.2%, 88.6%]"
+    }
+   },
+   "experiment_name": "two-glm51-r3",
+   "run_id": "two-glm51-r3",
+   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_014129_two-glm51-r3",
+   "algorithm_name": "GLM-5.1",
+   "agent_name": "tool_loop",
+   "main_model": "GLM-5.1",
+   "success_rate": 0.7741935483870968,
+   "success_count": 24,
+   "case_count": 31,
+   "pass_at_1": 0.7741935483870968,
+   "pass_at_k": 0.7741935483870968,
+   "attempts_per_case": 1.0,
+   "cost_curve": [
+    {
+     "budget_tokens": 45551,
+     "solved": 7,
+     "success_rate": 0.22580645161290322
+    },
+    {
+     "budget_tokens": 158296,
+     "solved": 13,
+     "success_rate": 0.41935483870967744
+    },
+    {
+     "budget_tokens": 201525,
+     "solved": 19,
+     "success_rate": 0.6129032258064516
+    },
+    {
+     "budget_tokens": 218364,
+     "solved": 22,
+     "success_rate": 0.7096774193548387
+    },
+    {
+     "budget_tokens": 442595,
+     "solved": 24,
+     "success_rate": 0.7741935483870968
+    }
+   ],
+   "effective_case_count": 31,
+   "infra_error_count": 0,
+   "infra_error_rate": 0.0,
+   "total_tokens": 4331595,
+   "total_cost": 4.331595,
+   "total_wall_time_h": 1.0436597210644525,
+   "overview_row": {
+    "算法名称": "GLM-5.1",
+    "Agent与模型": "tool_loop｜main=GLM-5.1",
+    "基础/主模型": "GLM-5.1",
+    "Benchmark": "AI-Coding-Assist",
+    "Case数": 31,
+    "主指标名称": "task_success_rate",
+    "主指标值": "77.4%",
+    "总体耗时(h)": 1.0436597210644525,
+    "总体Token消耗": 4331595,
+    "相对基线收益": "+0.0pp"
+   },
+   "general_row": {
+    "运行ID": "two-glm51-r3",
+    "实验名称": "prod-tool-loop",
+    "实验时间": "2026-08-10",
+    "代码版本": "aibench@0.1.0 / agent@1.0.0",
+    "Benchmark名称": "AI-Coding-Assist",
+    "Case集合": "_revmixed",
+    "Case数量": 31,
+    "有效Case数": 31,
+    "分组口径": "task_type",
+    "算法名称": "GLM-5.1",
+    "算法版本": "v1.0",
+    "预算轴": "steps",
+    "预算值": "max_steps=40, max_wall_time_s=600",
+    "分支数": 1,
+    "最大Attempt数": 1,
+    "最大Step数": 40,
+    "选择策略": "first-submit",
+    "Agent名称": "tool_loop",
+    "Agent版本": "1.0.0",
+    "主模型": "GLM-5.1",
+    "草稿模型": null,
+    "Panel模型": null,
+    "聚合模型": null,
+    "验证模型": null,
+    "Fallback模型": null,
+    "模型组合摘要": "main=GLM-5.1",
+    "采样参数": "temperature=0.0, max_tokens=8192",
+    "评判类型": "半确定性",
+    "主指标名称": "task_success_rate",
+    "主指标值": 0.7741935483870968,
+    "成功数": 24,
+    "成功率": 0.7741935483870968,
+    "完成数": 24,
+    "完成率": 0.7741935483870968,
+    "空Patch数": 3,
+    "基础设施错误数": 0,
+    "基础设施错误率": 0.0,
+    "总Token": 4331595,
+    "平均Token/Case": 139728.87096774194,
+    "平均Token/成功Case": 180483.125,
+    "总墙钟": 1.0436597210644525,
+    "吞吐": 29.703167971628137,
+    "平均耗时/Case": 2.01998655689894,
+    "总Step数": 1367,
+    "平均Step/Case": 44.096774193548384,
+    "总模型调用次数": 884,
+    "平均模型调用/Case": 28.516129032258064,
+    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_014129_two-glm51-r3"
+   },
+   "failure_diagnostics": {
+    "failed_count": 7,
+    "by_category": {
+     "预算耗尽失败": 5,
+     "模型推理失败": 2
+    },
+    "by_agent_status": {
+     "timeout": 5,
+     "completed": 2
+    },
+    "top_reasons": [
+     {
+      "reason": "script_exit=1",
+      "count": 7
+     }
+    ],
+    "samples": [
+     {
+      "case_id": "rev-40473af819aab141",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-429688dd814e45fe",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-461e8d91390e3915",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-62ef1cb54b48c416",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-ac427816b0ed447b",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-dd703d1eb36b1620",
+      "failure_category": "预算耗尽失败",
+      "agent_status": "timeout",
+      "detail": "exit=1"
+     },
+     {
+      "case_id": "rev-e57d50ae4bf90593",
+      "failure_category": "模型推理失败",
+      "agent_status": "completed",
+      "detail": "exit=1"
+     }
+    ]
+   },
+   "index": 5,
+   "relative_success_lift": 0.0,
+   "token_amplification": 1.0374809466006627
+  }
+ ],
+ "failed_runs": [],
+ "pairwise_comparisons": [
+  {
+   "baseline": "two-glm51-r1",
+   "candidate": "two-deepseek-r1",
+   "both_passed": 20,
+   "only_baseline": 4,
+   "only_candidate": 2,
+   "neither": 5,
+   "b": 4,
+   "c": 2,
+   "discordant": 6,
+   "p_value": 0.6875,
+   "significant": false
+  },
+  {
+   "baseline": "two-glm51-r1",
+   "candidate": "two-deepseek-r2",
+   "both_passed": 23,
+   "only_baseline": 1,
+   "only_candidate": 3,
+   "neither": 4,
+   "b": 1,
+   "c": 3,
+   "discordant": 4,
+   "p_value": 0.625,
+   "significant": false
+  },
+  {
+   "baseline": "two-glm51-r1",
+   "candidate": "two-glm51-r2",
+   "both_passed": 19,
+   "only_baseline": 5,
+   "only_candidate": 1,
+   "neither": 6,
+   "b": 5,
+   "c": 1,
+   "discordant": 6,
+   "p_value": 0.21875,
+   "significant": false
+  },
+  {
+   "baseline": "two-glm51-r1",
+   "candidate": "two-deepseek-r3",
+   "both_passed": 22,
+   "only_baseline": 2,
+   "only_candidate": 5,
+   "neither": 2,
+   "b": 2,
+   "c": 5,
+   "discordant": 7,
+   "p_value": 0.453125,
+   "significant": false
+  },
+  {
+   "baseline": "two-glm51-r1",
+   "candidate": "two-glm51-r3",
+   "both_passed": 22,
+   "only_baseline": 2,
+   "only_candidate": 2,
+   "neither": 5,
+   "b": 2,
+   "c": 2,
+   "discordant": 4,
+   "p_value": 1.0,
+   "significant": false
+  }
+ ],
+ "tier_matrix": {
+  "two-deepseek-r1": {
+   "unknown": {
+    "n": 31,
+    "successes": 22,
+    "success_rate": 0.7096774193548387,
+    "confidence_interval": "[53.4%, 83.9%]"
+   }
+  },
+  "two-glm51-r1": {
+   "unknown": {
+    "n": 31,
+    "successes": 24,
+    "success_rate": 0.7741935483870968,
+    "confidence_interval": "[60.2%, 88.6%]"
+   }
+  },
+  "two-deepseek-r2": {
+   "unknown": {
+    "n": 31,
+    "successes": 26,
+    "success_rate": 0.8387096774193549,
+    "confidence_interval": "[67.4%, 92.9%]"
+   }
+  },
+  "two-glm51-r2": {
+   "unknown": {
+    "n": 31,
+    "successes": 20,
+    "success_rate": 0.6451612903225806,
+    "confidence_interval": "[46.9%, 78.9%]"
+   }
+  },
+  "two-deepseek-r3": {
+   "unknown": {
+    "n": 31,
+    "successes": 27,
+    "success_rate": 0.8709677419354839,
+    "confidence_interval": "[71.1%, 94.9%]"
+   }
+  },
+  "two-glm51-r3": {
+   "unknown": {
+    "n": 31,
+    "successes": 24,
+    "success_rate": 0.7741935483870968,
+    "confidence_interval": "[60.2%, 88.6%]"
+   }
+  }
+ }
+}
