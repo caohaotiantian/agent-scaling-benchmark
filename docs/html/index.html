@@ -50,6 +50,14 @@
   <p>中档 74.2%（95% 区间 [56.8%, 86.3%]）已达成 70% 的目标。
      完整数据、置信区间与已知边界见<a href="overview.html#distribution">项目介绍</a>。</p>
 
+  <div class="callout warn">
+    <p><strong>⚠️ 难度分布正在重测（2026-08-09）。</strong> 模型消融查出三个 agent 适配器缺陷，
+       其中两个位于 <code>tool_loop</code> —— 所有校准面板的最强锚点。
+       同一批用例、同一模型，<strong>仅修 harness 就使 GLM-5.2 从 25.8% 升到 83.9%</strong>。
+       本页与「项目介绍」中 2026-08-09 之前的难度数字暂不可作为结论，
+       见<a href="overview.html#distribution">项目介绍 · 第 6 节</a>。</p>
+  </div>
+
   <h2>待讨论</h2>
   <div class="callout warn">
     <p><strong>语言覆盖是当前产量的首要上限。</strong> 3,312 条草稿中可重建的文件版本里，
