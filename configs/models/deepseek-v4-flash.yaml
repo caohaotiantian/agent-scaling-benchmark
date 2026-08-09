@@ -1,0 +1,9 @@
+# Model slot for the model-only ablation. Same gateway, same credential.
+name: deepseek-v4-flash
+provider: openai_compat
+model: Deepseek-V4-Flash-0731
+base_url: null  # uses OPENAI_BASE_URL
+api_key_env: OPENAI_API_KEY
+temperature: 0
+max_tokens: 8192
+extra: {}

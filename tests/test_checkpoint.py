@@ -7,6 +7,8 @@ killed by a tool timeout and the whole batch had to be paid for again.
 
 import json
 
+import pytest
+
 from aibench.checkpoint import JOURNAL_NAME, CaseSink
 
 
@@ -210,3 +212,36 @@ def test_the_bundle_does_not_carry_this_machines_paths():
     assert "validity_issues" not in out["metadata"]
     assert out["metadata"]["tier"] == "T2", "only the local detail goes"
     assert "validity_issues" in case["metadata"], "the caller's copy is untouched"
+
+
+def test_the_single_turn_parser_tolerates_how_models_actually_reply():
+    """json.loads on the whole reply was measuring itself, not the model.
+
+    Across a five-model ablation over 31 cases, 22 of GLM-5.2's 23 failures were this parse
+    raising "Expecting value: line 1 column 1"; only 1 was a real attempt that failed its
+    tests. Models that wrap the object in more prose failed more, which reads as a capability
+    difference and is not one.
+    """
+    from aibench.agents.openai_compat import _parse_files_payload
+
+    obj = '{"files":[{"path":"a.py","content":"x=1"}],"message":"ok"}'
+    for label, text in (
+        ("bare", obj),
+        ("fenced", f"```json\n{obj}\n```"),
+        ("prose around it", f"Here is the fix:\n{obj}\nDone."),
+        ("literal newline in a value", '{"files":[{"path":"a.py","content":"a\nb"}]}'),
+    ):
+        files, _ = _parse_files_payload(text)
+        assert len(files) == 1, label
+        assert files[0]["path"] == "a.py", label
+
+
+def test_a_truncated_reply_is_not_blamed_on_the_model_as_bad_output():
+    """finish_reason=length with empty content means it never got to answer."""
+    import json as _json
+
+    from aibench.agents.openai_compat import _parse_files_payload
+
+    # Reasoning prose is not an answer; handing it to the parser is the bug being fixed.
+    with pytest.raises(_json.JSONDecodeError):
+        _parse_files_payload("The user wants me to fix the localization for the S key...")

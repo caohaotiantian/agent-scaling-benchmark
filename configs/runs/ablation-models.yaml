@@ -1,0 +1,55 @@
+# Model-only ablation: can this case set tell five models apart?
+#
+# Everything except the model is held fixed — same agent scaffold, same run config, same case
+# set, same gateway, same credential. Any difference between rows is therefore attributable to
+# the model, which is the whole claim being tested.
+#
+# The scaffold is deliberately single-turn rather than the tool loop. A tool loop can run the
+# tests and iterate, and it passes 90.3% of these cases; a measurement taken that close to the
+# ceiling cannot separate models. Single-turn sits at 25-42% on the same set, which leaves room
+# for a difference to show.
+#
+# The five models are exactly those the credential is authorised for, read from the gateway's
+# own error message rather than assumed.
+#
+# Cost: 31 cases x 5 rows = 155 single-turn runs.
+case_set: _revmixed
+baseline_experiment: model-glm52
+parallel: 3
+allow_weak_grader: false
+runs:
+  # Baseline. Every other row is McNemar-tested against this one, pairing on case.
+  - experiment_name: model-glm52
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: abl-glm52
+    run_config: configs/runs/baseline.yaml
+
+  - experiment_name: model-glm51
+    algorithm_name: GLM-5.1
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: abl-glm51
+    run_config: configs/runs/baseline.yaml
+
+  - experiment_name: model-glm5
+    algorithm_name: GLM-5
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: abl-glm5
+    run_config: configs/runs/baseline.yaml
+
+  - experiment_name: model-qwen37
+    algorithm_name: Qwen3.7-Plus
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/qwen37.yaml
+    run_id: abl-qwen37
+    run_config: configs/runs/baseline.yaml
+
+  - experiment_name: model-deepseek-v4-flash
+    algorithm_name: Deepseek-V4-Flash
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/deepseek-v4-flash.yaml
+    run_id: abl-deepseek-v4-flash
+    run_config: configs/runs/baseline.yaml

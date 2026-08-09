@@ -22,8 +22,27 @@ def _strip_fences(text: str) -> str:
 
 
 def _parse_files_payload(text: str) -> tuple[list[dict[str, str]], str]:
+    """Read the model's answer, tolerating the ways a real model wraps it.
+
+    ``json.loads`` on the whole reply is too brittle to be measuring anything but itself. In a
+    five-model ablation over 31 cases, 22 of GLM-5.2's 23 failures were this parse raising
+    "Expecting value: line 1 column 1" — the model never got credit for an answer it may well
+    have produced, while only 1 failure was a real attempt that did not pass. Models whose
+    replies carry more prose around the object failed more, which reads as a capability
+    difference and is not one.
+
+    So: strip fences, fall back to the outermost {...} in the text, and parse non-strictly so a
+    literal newline inside a string value — the ordinary way to write a source file into JSON —
+    is not fatal.
+    """
     cleaned = _strip_fences(text)
-    data = json.loads(cleaned)
+    try:
+        data = json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        data = json.loads(cleaned[start : end + 1], strict=False)
     if not isinstance(data, dict) or "files" not in data:
         raise ValueError("model JSON must be an object with key 'files'")
     files = data["files"]
@@ -105,9 +124,19 @@ class OpenAICompatAgent(AgentAdapter):
                 )
                 resp.raise_for_status()
                 body_local = resp.json()
-            msg = body_local["choices"][0]["message"]
-            content = msg.get("content") or msg.get("reasoning_content") or ""
-            if not str(content).strip():
+            choice = body_local["choices"][0]
+            msg = choice["message"]
+            content = str(msg.get("content") or "").strip()
+            if not content:
+                # Only now consider the reasoning stream, and only if the model actually
+                # finished. A truncated reply puts *thinking* there; handing that to the JSON
+                # parser blames the model for an answer it never got to give.
+                if str(choice.get("finish_reason") or "") == "length":
+                    raise ValueError(
+                        "model exhausted its output budget before answering (finish_reason=length)"
+                    )
+                content = str(msg.get("reasoning_content") or "").strip()
+            if not content:
                 raise ValueError("empty content in response")
             files_local, message_local = _parse_files_payload(str(content))
             return body_local, files_local, message_local
