@@ -323,12 +323,44 @@
 <figcaption>剂量反应清晰：隐藏 1 条几乎无影响，隐藏 2 条通过率腰斩，隐藏 5 条以上归零。配对检验（最强锚点能否解出）：15 条由能解变不能解，反向 0 条，精确双侧 <code>p = 6.1e-05</code>。</figcaption>
 </figure>
 
+<p>据此实测四个档位，全部作用于同一批 31 条用例、同一面板：</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>设置</th><th>最强锚点</th><th>难档</th><th>无人能解</th><th>有区分度</th></tr></thead>
+<tbody>
+<tr><td>全部可见</td><td>90.3%</td><td>1</td><td>0</td><td><strong>26</strong></td></tr>
+<tr><td>隐藏 2 条</td><td>55.9%</td><td>12</td><td>11</td><td>16</td></tr>
+<tr><td>保留 3 条可见</td><td>52.7%</td><td>14</td><td>12</td><td>15</td></tr>
+<tr><td>保留 1 条可见</td><td>47.3%</td><td>15</td><td>14</td><td>11</td></tr>
+<tr><td>目标</td><td>—</td><td>≈5</td><td>≈0</td><td>越高越好</td></tr>
+</tbody>
+</table></div>
+
 <div class="callout warn">
-<p><strong>该杠杆需要按「隐藏条数」控制，而非「保留条数」。</strong> 模型通常写 4–10 条测试，因此「保留 3 条」实际隐藏中位数 2 条、「保留 1 条」隐藏中位数 4 条——两者都已越过崩塌点，实测结果几乎相同（最强锚点 52.7% 与 47.3%）。</p>
-<p>过度隐藏的代价是把「仅最强能解」变成「无人能解」：区分度用例从 26 条降至 11 条，而无人能解的题与送分题一样不产生区分度。</p>
+<p><strong>该杠杆须按「隐藏条数」控制，而非「保留条数」。</strong> 模型通常写 4–10 条测试，因此「保留 3 条」实际隐藏中位数 2 条、「保留 1 条」隐藏中位数 4 条——两者都已越过崩塌点，实测结果几乎相同。</p>
+<p><strong>没有一个全局档位能命中目标。</strong> 隐藏 1 条几乎不起作用（最强锚点 87.5%），隐藏 2 条已经把 11 条用例推入「无人能解」、区分度由 26 降至 16。可用区间被模型所写的测试条数卡死，粒度不足。</p>
 </div>
 
-<h3>6.4 用例样例</h3>
+<h3>6.4 按用例分别处理</h3>
+
+<p>既然全局档位不可行，改为<strong>只对已判定为易档的用例隐藏测试</strong>，其余保持原样。用已有配对数据推算的结果：</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>档位</th><th>全部可见</th><th>全部隐藏 2 条</th><th>仅易档隐藏</th><th>目标</th></tr></thead>
+<tbody>
+<tr><td>易</td><td>7</td><td>6</td><td><strong>4</strong></td><td>5</td></tr>
+<tr><td>中</td><td>23</td><td>13</td><td><strong>25</strong></td><td>22</td></tr>
+<tr><td>难</td><td>1</td><td>12</td><td>2</td><td>5</td></tr>
+<tr><td>无人能解</td><td>0</td><td>11</td><td><strong>1</strong></td><td>≈0</td></tr>
+<tr><td>有区分度</td><td>26</td><td>16</td><td><strong>26</strong></td><td>越高越好</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout">
+<p><strong>此为基于既有配对测量的推算，尚未独立验证。</strong> 该策略按实测通过率挑选「易档」，存在回归均值的风险——被选中的用例中有一部分是噪声推高的，重测会自然回落。正在以独立校准验证，结论以实测为准。</p>
+</div>
+
+<h3>6.5 用例样例</h3>
 
 <p>一条完整用例是单个 JSON 文件。以下为真实产物的结构（内容已省略）：</p>
 
