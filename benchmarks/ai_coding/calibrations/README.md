@@ -4,7 +4,7 @@
 但校准结果是**纯数字** —— case_id、p_hat、by_anchor、spread、r_pb、keep/reasons，无任何代码。
 把它们放在这里，是为了让别人能**自己核对我们报的每一个比例**，而不必选择相信我们。
 
-已核查：这四个文件不含 `def ` / `import ` / `assert ` / `Traceback` 等代码文本。
+已核查：以下每个文件均不含 `def ` / `import ` / `assert ` / `Traceback` 等代码文本。
 原始 `results.jsonl` **未发布** —— 它的 `grade.detail` 带 pytest 回溯，
 实测 59 条失败行里有 27 条含测试源码。
 
@@ -16,7 +16,14 @@
 | `disc-v0_2anchor_partial_20260805.json` | disc-v0 | **2 锚点**（见下） | 28 |
 | `retrieval-v0_3anchor_20260805.json` | retrieval-v0 | 3 锚点检索面板 | 27 |
 | `scaleprobe60_3anchor_20260807.json` | 新集合抽样 | 3 锚点单轮面板 | 60 |
-| `reverse-v0_3anchor_20260807.json` | **反向构造**（真人真错） | 3 锚点，`repeats=3` | 7 |
+| `reverse-v0_3anchor_20260807.json` | 反向构造 · 首批 | 3 锚点，`repeats=3` | 7 |
+| `reverse-v1_3anchor_20260808.json` | 反向构造 · 全部可见 | 3 锚点，`repeats=3` | 31 |
+| `reverse-v1-hide2_3anchor_20260809.json` | 反向构造 · 全量隐藏 2 条 | 同上 | 31 |
+| `reverse-v1-keep3_3anchor_20260809.json` | 反向构造 · 保留 3 条可见 | 同上 | 31 |
+| `reverse-v1-hidden1_3anchor_20260808.json` | 反向构造 · 保留 1 条可见 | 同上 | 31 |
+| **`reverse-v2-mixed_3anchor_20260809.json`** | **最终配置 · 仅易档隐藏** | 同上 | 31 |
+
+后五份是同一批 31 条用例、同一面板的配对测量，仅「测试可见性」一个变量不同，可直接对照。
 
 `disc-v0` 那份是**进程被杀后重建的**：6 轮只完成 4 轮，`strong-full-loop` 从未运行。
 文件里的 `anchors_missing` 如实记录了这一点。它描述的是一个**两锚点面板**，
