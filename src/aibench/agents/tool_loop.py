@@ -16,6 +16,17 @@ from aibench.agents.base import AgentAdapter, request_timeout_s
 from aibench.models import AgentRunResult, Case, StepRecord, UsageRecord
 
 
+def _loads_tolerant(cleaned: str) -> Any:
+    """Parse what a model really sends: fenced, prose-wrapped, or with real newlines inside."""
+    try:
+        return json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        return json.loads(cleaned[start : end + 1], strict=False)
+
+
 def _strip_fences(text: str) -> str:
     text = (text or "").strip()
     m = re.match(r"^```(?:json)?\s*([\s\S]*?)\s*```$", text)
@@ -174,11 +185,18 @@ class ToolLoopAgent(AgentAdapter):
             )
             usage.model_calls += 1
 
-            msg = body["choices"][0]["message"]
-            content = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+            choice = body["choices"][0]
+            msg = choice["message"]
+            content = str(msg.get("content") or "").strip()
+            if not content and str(choice.get("finish_reason") or "") != "length":
+                # Only when the model finished: a truncated reply puts thinking in the
+                # reasoning stream, and treating that as the answer makes the loop argue with
+                # its own transcript. This anchor is the strong end of every calibration panel,
+                # so a systematic misread here biases every difficulty measurement.
+                content = str(msg.get("reasoning_content") or "").strip()
             steps.append(StepRecord(step_index=step, action="llm_call", tool="chat"))
             try:
-                data = json.loads(_strip_fences(content))
+                data = _loads_tolerant(_strip_fences(content))
             except Exception:
                 messages.append({"role": "assistant", "content": content})
                 messages.append(
