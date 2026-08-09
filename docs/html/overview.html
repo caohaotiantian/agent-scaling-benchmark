@@ -341,23 +341,53 @@
 <p><strong>没有一个全局档位能命中目标。</strong> 隐藏 1 条几乎不起作用（最强锚点 87.5%），隐藏 2 条已经把 11 条用例推入「无人能解」、区分度由 26 降至 16。可用区间被模型所写的测试条数卡死，粒度不足。</p>
 </div>
 
-<h3>6.4 按用例分别处理</h3>
+<h3>6.4 按用例分别处理：最终配置</h3>
 
-<p>既然全局档位不可行，改为<strong>只对已判定为易档的用例隐藏测试</strong>，其余保持原样。用已有配对数据推算的结果：</p>
+<p>既然全局档位不可行，改为<strong>只对已判定为易档的用例隐藏 2 条测试</strong>，其余保持原样。31 条中有 7 条适用该处理。以下为独立校准的实测结果：</p>
 
 <div class="table-wrap"><table>
-<thead><tr><th>档位</th><th>全部可见</th><th>全部隐藏 2 条</th><th>仅易档隐藏</th><th>目标</th></tr></thead>
+<thead><tr><th>档位</th><th>全部可见</th><th>全部隐藏 2 条</th><th><strong>仅易档隐藏</strong></th><th>目标</th></tr></thead>
 <tbody>
-<tr><td>易</td><td>7</td><td>6</td><td><strong>4</strong></td><td>5</td></tr>
-<tr><td>中</td><td>23</td><td>13</td><td><strong>25</strong></td><td>22</td></tr>
-<tr><td>难</td><td>1</td><td>12</td><td>2</td><td>5</td></tr>
-<tr><td>无人能解</td><td>0</td><td>11</td><td><strong>1</strong></td><td>≈0</td></tr>
-<tr><td>有区分度</td><td>26</td><td>16</td><td><strong>26</strong></td><td>越高越好</td></tr>
+<tr><td>易</td><td>7</td><td>6</td><td><strong>5（16.1%）</strong></td><td>5（15%）</td></tr>
+<tr><td>中</td><td>23</td><td>13</td><td><strong>24（77.4%）</strong></td><td>22（70%）</td></tr>
+<tr><td>难</td><td>1</td><td>12</td><td>2（6.5%）</td><td>5（15%）</td></tr>
+<tr><td>人人能解</td><td>4</td><td>2</td><td>4</td><td>低</td></tr>
+<tr><td>仅最强能解</td><td>14</td><td>7</td><td><strong>13</strong></td><td>高</td></tr>
+<tr><td>无人能解</td><td>0</td><td>11</td><td><strong>2</strong></td><td>≈0</td></tr>
+<tr><td>有区分度</td><td>26</td><td>16</td><td><strong>24</strong></td><td>高</td></tr>
+<tr><td>平均通过率</td><td>0.527</td><td>0.380</td><td>0.515</td><td>—</td></tr>
 </tbody>
 </table></div>
 
+<figure class="diagram">
+<svg viewBox="0 0 720 130" role="img" aria-label="最终配置的难度分布与目标对比">
+  <g font-size="12.5" fill="#18212f">
+    <text x="0" y="14" fill="#667085">最终配置（仅易档隐藏，n=31）</text>
+    <rect x="0" y="24" width="116" height="32" fill="#f0b429" rx="3"/>
+    <rect x="116" y="24" width="557" height="32" fill="#27628f" rx="3"/>
+    <rect x="673" y="24" width="47" height="32" fill="#18324d" rx="3"/>
+    <text x="58" y="45" font-size="12" fill="#3d2f00" text-anchor="middle">易 16.1%</text>
+    <text x="394" y="45" font-size="13" fill="#fff" text-anchor="middle" font-weight="700">中 77.4%</text>
+    <text x="696" y="45" font-size="11" fill="#fff" text-anchor="middle">6.5%</text>
+
+    <text x="0" y="86" fill="#667085">目标</text>
+    <rect x="0" y="96" width="108" height="32" fill="#f0b429" rx="3" opacity="0.5"/>
+    <rect x="108" y="96" width="504" height="32" fill="#27628f" rx="3" opacity="0.5"/>
+    <rect x="612" y="96" width="108" height="32" fill="#18324d" rx="3" opacity="0.5"/>
+    <text x="54" y="117" font-size="12" fill="#3d2f00" text-anchor="middle">15%</text>
+    <text x="360" y="117" font-size="12" fill="#fff" text-anchor="middle">70%</text>
+    <text x="666" y="117" font-size="12" fill="#fff" text-anchor="middle">15%</text>
+  </g>
+</svg>
+<figcaption>易档 95% 区间 [7.1%, 32.6%]、中档 [60.2%, 88.6%]，均包含目标值。难档 [1.8%, 20.7%] 虽包含 15%，但点估计仅 6.5%。</figcaption>
+</figure>
+
+<div class="callout good">
+<p><strong>易档与中档达成目标，且区分度基本保留</strong>（24 条，相对全可见的 26 条仅损失 2 条）。这是已测配置中最优的一组。</p>
+</div>
+
 <div class="callout">
-<p><strong>此为基于既有配对测量的推算，尚未独立验证。</strong> 该策略按实测通过率挑选「易档」，存在回归均值的风险——被选中的用例中有一部分是噪声推高的，重测会自然回落。正在以独立校准验证，结论以实测为准。</p>
+<p><strong>关于推算与实测的差异。</strong> 事前用配对数据推算的结果是易档 4 条、区分度 26 条，实测为 5 条与 24 条。差异方向与事前标注的一致：该策略按实测通过率挑选易档，其中一部分是噪声推高的，重测会自然回落。推算可用于预判，不可直接当作结论。</p>
 </div>
 
 <h3>6.5 用例样例</h3>
