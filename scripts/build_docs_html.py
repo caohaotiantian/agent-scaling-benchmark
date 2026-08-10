@@ -2,7 +2,7 @@
 """Build unified HTML documentation site under docs/html/.
 
 Sources:
-  - docs/REFERENCE.md, USER_GUIDE.md, REMAINING_WORK.md
+  - docs/REFERENCE.md, USER_GUIDE.md, REMAINING_WORK.md, HANDOFF.md
   - configs/README.md
   - docs/html/_src/tables.md (field dictionary; smart HTML table layout)
   - docs/html/_src/project-overview.html (canonical overview body)
@@ -29,14 +29,10 @@ ASSETS = OUT / "assets"
 SRC = OUT / "_src"
 
 NAV = [
-    ("index.html", "文档首页"),
-    ("project-overview.html", "项目介绍"),
-    ("reference.html", "参考手册"),
-    ("user-guide.html", "用户向导"),
-    ("agentic-scaling-benchmark.html", "结果表设计"),
-    ("tables.html", "字段字典"),
-    ("configs.html", "生产配置"),
-    ("remaining-work.html", "未尽事项"),
+    ("index.html", "首页"),
+    ("overview.html", "项目介绍"),
+    ("manual.html", "用户手册"),
+    ("reference.html", "参考资料"),
 ]
 
 SITE_CSS = r"""
@@ -412,6 +408,38 @@ h2 {
   border-bottom: 2px solid var(--pale-blue); padding-bottom: 8px;
 }
 h3 { margin: 22px 0 10px; color: #23445f; font-size: 17px; }
+/* --- 图示与结构化排版 --- */
+figure.diagram {
+  margin: 20px 0; padding: 18px; background: var(--white);
+  border: 1px solid var(--line); border-radius: 12px;
+}
+figure.diagram svg { display: block; width: 100%; height: auto; max-width: 900px; margin: 0 auto; }
+figure.diagram figcaption {
+  margin-top: 12px; color: var(--muted); font-size: 13.5px; text-align: center;
+}
+.callout {
+  margin: 16px 0; padding: 14px 16px; border-radius: 10px;
+  border-left: 4px solid var(--blue); background: var(--pale-blue);
+}
+.callout.warn { border-left-color: var(--warn); background: var(--pale-yellow); }
+.callout.good { border-left-color: var(--good); background: var(--pale-green); }
+.callout p:first-child { margin-top: 0; }
+.callout p:last-child { margin-bottom: 0; }
+.step {
+  margin: 18px 0; padding: 16px 18px; background: var(--white);
+  border: 1px solid var(--line); border-radius: 12px;
+}
+.step > h3 { margin-top: 0; display: flex; align-items: center; gap: 10px; }
+.step > h3 .num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--blue); color: #fff; font-size: 14px; flex: 0 0 auto;
+}
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 10px 0; }
+.kv dt { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--navy); font-weight: 600; }
+.kv dd { margin: 0; color: var(--ink); }
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+
 .table-wrap { overflow-x: auto; margin: 12px 0; border: 1px solid var(--line); border-radius: 10px; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { border: 1px solid var(--line); padding: 8px 10px; vertical-align: top; text-align: left; }
@@ -953,6 +981,7 @@ def write_index() -> None:
     <thead><tr><th>HTML 页面</th><th>源文件</th></tr></thead>
     <tbody>
       <tr><td><a href="project-overview.html">project-overview.html</a></td><td>docs/html/_src/project-overview.html</td></tr>
+      <tr><td><a href="handoff.html">handoff.html</a></td><td>docs/HANDOFF.md</td></tr>
       <tr><td><a href="reference.html">reference.html</a></td><td>docs/REFERENCE.md</td></tr>
       <tr><td><a href="user-guide.html">user-guide.html</a></td><td>docs/USER_GUIDE.md</td></tr>
       <tr><td><a href="agentic-scaling-benchmark.html">agentic-scaling-benchmark.html</a></td><td>docs/html/_src/agentic-scaling-benchmark.html</td></tr>
@@ -971,66 +1000,101 @@ def write_index() -> None:
     print("wrote index.html")
 
 
+def write_body_page(src_name: str, out_name: str, title: str) -> None:
+    """Wrap a hand-written body fragment from _src/ in the shared shell."""
+    body = (SRC / src_name).read_text(encoding="utf-8")
+    (OUT / out_name).write_text(shell(title, out_name, body), encoding="utf-8")
+
+
+INDEX_BODY = """
+<header class="hero">
+  <h1>AI-Coding-Assist Benchmark</h1>
+  <p>从现网真实会话记录生成具备能力区分度的编程 benchmark 用例，并给出可复现的度量流程。</p>
+  <div class="meta">
+    <span class="pill">数据来源 · 现网 trace</span>
+    <span class="pill">度量 · 三锚点校准</span>
+    <span class="pill">当前集合 · 31 条</span>
+  </div>
+</header>
+<section class="md-body" style="margin-top:22px">
+  <h2 style="margin-top:0">文档导航</h2>
+  <div class="card-grid">
+    <a class="card" href="overview.html"><h3>项目介绍</h3>
+      <p>背景与目标、流水线架构、反向构造原理、关键模块技术细节、实测难度分布与用例样例</p>
+      <span class="tag">打开 →</span></a>
+    <a class="card" href="manual.html"><h3>用户手册</h3>
+      <p>环境准备、六步端到端流程、每个参数的含义与实测效果、难度调整、对外分发、故障排查</p>
+      <span class="tag">打开 →</span></a>
+    <a class="card" href="reference.html"><h3>参考资料</h3>
+      <p>方案设计依据、用例与校准结果的数据格式、效度门禁规则、已发布数据、术语表</p>
+      <span class="tag">打开 →</span></a>
+  </div>
+
+  <h2>一分钟了解</h2>
+  <p>让大模型直接编题，会稳定产出送分题——基线集合中 <strong>75.2%</strong> 的用例所有配置都能解出。
+     三次独立干预实验证明，无论输入什么，生成器都输出同一种难度。</p>
+  <p>本项目改为<strong>反向构造</strong>：从真实会话中重放出文件被修改前与修改后的两个版本，
+     以前者为待修复代码、后者为参考解，模型只负责编写能区分两版的测试。
+     缺陷来自真人真错，模型无法把任务改简单。</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>指标</th><th>模型编题 <code>auto-v0</code></th><th>反向构造 <code>reverse-v1</code></th></tr></thead>
+    <tbody>
+      <tr><td>易 / 中 / 难</td><td>75.2 / 16.2 / 8.6</td><td><strong>22.6 / 74.2 / 3.2</strong></td></tr>
+      <tr><td>平均通过率</td><td>0.677</td><td><strong>0.527</strong></td></tr>
+      <tr><td>有区分度占比</td><td>22.2%</td><td><strong>83.9%</strong></td></tr>
+    </tbody>
+  </table></div>
+  <p>中档 74.2%（95% 区间 [56.8%, 86.3%]）已达成 70% 的目标。
+     完整数据、置信区间与已知边界见<a href="overview.html#distribution">项目介绍</a>。</p>
+
+  <div class="callout warn">
+    <p><strong>⚠️ 难度分布正在重测（2026-08-09）。</strong> 模型消融查出三个 agent 适配器缺陷，
+       其中两个位于 <code>tool_loop</code> —— 所有校准面板的最强锚点。
+       同一批用例、同一模型，<strong>仅修 harness 就使 GLM-5.2 从 25.8% 升到 83.9%</strong>。
+       本页与「项目介绍」中 2026-08-09 之前的难度数字暂不可作为结论，
+       见<a href="overview.html#distribution">项目介绍 · 第 6 节</a>。</p>
+  </div>
+
+  <h2>待讨论</h2>
+  <div class="callout warn">
+    <p><strong>语言覆盖是当前产量的首要上限。</strong> 3,312 条草稿中可重建的文件版本里，
+       <strong>4,472 个因语言未注册被丢弃</strong>，而最终可用的仅 194 个——丢弃量约为可用量的 23 倍。
+       C++ 与 Rust 需要编译，而评分工作区只有两个文件。</p>
+    <p>问题陈述、实测数据、技术阻塞点、四个可选方案及其代价与风险，
+       见<a href="overview.html#open-lang">项目介绍 · 第 8 节</a>。</p>
+  </div>
+
+  <h2>重建本站</h2>
+  <p><code>uv run python scripts/build_docs_html.py</code>　—　内容源文件位于 <code>docs/html/_src/</code>。</p>
+</section>
+"""
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     ASSETS.mkdir(parents=True, exist_ok=True)
     (ASSETS / "site.css").write_text(SITE_CSS, encoding="utf-8")
 
-    ensure_src_copies()
+    (OUT / "index.html").write_text(
+        shell("AI-Coding-Assist Benchmark · 文档站", "index.html", INDEX_BODY),
+        encoding="utf-8",
+    )
+    write_body_page("overview.html", "overview.html", "项目介绍 · AI-Coding-Assist Benchmark")
+    write_body_page("manual.html", "manual.html", "用户手册 · AI-Coding-Assist Benchmark")
+    write_body_page("reference.html", "reference.html", "参考资料 · AI-Coding-Assist Benchmark")
 
-    write_index()
-    write_md_page(
-        ROOT / "docs/REFERENCE.md",
-        "reference.html",
-        "参考手册 · REFERENCE",
-        "reference.html",
-        "参数级权威参考：概念、架构、环境变量、配置、完整 CLI 参数、Case 协议、科学效度门禁、产物与设计表映射。",
-    )
-    write_md_page(
-        ROOT / "docs/USER_GUIDE.md",
-        "user-guide.html",
-        "用户向导 · USER_GUIDE",
-        "user-guide.html",
-        "从环境准备到抽库、生成 case、跑测与消融的操作步骤与速查。",
-    )
-    write_tables_page()
-    write_md_page(
-        ROOT / "configs/README.md",
-        "configs.html",
-        "生产配置 · configs/",
-        "configs.html",
-        "生产环境 Agent / 模型 / Run / 消融矩阵说明（无 mock）。",
-    )
-    write_md_page(
-        ROOT / "docs/REMAINING_WORK.md",
-        "remaining-work.html",
-        "未尽事项",
-        "remaining-work.html",
-        "已落地能力清单与可选增强项。",
-    )
-
-    overview_src = SRC / "project-overview.html"
-    design_src = SRC / "agentic-scaling-benchmark.html"
-    if not overview_src.is_file():
-        raise FileNotFoundError(f"missing source: {overview_src}")
-    if not design_src.is_file():
-        raise FileNotFoundError(f"missing source: {design_src}")
-
-    adapt_standalone_html(
-        overview_src,
+    for stale in (
         "project-overview.html",
-        "project-overview.html",
-        OVERVIEW_LOCAL_CSS,
-    )
-    adapt_standalone_html(
-        design_src,
+        "user-guide.html",
         "agentic-scaling-benchmark.html",
-        "agentic-scaling-benchmark.html",
-        DESIGN_LOCAL_CSS,
-        wide=True,
-    )
+        "tables.html",
+        "configs.html",
+        "remaining-work.html",
+        "handoff.html",
+    ):
+        (OUT / stale).unlink(missing_ok=True)
 
-    print(f"DONE -> {OUT}")
+    print(f"built 4 pages -> {OUT}")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@ adapter: tool_loop
 description: >
   Multi-step agent with list/read/write/bash/submit tools.
   Requires OPENAI_API_KEY and OPENAI_BASE_URL (or model base_url).
+# Multi-step with list/read/write/bash: can exercise every axis.
+capability_axes: [A1, A2, A3, A4, A5, A6]
 options:
   allow_bash: true
   max_tokens: 4096

@@ -1,0 +1,21 @@
+# Production single-run defaults for the bare-model adapter.
+#
+# max_steps is 1 by construction: there is no loop. max_wall_time is generous because a
+# reasoning model may spend minutes before it answers, and cutting it off would score the
+# deadline rather than the model.
+experiment_name: prod-bare
+algorithm_name: Baseline
+algorithm_version: v1.0
+budget_axis: calls
+budget_value: "model_calls=1, max_wall_time_s=600"
+branches: 1
+max_attempts: 1
+max_steps: 1
+max_wall_time_s: 600
+selection_strategy: first-submit
+case_set: _revmixed
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: configs/agents/bare_model.yaml
+model_config: configs/models/glm51.yaml
+case_workers: 6

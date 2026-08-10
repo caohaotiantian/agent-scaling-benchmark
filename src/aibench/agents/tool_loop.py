@@ -12,8 +12,19 @@ from typing import Any
 
 import httpx
 
-from aibench.agents.base import AgentAdapter
+from aibench.agents.base import AgentAdapter, request_timeout_s
 from aibench.models import AgentRunResult, Case, StepRecord, UsageRecord
+
+
+def _loads_tolerant(cleaned: str) -> Any:
+    """Parse what a model really sends: fenced, prose-wrapped, or with real newlines inside."""
+    try:
+        return json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        return json.loads(cleaned[start : end + 1], strict=False)
 
 
 def _strip_fences(text: str) -> str:
@@ -22,8 +33,57 @@ def _strip_fences(text: str) -> str:
     return m.group(1).strip() if m else text
 
 
+#: Programs a coding agent needs to inspect a workspace and run its tests. Everything else is
+#: refused: the command runs on the host with the harness's own privileges, so this is the only
+#: thing standing between generated text and the developer's machine until the grader runs in a
+#: container. Override per agent with `options.allowed_commands`.
+DEFAULT_ALLOWED_COMMANDS = (
+    "python",
+    "python3",
+    "pytest",
+    "node",
+    "ls",
+    "cat",
+    "head",
+    "tail",
+    "wc",
+    "grep",
+    "find",
+    "pwd",
+    "echo",
+    "true",
+)
+
+#: Shell syntax that escapes a single-program command: chaining, redirection, substitution.
+_SHELL_ESCAPES = (";", "&&", "||", "|", ">", "<", "`", "$(", "${", "&", "\n")
+
+
+def check_bash_command(cmd: str, *, allowed: tuple[str, ...]) -> str | None:
+    """Refusal message for a command the sandbox will not run, or None to allow it.
+
+    An allowlist rather than a blocklist. The previous blocklist let `curl`, `rm -rf` and
+    `$(...)` substitution through, which on an unsandboxed host means a benchmarked model can
+    reach anything the harness can.
+    """
+    cmd = (cmd or "").strip()
+    if not cmd:
+        return "error: empty command"
+    for token in _SHELL_ESCAPES:
+        if token in cmd:
+            return f"error: shell metacharacter not allowed: {token!r}"
+    program = cmd.split()[0].rsplit("/", 1)[-1]
+    if program not in allowed:
+        return f"error: command not allowed: {program} (allowed: {', '.join(sorted(allowed))})"
+    return None
+
+
 class ToolLoopAgent(AgentAdapter):
     """Agent that may call tools in a loop until submit or max_steps."""
+
+    @property
+    def allowed_commands(self) -> tuple[str, ...]:
+        configured = self.agent_config.options.get("allowed_commands")
+        return tuple(configured) if configured else DEFAULT_ALLOWED_COMMANDS
 
     def run(
         self,
@@ -46,7 +106,8 @@ class ToolLoopAgent(AgentAdapter):
         base_url = (
             model.base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         ).rstrip("/")
-        model_name = os.environ.get("OPENAI_MODEL") or model.model
+        # Config wins over env, same precedence as base_url above (see openai_compat).
+        model_name = model.model or os.environ.get("OPENAI_MODEL")
         max_tokens = int(self.agent_config.options.get("max_tokens", model.max_tokens))
         allow_bash = bool(self.agent_config.options.get("allow_bash", True))
 
@@ -87,7 +148,7 @@ class ToolLoopAgent(AgentAdapter):
             try:
 
                 def _llm() -> dict[str, Any]:
-                    with httpx.Client(timeout=min(90.0, max_wall_time_s)) as client:
+                    with httpx.Client(timeout=request_timeout_s(max_wall_time_s)) as client:
                         resp = client.post(
                             f"{base_url}/chat/completions",
                             headers={
@@ -124,11 +185,18 @@ class ToolLoopAgent(AgentAdapter):
             )
             usage.model_calls += 1
 
-            msg = body["choices"][0]["message"]
-            content = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+            choice = body["choices"][0]
+            msg = choice["message"]
+            content = str(msg.get("content") or "").strip()
+            if not content and str(choice.get("finish_reason") or "") != "length":
+                # Only when the model finished: a truncated reply puts thinking in the
+                # reasoning stream, and treating that as the answer makes the loop argue with
+                # its own transcript. This anchor is the strong end of every calibration panel,
+                # so a systematic misread here biases every difficulty measurement.
+                content = str(msg.get("reasoning_content") or "").strip()
             steps.append(StepRecord(step_index=step, action="llm_call", tool="chat"))
             try:
-                data = json.loads(_strip_fences(content))
+                data = _loads_tolerant(_strip_fences(content))
             except Exception:
                 messages.append({"role": "assistant", "content": content})
                 messages.append(
@@ -214,8 +282,9 @@ class ToolLoopAgent(AgentAdapter):
             if not allow_bash:
                 return "error: bash disabled"
             cmd = str(data.get("command") or "")
-            if not cmd or any(x in cmd for x in (";", "&&", "`", "|", ">", "<")):
-                return "error: command not allowed"
+            refusal = check_bash_command(cmd, allowed=self.allowed_commands)
+            if refusal:
+                return refusal
             try:
                 proc = subprocess.run(
                     cmd,
@@ -228,5 +297,6 @@ class ToolLoopAgent(AgentAdapter):
                 )
             except Exception as e:
                 return f"error: {e}"
-            return f"exit={proc.returncode}\n{(proc.stdout or '')[-2000]}\n{(proc.stderr or '')[-1000]}"
+            out, err = (proc.stdout or "")[-2000:], (proc.stderr or "")[-1000:]
+            return f"exit={proc.returncode}\n{out}\n{err}"
         return f"error: unknown tool {tool}"

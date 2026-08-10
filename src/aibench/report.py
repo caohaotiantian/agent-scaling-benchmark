@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 from aibench.diagnostics import aggregate_failures, render_failures_md
-from aibench.stats import format_wilson_ci, stratify_results
+from aibench.stats import budget_quantiles, cost_curve, format_wilson_ci, stratify_results
 
 SUMMARY_REQUIRED_KEYS = [
     "run_id",
@@ -107,13 +107,13 @@ def build_summary(
         "confidence_interval": format_wilson_ci(success_n, effective_n),
         "stratified_by_task_type": stratify_results(case_results, key="task_type"),
         "stratified_by_difficulty": stratify_results(case_results, key="difficulty"),
+        "stratified_by_tier": stratify_results(case_results, key="tier"),
+        "reward_hack_count": sum(1 for r in case_results if r.get("reward_hack")),
         "judgment_agreement": None,
         "baseline_win_rate": None,
-        # Scaling 收益（单路径 baseline 默认空）
+        # Scaling 收益
         "relative_success_lift": None,
-        "oracle_success_count": None,
-        "oracle_success_rate": None,
-        "selection_hit_rate": None,
+        **_scaling_metrics(effective),
         "unique_new_successes": None,
         "regression_failures": None,
         "net_gain": None,
@@ -124,6 +124,7 @@ def build_summary(
         "total_cost": _estimate_cost_usd(total_tokens),
         "avg_cost_per_case": None,
         "token_amplification": None,
+        "cost_curve": cost_curve(effective, budgets=budget_quantiles(effective)),
         # 时间效率
         "total_wall_time_h": total_wall_s / 3600.0,
         "throughput_cases_per_h": throughput,
@@ -144,6 +145,36 @@ def build_summary(
     return summary
 
 
+def _scaling_metrics(effective: list[dict[str, Any]]) -> dict[str, Any]:
+    """pass@1 / pass@k / pass^k and how well the selection strategy exploited the samples.
+
+    ``pass_at_k - pass_at_1`` is the headroom repeated sampling exposes, and
+    ``success_rate - pass_at_1`` is how much of that headroom the configured selection
+    strategy actually captured. With one attempt per case the three collapse together, which
+    is exactly why a single-sample run cannot say anything about agent scaling.
+    """
+    attempts = [int(r.get("attempt_count") or 1) for r in effective]
+    max_attempts = max(attempts, default=1)
+
+    p1 = [r["pass_at_1"] for r in effective if r.get("pass_at_1") is not None]
+    oracle = [r for r in effective if r.get("pass_at_k")]
+    all_pass = [r for r in effective if r.get("pass_pow_k")]
+    hits = [r["selection_hit"] for r in effective if r.get("selection_hit") is not None]
+    n = len(effective)
+
+    return {
+        "attempts_per_case": (sum(attempts) / len(attempts)) if attempts else 1.0,
+        "max_attempts_observed": max_attempts,
+        "pass_at_1": (sum(p1) / len(p1)) if p1 else None,
+        "pass_at_k": (len(oracle) / n) if n else None,
+        "pass_pow_k": (len(all_pass) / n) if n else None,
+        "oracle_success_count": len(oracle),
+        "oracle_success_rate": (len(oracle) / n) if n else None,
+        # Of the cases solvable within k tries, how often did the strategy submit a winner.
+        "selection_hit_rate": (sum(1 for h in hits if h) / len(hits)) if hits else None,
+    }
+
+
 def _estimate_cost_usd(total_tokens: int) -> float | None:
     """Rough USD estimate from env rates (per 1M tokens)."""
     try:
@@ -157,6 +188,72 @@ def _estimate_cost_usd(total_tokens: int) -> float | None:
         return total_tokens / 1_000_000.0 * ((pin + pout) / 2.0)
     except Exception:
         return None
+
+
+def format_pct(value: Any) -> str:
+    """Percent for report tables; missing data prints as "-" rather than 0%."""
+    return "-" if value is None else f"{float(value) * 100:.1f}%"
+
+
+def _render_scaling_md(summary: dict[str, Any]) -> list[str]:
+    k = int(summary.get("max_attempts_observed") or 1)
+    lines = ["## 采样扩展（pass@k）", ""]
+    if k <= 1:
+        lines.extend(
+            [
+                "本次每个 case 只采样 1 次，`pass@1` / `pass@k` / 成功率必然相等，",
+                "**无法说明任何采样扩展收益**。需要收益结论请用 `configs/runs/passk.yaml`",
+                "（`max_attempts>1` + temperature>0）。",
+                "",
+            ]
+        )
+        return lines
+    p1 = summary.get("pass_at_1")
+    pk = summary.get("pass_at_k")
+    sr = summary.get("success_rate")
+    lines.extend(
+        [
+            f"每 case 采样 **{summary.get('attempts_per_case')}** 次，选择策略 "
+            f"`{summary.get('selection_strategy')}`。",
+            "",
+            "| 指标 | 值 | 含义 |",
+            "| --- | ---: | --- |",
+            f"| pass@1 | {format_pct(p1)} | 单次抽样的期望结果（模型+Agent 原始能力） |",
+            f"| pass@k | {format_pct(pk)} | k 次中至少一次成功（采样暴露出的上限） |",
+            f"| pass^k | {format_pct(summary.get('pass_pow_k'))} | k 次全部成功（稳定性） |",
+            f"| 成功率 | {format_pct(sr)} | 选择策略实际提交的结果 |",
+            f"| 选择命中率 | {format_pct(summary.get('selection_hit_rate'))} | 有解可选时策略选中成功解的比例 |",
+            "",
+        ]
+    )
+    if p1 is not None and pk is not None and sr is not None:
+        lines.extend(
+            [
+                f"- 采样上限空间 `pass@k − pass@1` = **{(pk - p1) * 100:+.1f}pp**",
+                f"- 策略实际吃到 `成功率 − pass@1` = **{(sr - p1) * 100:+.1f}pp**",
+                "",
+            ]
+        )
+    return lines
+
+
+def _render_cost_curve_md(summary: dict[str, Any]) -> list[str]:
+    curve = summary.get("cost_curve") or []
+    if not curve:
+        return []
+    return [
+        "## 成本轴（每 case token 预算 → 可达成功率）",
+        "",
+        "同一准确率下 token 更省的组合更强；总量单一数字会把「便宜解出」和「烧完预算仍失败」混在一起。",
+        "",
+        "| 每 case 预算(token) | 解出 | 成功率 |",
+        "| ---: | ---: | ---: |",
+        *[
+            f"| {p['budget_tokens']} | {p['solved']} | {format_pct(p['success_rate'])} |"
+            for p in curve
+        ],
+        "",
+    ]
 
 
 def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]) -> str:
@@ -234,10 +331,12 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         f"| 成功率 95% CI | {summary.get('confidence_interval')} |",
         f"| Case set fingerprint | {summary.get('case_set_fingerprint')} |",
         "",
-        "## 分层成功率",
-        "",
     ]
+    lines.extend(_render_scaling_md(summary))
+    lines.extend(_render_cost_curve_md(summary))
+    lines.extend(["## 分层成功率", ""])
     for title, key in (
+        ("tier", "stratified_by_tier"),
         ("task_type", "stratified_by_task_type"),
         ("difficulty", "stratified_by_difficulty"),
     ):
@@ -256,15 +355,17 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         [
             "## Case 明细",
             "",
-            "| case_id | passed | infra_error | tokens | wall_s | steps | difficulty |",
-            "| --- | --- | --- | ---: | ---: | ---: | --- |",
+            "| case_id | tier | passed | infra_error | tokens | wall_s | steps | 测试通过比 |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: |",
         ]
     )
     for r in case_results:
+        ratio = r.get("test_pass_ratio")
         lines.append(
-            f"| {r.get('case_id')} | {r.get('passed')} | {r.get('infra_error')} "
+            f"| {r.get('case_id')} | {r.get('tier') or '-'} | {r.get('passed')} "
+            f"| {r.get('infra_error')} "
             f"| {r.get('total_tokens')} | {float(r.get('wall_time_s') or 0):.4f} "
-            f"| {r.get('step_count')} | {r.get('difficulty')} |"
+            f"| {r.get('step_count')} | {f'{ratio:.2f}' if ratio is not None else '-'} |"
         )
     lines.append("")
     diag = summary.get("failure_diagnostics")

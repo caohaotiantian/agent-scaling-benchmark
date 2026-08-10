@@ -8,10 +8,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+from aibench.calibrate import read_result_rows
 from aibench.cases import case_set_dir
 from aibench.io_util import load_json, load_yaml, repo_root, write_json
-from aibench.report import render_summary_tables_json
+from aibench.report import format_pct, render_summary_tables_json
 from aibench.runner import run_benchmark
+from aibench.stats import mcnemar_test, paired_outcomes
 
 
 def load_matrix(path: Path) -> dict[str, Any]:
@@ -75,8 +77,13 @@ def run_ablation(
     skip_weak = (
         skip_weak_grader and not allow_weak_grader and not matrix.get("allow_weak_grader", False)
     )
-    # Per-row case sets may differ; filter default set once
-    filtered_default = _filter_weak_grader_case_set(case_set, skip_weak=skip_weak)
+    # Every distinct case set is filtered up front, never inside a worker. Filtering rmtree's
+    # and repopulates a shared `.ablation-filtered-<set>` directory, so two rows filtering the
+    # same set concurrently would let one of them run against a half-copied case set — a wrong
+    # result, not a crash.
+    filtered: dict[str, str] = {}
+    for row_case in {item.get("case_set") or case_set for item in matrix["runs"]} | {case_set}:
+        filtered[row_case] = _filter_weak_grader_case_set(row_case, skip_weak=skip_weak)
 
     out_root = output_root or (root / "runs")
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -95,11 +102,7 @@ def run_ablation(
         model = item.get("model_config") or "configs/models/glm52.yaml"
         run_cfg = item.get("run_config")
         run_id = item.get("run_id") or f"ablation-{exp}"
-        row_case = item.get("case_set") or case_set
-        if row_case == case_set:
-            use_set = filtered_default
-        else:
-            use_set = _filter_weak_grader_case_set(row_case, skip_weak=skip_weak)
+        use_set = filtered[item.get("case_set") or case_set]
 
         agent_path = Path(agent)
         model_path = Path(model)
@@ -124,6 +127,8 @@ def run_ablation(
             summary["algorithm_name"] = item["algorithm_name"]
         tables = render_summary_tables_json(summary)
         return {
+            "case_rows": read_result_rows(run_dir / "results.jsonl"),
+            "stratified_by_tier": summary.get("stratified_by_tier"),
             "experiment_name": exp,
             "run_id": summary.get("run_id"),
             "run_dir": str(run_dir),
@@ -133,6 +138,13 @@ def run_ablation(
             "success_rate": summary.get("success_rate"),
             "success_count": summary.get("success_count"),
             "case_count": summary.get("case_count"),
+            "pass_at_1": summary.get("pass_at_1"),
+            "pass_at_k": summary.get("pass_at_k"),
+            "attempts_per_case": summary.get("attempts_per_case"),
+            "cost_curve": summary.get("cost_curve"),
+            "effective_case_count": summary.get("effective_case_count"),
+            "infra_error_count": summary.get("infra_error_count"),
+            "infra_error_rate": summary.get("infra_error_rate"),
             "total_tokens": summary.get("total_tokens"),
             "total_cost": summary.get("total_cost"),
             "total_wall_time_h": summary.get("total_wall_time_h"),
@@ -142,17 +154,47 @@ def run_ablation(
             "index": i,
         }
 
+    def _one_guarded(job: dict[str, Any]) -> dict[str, Any]:
+        """One matrix row, surviving its own failure.
+
+        A matrix is hours of paid work. Letting a bad gateway on row 3 discard rows 1 and 2 —
+        which is what an uncaught exception did — is the most expensive failure mode here.
+        """
+        exp = job["item"].get("experiment_name") or f"run-{job['index']}"
+        try:
+            return _one(job)
+        except Exception as e:
+            print(f"[error] experiment {exp!r} failed: {e}")
+            return {
+                "experiment_name": exp,
+                "index": job["index"],
+                "run_id": None,
+                "run_dir": None,
+                "failed": True,
+                "error": str(e),
+                "success_rate": None,
+                "total_tokens": 0,
+                "overview_row": {},
+                "general_row": {},
+            }
+
     rows: list[dict[str, Any]] = []
     parallel = max(1, int(parallel or matrix.get("parallel") or 1))
     if parallel == 1:
-        for job in jobs:
-            rows.append(_one(job))
+        rows = [_one_guarded(job) for job in jobs]
     else:
         with ThreadPoolExecutor(max_workers=parallel) as ex:
-            futs = [ex.submit(_one, job) for job in jobs]
-            for fut in as_completed(futs):
-                rows.append(fut.result())
-        rows.sort(key=lambda r: r.get("index", 0))
+            futs = [ex.submit(_one_guarded, job) for job in jobs]
+            rows = [fut.result() for fut in as_completed(futs)]
+    rows.sort(key=lambda r: r.get("index", 0))
+
+    failed_rows = [r for r in rows if r.get("failed")]
+    rows = [r for r in rows if not r.get("failed")]
+    if not rows:
+        raise RuntimeError(
+            "every ablation experiment failed: "
+            + "; ".join(f"{r['experiment_name']}: {r['error']}" for r in failed_rows)
+        )
 
     # baseline relative lift
     base_name = (
@@ -171,6 +213,12 @@ def run_ablation(
             r["relative_success_lift"] = lift
             r["overview_row"]["相对基线收益"] = f"{lift * 100:+.1f}pp"
 
+    attach_token_amplification(rows, baseline=base_name)
+    pairwise = compare_runs_pairwise(rows, baseline=base_name)
+    tier_matrix = {r["experiment_name"]: r.get("stratified_by_tier") or {} for r in rows}
+
+    # Per-case rows are only needed to build the comparisons; keep them out of the summary file.
+    slim_rows = [{k: v for k, v in r.items() if k != "case_rows"} for r in rows]
     write_json(
         abl_dir / "ablation_summary.json",
         {
@@ -178,20 +226,95 @@ def run_ablation(
             "skip_weak_grader": skip_weak,
             "baseline_experiment": base_name,
             "parallel": parallel,
-            "runs": rows,
+            "runs": slim_rows,
+            "failed_runs": failed_rows,
+            "pairwise_comparisons": pairwise,
+            "tier_matrix": tier_matrix,
         },
     )
-    report = _render_ablation_report(rows, baseline=base_name)
+    report = _render_ablation_report(
+        slim_rows,
+        baseline=base_name,
+        pairwise=pairwise,
+        tier_matrix=tier_matrix,
+        failed=failed_rows,
+    )
     (abl_dir / "ablation_report.md").write_text(report, encoding="utf-8")
     return abl_dir
 
 
-def _render_ablation_report(rows: list[dict[str, Any]], *, baseline: str | None) -> str:
+def attach_token_amplification(rows: list[dict[str, Any]], *, baseline: str | None) -> None:
+    """Record each run's token spend as a multiple of the baseline's.
+
+    An accuracy gain bought with 5x the tokens is a different result from the same gain at
+    equal cost, and the overview table's absolute token column does not make that comparison
+    for the reader.
+    """
+    base = next((r for r in rows if r["experiment_name"] == baseline), None)
+    base_tokens = int((base or {}).get("total_tokens") or 0)
+    for r in rows:
+        r["token_amplification"] = (
+            (int(r.get("total_tokens") or 0) / base_tokens) if base_tokens else None
+        )
+
+
+def compare_runs_pairwise(
+    rows: list[dict[str, Any]],
+    *,
+    baseline: str | None,
+) -> list[dict[str, Any]]:
+    """McNemar every non-baseline run against the baseline on the cases they share.
+
+    Two runs measured on the same case set are paired data. Comparing their independent Wilson
+    intervals throws that pairing away and calls real differences inconclusive; the paired test
+    keeps it.
+    """
+    base = next((r for r in rows if r["experiment_name"] == baseline), None)
+    if base is None:
+        return []
+    base_rows = base.get("case_rows") or []
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        if r["experiment_name"] == baseline:
+            continue
+        both, only_b, only_a, neither = paired_outcomes(base_rows, r.get("case_rows") or [])
+        test = mcnemar_test(only_b, only_a)
+        out.append(
+            {
+                "baseline": baseline,
+                "candidate": r["experiment_name"],
+                "both_passed": both,
+                "only_baseline": only_b,
+                "only_candidate": only_a,
+                "neither": neither,
+                **test,
+            }
+        )
+    return out
+
+
+def _render_ablation_report(
+    rows: list[dict[str, Any]],
+    *,
+    baseline: str | None,
+    pairwise: list[dict[str, Any]] | None = None,
+    tier_matrix: dict[str, dict[str, Any]] | None = None,
+    failed: list[dict[str, Any]] | None = None,
+) -> str:
     lines = [
         "# Ablation Report",
         "",
         f"- Baseline experiment: `{baseline}`",
         "",
+        *(
+            [
+                "> **警告**：以下实验执行失败，未计入下表——",
+                *[f"> - `{r['experiment_name']}`：{r.get('error')}" for r in failed],
+                "",
+            ]
+            if failed
+            else []
+        ),
         "## 项目效果综述表",
         "",
         "| 算法名称 | Agent与模型 | 基础/主模型 | Benchmark | Case数 | 主指标名称 | 主指标值 | 总体耗时(h) | 总体Token消耗 | 相对基线收益 |",
@@ -214,14 +337,84 @@ def _render_ablation_report(rows: list[dict[str, Any]], *, baseline: str | None)
             "",
             "## Runs",
             "",
-            "| experiment | run_id | success_rate | tokens | cost | run_dir |",
-            "| --- | --- | ---: | ---: | ---: | --- |",
+            "| experiment | run_id | success_rate | 有效Case | 基础设施失败 | tokens | cost | run_dir |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for r in rows:
         lines.append(
             f"| {r['experiment_name']} | {r['run_id']} | {float(r['success_rate'] or 0):.3f} "
+            f"| {r.get('effective_case_count')} | {r.get('infra_error_count')} "
             f"| {r['total_tokens']} | {r.get('total_cost')} | {r['run_dir']} |"
         )
+
+    # A run whose cases all failed to execute reports success_rate 0.0, which reads as "the
+    # agent could not solve anything" when it actually means the harness never ran it.
+    broken = [r for r in rows if not r.get("effective_case_count")]
+    if broken:
+        lines.extend(["", "> **警告**：以下实验没有任何有效 case（全部 infra_error），"])
+        lines.append("> 其 0% 成功率与相对基线收益**不是能力结论**，请先排查环境/适配器：")
+        for r in broken:
+            lines.append(
+                f"> - `{r['experiment_name']}`：{r.get('infra_error_count')} 个基础设施失败"
+            )
+
+    if tier_matrix:
+        tiers = sorted({t for strata in tier_matrix.values() for t in strata})
+        if tiers:
+            lines.extend(["", "## 分层成功率（按 tier）", ""])
+            lines.append("| experiment | " + " | ".join(tiers) + " |")
+            lines.append("| --- | " + " | ".join("---:" for _ in tiers) + " |")
+            for exp, strata in tier_matrix.items():
+                cells = []
+                for t in tiers:
+                    st = strata.get(t)
+                    cells.append(
+                        f"{float(st.get('success_rate') or 0) * 100:.0f}% (n={st.get('n')})"
+                        if st
+                        else "-"
+                    )
+                lines.append(f"| {exp} | " + " | ".join(cells) + " |")
+
+    if any(r.get("token_amplification") is not None for r in rows):
+        lines.extend(
+            [
+                "",
+                "## 采样扩展与成本",
+                "",
+                "`pass@k − pass@1` 是重复采样暴露出的上限空间；token 倍数是买到它的代价。",
+                "两列要一起读：准确率相同而 token 少的组合更强。",
+                "",
+                "| experiment | 采样次数/case | pass@1 | pass@k | 成功率 | token | 相对基线 token |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+            ]
+        )
+        for r in rows:
+            amp = r.get("token_amplification")
+            lines.append(
+                f"| {r['experiment_name']} | {r.get('attempts_per_case') or 1} "
+                f"| {format_pct(r.get('pass_at_1'))} | {format_pct(r.get('pass_at_k'))} "
+                f"| {format_pct(r.get('success_rate'))} | {r.get('total_tokens')} "
+                f"| {'-' if amp is None else f'{amp:.2f}x'} |"
+            )
+
+    if pairwise:
+        lines.extend(
+            [
+                "",
+                "## 配对显著性检验（McNemar，相对基线）",
+                "",
+                "同一 case 集上的配对比较；`b`=仅基线通过，`c`=仅候选通过。p<0.05 视为能力水平显著不同。",
+                "",
+                "| 候选 | 均通过 | 仅基线(b) | 仅候选(c) | 不一致数 | p 值 | 显著 |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+            ]
+        )
+        for p in pairwise:
+            lines.append(
+                f"| {p['candidate']} | {p['both_passed']} | {p['only_baseline']} "
+                f"| {p['only_candidate']} | {p['discordant']} | {p['p_value']:.4f} "
+                f"| {'是' if p['significant'] else '否'} |"
+            )
     lines.append("")
     return "\n".join(lines)

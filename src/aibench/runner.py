@@ -18,14 +18,14 @@ from aibench.report import (
     render_report_md,
     render_summary_tables_json,
 )
-from aibench.validity import case_fingerprint, estimate_difficulty
+from aibench.validity import case_fingerprint, estimate_difficulty, set_fingerprint
 from aibench.workspace import materialize_workspace
 
 
-def _run_one_case(
+def _run_one_attempt(
     case: Case,
     *,
-    run_dir: Path,
+    case_dir: Path,
     cs: str,
     agent_cfg: AgentConfig,
     model_cfg: ModelConfig,
@@ -33,7 +33,7 @@ def _run_one_case(
     max_wall_time_s: float,
     case_retries: int | None = None,
 ) -> dict[str, Any]:
-    """Execute a single case in isolation (safe for thread pool)."""
+    """Run one independent sample of a case. Retries only cover infrastructure failures."""
     import os
 
     # Extra case-level retries for infra_error only (agent already retries HTTP).
@@ -41,7 +41,6 @@ def _run_one_case(
     if max_case_tries is None:
         max_case_tries = max(1, int(os.environ.get("AIBENCH_CASE_RETRY", "2")))
 
-    case_dir = run_dir / "cases" / case.case_id
     last_row: dict[str, Any] | None = None
 
     for attempt in range(1, max_case_tries + 1):
@@ -102,7 +101,8 @@ def _run_one_case(
             "task_type": case.task_type,
             "language": case.language,
             "difficulty": difficulty,
-            "fingerprint": case.metadata.get("fingerprint") or case_fingerprint(case),
+            "tier": case.tier,
+            "fingerprint": case_fingerprint(case),
             "agent_status": agent_result.status,
             "passed": passed,
             "infra_error": infra,
@@ -114,6 +114,9 @@ def _run_one_case(
             "wall_time_s": agent_result.wall_time_s,
             "step_count": len(agent_result.steps),
             "judge_score": judge_score,
+            "test_pass_ratio": grade.test_pass_ratio if grade else None,
+            "reward_hack": bool(grade and grade.reward_hack),
+            "collection_error": bool(grade and grade.collection_error),
             "grade": grade.to_dict() if grade else None,
             "error_message": agent_result.error_message,
             "failure_category": _failure_category(infra, passed, agent_result.status, grade),
@@ -141,6 +144,121 @@ def _run_one_case(
 
     assert last_row is not None
     return last_row
+
+
+# Fields whose per-attempt values are summed rather than taken from the selected attempt:
+# running k samples really did cost k samples' worth of budget.
+_ADDITIVE_FIELDS = (
+    "total_tokens",
+    "prompt_tokens",
+    "completion_tokens",
+    "model_calls",
+    "wall_time_s",
+    "step_count",
+)
+
+
+def _select_attempt(rows: list[dict[str, Any]], strategy: str) -> dict[str, Any]:
+    """Pick the attempt the configured strategy would have submitted.
+
+    An attempt that never ran is not a submission, so both strategies skip infra failures
+    before choosing; otherwise the folded row would carry an infra failure's grade and
+    failure_category while reporting itself as a normal result.
+    """
+    usable = [r for r in rows if not r.get("infra_error")] or rows
+    if strategy == "best-of-k":
+        return next((r for r in usable if r.get("passed")), usable[0])
+    return usable[0]  # first-submit
+
+
+def _aggregate_attempts(
+    rows: list[dict[str, Any]],
+    *,
+    strategy: str,
+) -> dict[str, Any]:
+    """Fold k attempts into the one-row-per-case shape every consumer expects.
+
+    ``passed`` stays the outcome of the attempt the strategy would have submitted, so
+    ``success_rate`` keeps its meaning and k=1 behaves exactly as before. The oracle view —
+    "was it solvable at all in k tries" — lives in ``pass_at_k`` so the two are never confused.
+    """
+    selected = _select_attempt(rows, strategy)
+    row = dict(selected)
+
+    usable = [r for r in rows if not r.get("infra_error")]
+    outcomes = [bool(r.get("passed")) for r in usable]
+    row["attempt_count"] = len(rows)
+    row["usable_attempt_count"] = len(usable)
+    row["pass_at_1"] = (sum(outcomes) / len(outcomes)) if outcomes else None
+    row["pass_at_k"] = any(outcomes) if outcomes else False
+    row["pass_pow_k"] = all(outcomes) if outcomes else False
+    # Did the strategy pick a winner on a case where one existed?
+    row["selection_hit"] = bool(selected.get("passed")) if row["pass_at_k"] else None
+
+    for field in _ADDITIVE_FIELDS:
+        row[field] = sum(r.get(field) or 0 for r in rows)
+    row["infra_error"] = all(r.get("infra_error") for r in rows)
+    row["attempts"] = [
+        {
+            "attempt": i + 1,
+            "passed": r.get("passed"),
+            "infra_error": r.get("infra_error"),
+            "agent_status": r.get("agent_status"),
+            "total_tokens": r.get("total_tokens"),
+            "wall_time_s": r.get("wall_time_s"),
+            "test_pass_ratio": r.get("test_pass_ratio"),
+            "reward_hack": r.get("reward_hack"),
+        }
+        for i, r in enumerate(rows)
+    ]
+    return row
+
+
+def _run_one_case(
+    case: Case,
+    *,
+    run_dir: Path,
+    cs: str,
+    agent_cfg: AgentConfig,
+    model_cfg: ModelConfig,
+    max_steps: int,
+    max_wall_time_s: float,
+    attempts: int = 1,
+    selection_strategy: str = "first-submit",
+) -> dict[str, Any]:
+    """Sample a case ``attempts`` times and fold the results into a single row."""
+    case_dir = run_dir / "cases" / case.case_id
+    if attempts <= 1:
+        return _aggregate_attempts(
+            [
+                _run_one_attempt(
+                    case,
+                    case_dir=case_dir,
+                    cs=cs,
+                    agent_cfg=agent_cfg,
+                    model_cfg=model_cfg,
+                    max_steps=max_steps,
+                    max_wall_time_s=max_wall_time_s,
+                )
+            ],
+            strategy=selection_strategy,
+        )
+
+    rows = [
+        _run_one_attempt(
+            case,
+            case_dir=case_dir / f"attempt-{n}",
+            cs=cs,
+            agent_cfg=agent_cfg,
+            model_cfg=model_cfg,
+            max_steps=max_steps,
+            max_wall_time_s=max_wall_time_s,
+        )
+        for n in range(1, attempts + 1)
+    ]
+    row = _aggregate_attempts(rows, strategy=selection_strategy)
+    write_json(case_dir / "result.json", {"case_id": case.case_id, "row": row})
+    return row
 
 
 def run_benchmark(
@@ -178,10 +296,12 @@ def run_benchmark(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     sampling = f"temperature={model_cfg.temperature}, max_tokens={model_cfg.max_tokens}"
-    from aibench.validity import audit_case_set
-
+    # The manifest only needs the content hash. Running the full audit here would re-execute
+    # the stub-fail and reference-solution gates — two pytest invocations per case — on every
+    # run, which a calibration sweep multiplies by anchors x repeats. Gates belong to
+    # `aibench audit-cases`, not to every run.
     try:
-        set_fp = audit_case_set(cs).get("content_fingerprint")
+        set_fp = set_fingerprint(cases)
     except Exception:
         set_fp = None
 
@@ -221,6 +341,16 @@ def run_benchmark(
         "judgment_type": "半确定性",
         "primary_metric_name": "task_success_rate",
     }
+    attempts = max(1, int(run_cfg.max_attempts))
+    if attempts > 1 and model_cfg.temperature == 0:
+        print(
+            f"[warn] max_attempts={attempts} with temperature=0: every sample is identical, so "
+            f"pass@k collapses onto pass@1. Use a sampling model config (temperature > 0) for "
+            f"pass@k to mean anything."
+        )
+        manifest["sampling_warning"] = (
+            "max_attempts>1 at temperature=0; samples are not independent"
+        )
     write_json(run_dir / "run_manifest.json", manifest)
 
     def _job(case: Case) -> dict[str, Any]:
@@ -232,6 +362,8 @@ def run_benchmark(
             model_cfg=model_cfg,
             max_steps=run_cfg.max_steps,
             max_wall_time_s=run_cfg.max_wall_time_s,
+            attempts=attempts,
+            selection_strategy=run_cfg.selection_strategy,
         )
 
     case_results = parallel_map(_job, cases, workers=workers)
@@ -267,12 +399,20 @@ def _failure_category(
 ) -> str | None:
     if passed:
         return None
+    if grade is not None and getattr(grade, "reward_hack", False):
+        return "评测作弊失败"
     if infra:
         return "沙箱基础设施失败" if agent_status != "infra_error" else "LLM服务失败"
     if agent_status == "timeout":
         return "预算耗尽失败"
     if agent_status == "failed":
         return "Agent协议失败"
+    if grade is not None and getattr(grade, "collection_error", False):
+        # The suite never ran. At run time the harness cannot tell whether the case shipped
+        # broken or the submission broke it — a syntax error in the model's own edit produces
+        # exactly this — so the category names the observation and blames neither. The
+        # audit-time verdict on `metadata.uncollectable_stub` is what separates the two.
+        return "测试未执行"
     if grade is not None and not grade.passed:
         return "模型推理失败"
     return "模型推理失败"

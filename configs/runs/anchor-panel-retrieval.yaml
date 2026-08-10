@@ -1,0 +1,25 @@
+# Anchor panel for retrieval tiers (T4+).
+#
+# Every member must be able to exercise A2, so all three drive their own tool loop. A
+# single-turn agent cannot be a member: it receives the whole workspace in its prompt, so a
+# retrieval case has nothing for it to retrieve. Measured on composed T4 cases, the weak
+# single-turn anchor scored 24pp *higher* than on the same cases uncomposed — the distractors
+# were free working code, not an obstacle. calibrate-cases refuses such a panel.
+#
+# The three differ on the axes that actually govern retrieval: how many steps they may spend,
+# whether they can run anything, and how strong the model reading the code is.
+anchors:
+  - name: weak-frugal-loop
+    agent_config: configs/agents/tool_loop_frugal.yaml
+    model_config: configs/models/glm51.yaml
+    run_config: configs/runs/baseline-tool-loop-frugal.yaml
+
+  - name: mid-frugal-loop
+    agent_config: configs/agents/tool_loop_frugal.yaml
+    model_config: configs/models/glm52.yaml
+    run_config: configs/runs/baseline-tool-loop-frugal.yaml
+
+  - name: strong-full-loop
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/glm52.yaml
+    run_config: configs/runs/baseline-tool-loop.yaml

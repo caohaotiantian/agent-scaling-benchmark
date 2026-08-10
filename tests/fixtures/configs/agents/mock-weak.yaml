@@ -1,0 +1,6 @@
+name: mock-weak
+version: "0.1.0"
+adapter: mock
+description: Deterministic weak anchor for calibration tests — never edits the workspace.
+options:
+  solve_seed: false

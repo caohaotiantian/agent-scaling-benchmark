@@ -1,0 +1,51 @@
+# Model-only ablation, tool-loop scaffold.
+#
+# The single-turn version of this matrix could not measure capability. It requires the model to
+# echo the entire file back as JSON, and 7 of GLM-5.2's 10 remaining failures were the parse of
+# that reply, against 2 that were real attempts failing their tests. Harness fixes alone moved
+# that model from 25.8% to 67.7% without touching a model parameter.
+#
+# The tool loop edits files rather than rewriting them, and a malformed reply is fed back for
+# another turn instead of ending the run, so protocol compliance stops dominating the score.
+#
+# Cost: 31 cases x 5 rows, multi-step.
+case_set: _revmixed
+baseline_experiment: tl-model-glm52
+parallel: 3
+allow_weak_grader: false
+runs:
+  # Baseline. Every other row is McNemar-tested against this one, pairing on case.
+  - experiment_name: tl-model-glm52
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: tlabl-glm52
+    run_config: configs/runs/baseline-tool-loop.yaml
+
+  - experiment_name: tl-model-glm51
+    algorithm_name: GLM-5.1
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: tlabl-glm51
+    run_config: configs/runs/baseline-tool-loop.yaml
+
+  - experiment_name: tl-model-glm5
+    algorithm_name: GLM-5
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: tlabl-glm5
+    run_config: configs/runs/baseline-tool-loop.yaml
+
+  - experiment_name: tl-model-qwen37
+    algorithm_name: Qwen3.7-Plus
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/qwen37.yaml
+    run_id: tlabl-qwen37
+    run_config: configs/runs/baseline-tool-loop.yaml
+
+  - experiment_name: tl-model-deepseek-v4-flash
+    algorithm_name: Deepseek-V4-Flash
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/deepseek-v4-flash.yaml
+    run_id: tlabl-deepseek-v4-flash
+    run_config: configs/runs/baseline-tool-loop.yaml
