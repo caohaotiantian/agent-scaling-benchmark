@@ -168,7 +168,42 @@ uv run aibench ablation --matrix configs/runs/ablation-matrix.yaml \
 <p>消融会按矩阵逐一改变单个变量并比较结果差异。所需样本量可用 <code>plan-sample-size</code> 估算。</p>
 </div>
 
-<h2 id="tuning">3. 调整难度分布</h2>
+<h2 id="protocols">3. 三种测量口径：先想清楚在测什么</h2>
+
+<p>项目提供三个 agent 适配器。<strong>它们回答的不是同一个问题</strong>，混用是此前五轮矛盾结论的根源。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>适配器</th><th>回答的问题</th><th>协议</th><th>何时用</th></tr></thead>
+<tbody>
+<tr><td><code>bare_model</code></td><td><strong>模型本身有多强</strong></td><td>一次调用，回一段围栏代码</td><td>比较模型</td></tr>
+<tr><td><code>openai_compat</code></td><td>模型 + 单轮 JSON 协议</td><td>整个文件塞进 JSON</td><td>能力下限锚点</td></tr>
+<tr><td><code>tool_loop</code></td><td>模型 + 多步工具循环</td><td>可读写文件、跑测试、迭代</td><td>能力上限锚点</td></tr>
+</tbody>
+</table></div>
+
+<p>实测证据（同一批 31 条用例、同两个模型、各 3 次重复）：</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>口径</th><th>GLM-5.1 轮间极差</th><th>Deepseek 轮间极差</th><th>GLM-5.1 逐用例翻转率</th><th>胜者</th></tr></thead>
+<tbody>
+<tr><td><code>bare_model</code></td><td><strong>0.0pp</strong></td><td>3.2pp</td><td><strong>0.0%</strong></td><td>GLM-5.1 (90.3%)</td></tr>
+<tr><td><code>tool_loop</code></td><td>12.9pp</td><td>16.1pp</td><td>32.3%</td><td>Deepseek (90.3%)</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout warn">
+<p><strong>脚手架贡献了几乎全部测量噪声，并且颠倒了排序。</strong> 比较模型时使用 <code>bare_model</code>；
+用带脚手架的口径得到的排名，测的是「模型 + 该脚手架」的组合。</p>
+<p><strong>任何模型比较至少 3 次重复并报轮间极差。</strong> 同一对比单次运行给出 p = 0.0312「显著」，
+三次重复给出 p = 0.167 不显著 —— 单次运行不足以支撑排名。</p>
+</div>
+
+<pre><code>uv run aibench ablation --matrix configs/runs/ablation-bare-models.yaml \
+  --case-set _revmixed --parallel 3</code></pre>
+
+<p>该矩阵已内置 3 次重复。要换模型，复制它并替换 <code>model_config</code> 指向的文件。</p>
+
+<h2 id="tuning">4. 调整难度分布</h2>
 
 <p>若产出的用例过于集中在易档，可用隐藏测试提高难度。该机制把模型写的测试拆成可见与隐藏两部分，隐藏部分仅在评分时注入。</p>
 
@@ -185,11 +220,55 @@ uv run aibench ablation --matrix configs/runs/ablation-matrix.yaml \
 </table></div>
 
 <div class="callout warn">
-<p><strong>务必按「隐藏条数」控制，而非「保留条数」。</strong> 模型通常写 4–10 条测试，「保留 3 条」与「保留 1 条」实际隐藏中位数分别为 2 条与 4 条，都已越过崩塌点，实测结果几乎相同。</p>
+<pre><code># 只对易档用例隐藏 2 条测试（当前最优配置）
+uv run python -c "
+import json; from pathlib import Path
+from aibench.extract.tier_shaping import split_tests_for_hiding
+cal = {c['case_id']: c['p_hat'] for c in json.load(open('runs/calibration_.../calibration.json'))['cases']}
+for p in Path('benchmarks/ai_coding/cases/my-set').glob('*.json'):
+    c = json.loads(p.read_text())
+    if cal.get(c['case_id'], 0) > 0.8:          # 仅易档
+        split_tests_for_hiding(c, hide_count=2)
+        p.write_text(json.dumps(c, indent=1, ensure_ascii=False))
+"</code></pre>
+
+<p><strong>务必按「隐藏条数」控制（<code>hide_count</code>），而非「保留条数」（<code>keep_visible</code>）。</strong> 模型通常写 4–10 条测试，「保留 3 条」与「保留 1 条」实际隐藏中位数分别为 2 条与 4 条，都已越过崩塌点，实测结果几乎相同。</p>
 <p>过度隐藏会把「仅最强能解」变成「无人能解」，而后者与送分题一样不产生区分度：实测区分度用例由 26 条降至 11 条。</p>
 </div>
 
-<h2 id="export">4. 对外分发</h2>
+<h2 id="artifacts">5. 用例在哪里：可复用的产物清单</h2>
+
+<div class="callout warn">
+<p><strong>用例本身不入库。</strong> 反向构造的用例逐字包含真实仓库源码（实测 13%–75.2%），
+因此 <code>benchmarks/ai_coding/cases/_rev*/</code> 全部在 <code>.gitignore</code> 中。
+克隆本仓库<strong>不会</strong>得到用例文件，只会得到生成它们的代码与校准数字。</p>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>产物</th><th>位置</th><th>是否入库</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><strong><code>_revmixed</code></strong></td><td><code>benchmarks/ai_coding/cases/_revmixed/</code></td><td>否</td><td><strong>当前最优集合</strong>：31 条，全部通过效度门禁，易档已按 <code>hide_count=2</code> 处理</td></tr>
+<tr><td><code>_revfinal2</code></td><td>同上目录</td><td>否</td><td>同 31 条，测试全部可见（未做隐藏处理）</td></tr>
+<tr><td><code>_rev6</code></td><td>同上目录</td><td>否</td><td>120 条原始产物，其中 43 条通过门禁</td></tr>
+<tr><td><code>_rev_raw4</code></td><td>同上目录</td><td>否</td><td>3,312 条草稿，重跑生成的输入</td></tr>
+<tr><td>校准数据</td><td><code>benchmarks/ai_coding/calibrations/</code></td><td><strong>是</strong></td><td>14 份，纯数字无代码，任何人可复算</td></tr>
+<tr><td>运行记录</td><td><code>runs/</code></td><td>否</td><td>含 <code>grade.detail</code>，可能带测试源码</td></tr>
+</tbody>
+</table></div>
+
+<h3>取用方式</h3>
+
+<p>要把用例交给他人，走导出流程而非直接复制目录 —— 导出会逐条过五道门禁，并生成说明清单：</p>
+
+<pre><code>uv run aibench export-bundle --from-set _revmixed \
+  --output-dir /要交付的路径 \
+  --drafts-dir benchmarks/ai_coding/cases/_rev_raw4 \
+  --allow-production-derived</code></pre>
+
+<p>产出目录含通过门禁的用例与 <code>MANIFEST.json</code>，后者逐条记录源文件名、语言与实测逐字比例。
+不加 <code>--allow-production-derived</code> 时反向构造用例会被全部拒绝，理由 <code>production_derived</code>。</p>
+
+<h2 id="export">6. 对外分发的门禁</h2>
 
 <pre><code>uv run aibench export-bundle --from-set my-benchmark \
   --output-dir /path/outside/repo \
@@ -213,7 +292,7 @@ uv run aibench ablation --matrix configs/runs/ablation-matrix.yaml \
 <p>确需分发时使用 <code>--allow-production-derived</code>。该开关<strong>不跳过任何检查</strong>，其余门禁照常生效；它记录「分发生产代码是有意为之」这一决定，并在清单中逐条写明源文件名、语言与实测逐字比例，使接收方知悉所收内容。</p>
 </div>
 
-<h2 id="repro">5. 复现已发布的结论</h2>
+<h2 id="repro">7. 复现已发布的结论</h2>
 
 <p>已发布的校准结果为纯数字，不含任何代码，位于 <code>benchmarks/ai_coding/calibrations/</code>。任何一项报告数值都可独立复算：</p>
 
@@ -239,7 +318,7 @@ print(collections.Counter(band(x) for x in v), statistics.mean(v))</code></pre>
 <p><strong>比较前先确认面板一致。</strong> <code>anchor_fingerprint</code> 哈希的是锚点配置文件的内容而非路径。指纹不同不必然意味着行为不同——例如某次提交仅为配置增加了声明性字段，不改变 Agent 行为。既不要因指纹相同就假定可比，也不要因不同就放弃比较。</p>
 </div>
 
-<h2 id="trouble">6. 故障排查</h2>
+<h2 id="trouble">8. 故障排查</h2>
 
 <div class="table-wrap"><table>
 <thead><tr><th>现象</th><th>原因</th><th>处理</th></tr></thead>
