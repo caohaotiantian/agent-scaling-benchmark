@@ -9,10 +9,11 @@ from typing import Any
 class FileBlob:
     path: str
     content: str
+    role: str = "impl"  # impl | test | distractor | spec
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> FileBlob:
-        return cls(path=d["path"], content=d["content"])
+        return cls(path=d["path"], content=d["content"], role=d.get("role") or "impl")
 
 
 @dataclass
@@ -24,10 +25,13 @@ class GraderSpec:
     key_lines: list[str] = field(default_factory=list)
     judge_rubric: str | None = None
     judge_threshold: float | None = 0.7
+    hidden_tests: list[FileBlob] = field(default_factory=list)
+    protected_paths: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> GraderSpec:
         gold = [FileBlob.from_dict(x) for x in d.get("gold_files") or []]
+        hidden = [FileBlob.from_dict(x) for x in d.get("hidden_tests") or []]
         return cls(
             mode=d["mode"],
             command=d.get("command"),
@@ -36,6 +40,8 @@ class GraderSpec:
             key_lines=list(d.get("key_lines") or []),
             judge_rubric=d.get("judge_rubric"),
             judge_threshold=d.get("judge_threshold", 0.7),
+            hidden_tests=hidden,
+            protected_paths=list(d.get("protected_paths") or []),
         )
 
 
@@ -74,6 +80,11 @@ class Case:
             raw=d,
         )
 
+    @property
+    def tier(self) -> str | None:
+        t = self.metadata.get("tier")
+        return str(t) if t else None
+
 
 @dataclass
 class ModelConfig:
@@ -107,6 +118,11 @@ class AgentConfig:
     adapter: str
     options: dict[str, Any] = field(default_factory=dict)
     description: str = ""
+    #: Capability axes this scaffold can actually exercise (see aibench.tiers.AXES). An agent
+    #: that hands the model every file cannot exhibit or lack retrieval, so scoring it on a
+    #: retrieval case measures something else. Empty means "unknown", treated as unrestricted
+    #: for backward compatibility.
+    capability_axes: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> AgentConfig:
@@ -116,6 +132,7 @@ class AgentConfig:
             adapter=d["adapter"],
             options=dict(d.get("options") or {}),
             description=d.get("description") or "",
+            capability_axes=tuple(d.get("capability_axes") or ()),
         )
 
 
@@ -206,6 +223,12 @@ class GradeResult:
     score: float | None = None
     detail: str = ""
     infra_error: bool = False
+    reward_hack: bool = False
+    test_pass_ratio: float | None = None
+    #: The suite never ran (import error, syntax error, nothing collected) — the workspace is
+    #: broken rather than the submission wrong. Distinct from ``infra_error``, which is the
+    #: harness failing; this is the case itself failing to stand up.
+    collection_error: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

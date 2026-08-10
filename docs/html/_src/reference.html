@@ -1,0 +1,258 @@
+<header class="hero">
+  <h1>参考资料</h1>
+  <p>方案设计依据、数据格式定义与门禁规则。本页为查阅性内容，按需检索。</p>
+  <div class="meta">
+    <span class="pill">数据格式</span>
+    <span class="pill">门禁规则</span>
+    <span class="pill">设计依据</span>
+  </div>
+</header>
+
+<section class="md-body">
+
+<h2 id="design">1. 方案设计依据</h2>
+
+<h3>1.1 为什么用「相对锚点的通过率」度量难度</h3>
+
+<p>难度不能靠人工标注，原因有二：标注不可复现；标注反映的是标注者的判断，而非被测 Agent 的实际表现。</p>
+
+<p>本项目将难度定义为<strong>一组固定参照配置的通过率</strong>。这带来三个性质：</p>
+
+<ul>
+<li>可复现——只要面板配置不变，任何人重跑都能得到同一分布。</li>
+<li>可比较——两批用例只要用同一面板测量，结果可以直接对照。</li>
+<li>有边界——测得的是「相对这组参照配置的难度」，面板变了含义就变了，因此面板身份必须随结果一同发布。</li>
+</ul>
+
+<h3>1.2 锚点面板的构成原则</h3>
+
+<p>面板必须<strong>跨越</strong>待区分的能力范围。三个近似的配置会把所有用例都判为无区分度。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>锚点</th><th>脚手架</th><th>模型</th><th>隔离的变量</th></tr></thead>
+<tbody>
+<tr><td><code>weak-single-turn</code></td><td>单轮，无工具</td><td>较弱</td><td>能力下限</td></tr>
+<tr><td><code>mid-single-turn</code></td><td>单轮，无工具</td><td>较强</td><td>与上一行对比 ⇒ 模型维度</td></tr>
+<tr><td><code>strong-tool-loop</code></td><td>多步工具循环</td><td>较强</td><td>与上一行对比 ⇒ 脚手架维度</td></tr>
+</tbody>
+</table></div>
+
+<p>面板配置文件格式：</p>
+
+<pre><code>anchors:
+  - name: weak-single-turn
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm51.yaml
+    run_config:   configs/runs/baseline.yaml
+  - name: strong-tool-loop
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/glm52.yaml
+    run_config:   configs/runs/baseline-tool-loop.yaml</code></pre>
+
+<h3>1.3 严格顺序重放</h3>
+
+<p>从会话还原文件的编辑前后版本时，只在「会话确实读取过的内容」上应用编辑。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>匹配策略</th><th>重建率</th><th>风险</th></tr></thead>
+<tbody>
+<tr><td>严格顺序（本项目采用）</td><td>较低</td><td>无</td></tr>
+<tr><td>在任意历史快照中搜索</td><td>较高</td><td>可能匹配到错误版本，重建出从未存在过的中间状态</td></tr>
+</tbody>
+</table></div>
+
+<p>用一个从未存在过的状态构造的用例，是「带着真实代码的虚构」。本项目宁可损失产量。</p>
+
+<h2 id="case-format">2. 用例数据格式</h2>
+
+<p>一条用例是一个 JSON 文件，文件名即 <code>case_id</code>。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>case_id</code></td><td>string</td><td>唯一标识。由题面与文件名计算得出，因此内容相同的用例会得到相同标识</td></tr>
+<tr><td><code>schema_version</code></td><td>string</td><td>协议版本，当前为 <code>"0.1"</code></td></tr>
+<tr><td><code>task_type</code></td><td>string</td><td>任务类型，如 <code>bugfix</code></td></tr>
+<tr><td><code>language</code></td><td>string</td><td><code>python</code> 或 <code>javascript</code>（含 TypeScript）</td></tr>
+<tr><td><code>prompt</code></td><td>string</td><td>题面。<strong>仅描述可观察症状</strong>，不提及原因、机制或被修改的函数</td></tr>
+<tr><td><code>context.files[]</code></td><td>array</td><td>工作区文件，含 <code>path</code> / <code>content</code> / <code>role</code></td></tr>
+<tr><td><code>grader.mode</code></td><td>string</td><td>评分方式，当前为 <code>script</code></td></tr>
+<tr><td><code>grader.command</code></td><td>string</td><td>评分命令，如 <code>python -m pytest -q</code> 或 <code>node --test</code></td></tr>
+<tr><td><code>grader.gold_files[]</code></td><td>array</td><td>参考解。用它替换工作区文件后，测试必须全部通过</td></tr>
+<tr><td><code>grader.hidden_tests[]</code></td><td>array</td><td>隐藏测试，仅在评分时注入工作区</td></tr>
+<tr><td><code>metadata</code></td><td>object</td><td>见下表</td></tr>
+</tbody>
+</table></div>
+
+<h3><code>context.files[].role</code> 取值</h3>
+
+<dl class="kv">
+<dt>impl</dt><dd>待修复的实现文件</dd>
+<dt>test</dt><dd>可见测试文件</dd>
+<dt>spec</dt><dd>说明性文件，不参与执行</dd>
+</dl>
+
+<h3><code>metadata</code> 字段</h3>
+
+<div class="table-wrap"><table>
+<thead><tr><th>字段</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>generation</code></td><td>产出方式：<code>reverse</code>（反向构造）/ <code>llm</code>（模型编题）/ <code>heuristic</code>（启发式回退）</td></tr>
+<tr><td><code>reverse_source</code></td><td>源文件名 + 摘要，形如 <code>coreSdk.ts#8f04765cf25e</code>。<strong>不含原始路径</strong>——原始路径包含账号名与内部项目名</td></tr>
+<tr><td><code>reverse_edits</code></td><td>重建该文件用到的编辑次数</td></tr>
+<tr><td><code>fingerprint</code></td><td>内容指纹，带版本前缀（当前 <code>v3:</code>）。用例内容或评分依据变化时指纹随之变化</td></tr>
+<tr><td><code>validity_ok</code></td><td>是否通过全部错误级门禁</td></tr>
+<tr><td><code>validity_issues[]</code></td><td>门禁问题列表，含 <code>code</code> / <code>severity</code> / <code>message</code>。<strong>导出时会被剔除</strong>，因其包含本机临时路径</td></tr>
+<tr><td><code>uncollectable_stub</code></td><td>待修复版本是否「跑不起来」而非「测试失败」</td></tr>
+<tr><td><code>uncollectable_reference</code></td><td>参考解版本是否「跑不起来」</td></tr>
+<tr><td><code>weak_grader</code></td><td>评分方式是否过弱，为真时默认从消融中剔除</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="gates">3. 效度门禁</h2>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 250" role="img" aria-label="效度门禁判定流程">
+  <defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#27628f"/></marker></defs>
+  <g font-size="12" fill="#18212f">
+    <rect x="250" y="8" width="220" height="40" rx="8" fill="#e4f0f8" stroke="#27628f"/>
+    <text x="360" y="33" text-anchor="middle" font-weight="700">在参考解上运行测试</text>
+
+    <path d="M360 50 V74" stroke="#27628f" fill="none" marker-end="url(#ar3)"/>
+    <rect x="250" y="76" width="220" height="40" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="360" y="101" text-anchor="middle">全部通过？</text>
+
+    <path d="M470 96 H600" stroke="#b42318" fill="none" marker-end="url(#ar3)"/>
+    <rect x="600" y="76" width="120" height="40" rx="8" fill="#fee4e2" stroke="#b42318"/>
+    <text x="660" y="95" text-anchor="middle" font-size="11.5">否 → 拒绝</text>
+    <text x="660" y="110" text-anchor="middle" font-size="10.5" fill="#667085">solvability</text>
+
+    <path d="M360 118 V142" stroke="#27628f" fill="none" marker-end="url(#ar3)"/>
+    <rect x="250" y="144" width="220" height="40" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="360" y="169" text-anchor="middle">在待修复版本上失败？</text>
+
+    <path d="M470 164 H600" stroke="#b42318" fill="none" marker-end="url(#ar3)"/>
+    <rect x="600" y="144" width="120" height="40" rx="8" fill="#fee4e2" stroke="#b42318"/>
+    <text x="660" y="163" text-anchor="middle" font-size="11.5">否 → 拒绝</text>
+    <text x="660" y="178" text-anchor="middle" font-size="10.5" fill="#667085">stub_fail</text>
+
+    <path d="M250 164 H130" stroke="#8a5a00" fill="none" marker-end="url(#ar3)"/>
+    <rect x="0" y="144" width="128" height="40" rx="8" fill="#fff4d6" stroke="#8a5a00"/>
+    <text x="64" y="163" text-anchor="middle" font-size="11.5">跑不起来 → 拒绝</text>
+    <text x="64" y="178" text-anchor="middle" font-size="10.5" fill="#667085">uncollectable</text>
+
+    <path d="M360 186 V210" stroke="#166534" fill="none" marker-end="url(#ar3)"/>
+    <rect x="250" y="212" width="220" height="34" rx="8" fill="#e5f4ed" stroke="#166534"/>
+    <text x="360" y="234" text-anchor="middle" font-weight="700">用例可用</text>
+  </g>
+</svg>
+<figcaption>「跑不起来」与「测试失败」必须区分：前者在所有配置上一律失败，外观与难题完全相同。</figcaption>
+</figure>
+
+<h3>「跑不起来」的判定依据</h3>
+
+<p>判定取自<strong>运行器自己报告的用例计数</strong>，而非在输出文本中匹配错误特征。文本匹配在两个方向上都会出错：</p>
+
+<ul>
+<li>pytest 把测试固件的导入失败记为「1 error」、退出码 1，且不打印收集失败横幅——只认横幅的匹配器会漏判。</li>
+<li>一条<em>断言</em>内容涉及 <code>SyntaxError</code> 或 <code>ERR_MODULE_NOT_FOUND</code> 的正常测试，会把匹配器要找的所有特征放进普通的断言差异里——从而误判。</li>
+</ul>
+
+<p>因此：只要运行器报告了任何通过或失败计数，就说明它到达了判定；一个计数都没有，则覆盖了未解析的导入、语法错误、启动失败与中断等全部情形。</p>
+
+<h3>补充规则</h3>
+
+<div class="table-wrap"><table>
+<thead><tr><th>规则</th><th>依据</th></tr></thead>
+<tbody>
+<tr><td>待修复版本「跑不起来」时，若其为完整文件（反向构造），直接拒绝</td><td>反向构造的 stub 是真实可运行文件，不存在「函数尚未实现」这一合理解释。实测 6 条通过门禁的用例中有 5 条是因编辑前后导入差异（一版引入 numpy、另一版未引入）而「区分成功」，与缺陷无关</td></tr>
+<tr><td>无参考解的用例一律拒绝</td><td>实测 18 条无配置可解的用例中，16 条没有参考解</td></tr>
+<tr><td>测试文件名必须是运行器真正会发现的名字</td><td>空跑退出 0 会被读成「stub 通过」</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="calibration-format">4. 校准结果格式</h2>
+
+<p>校准输出为 <code>calibration.json</code>，仅含数字与标识，不含任何代码，因此可以公开发布。</p>
+
+<pre><code>{
+  "anchors": ["mid-single-turn", "strong-tool-loop", "weak-single-turn"],
+  "repeats": 3,
+  "anchor_fingerprint": "5f5233c7214879f4",
+  "cases": [
+    {
+      "case_id": "rev-…",
+      "p_hat": 0.222,
+      "spread": 0.667,
+      "point_biserial": 0.830,
+      "keep": true,
+      "by_anchor": {
+        "weak-single-turn": 0.00,
+        "mid-single-turn": 0.00,
+        "strong-tool-loop": 0.67
+      }
+    }
+  ]
+}</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>字段</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>p_hat</code></td><td>全部尝试的通过比例。量化值，只能取 <code>k /（锚点数 × repeats）</code></td></tr>
+<tr><td><code>spread</code></td><td>最强锚点与最弱锚点的通过率之差。衡量区分能力</td></tr>
+<tr><td><code>point_biserial</code></td><td>用例结果与锚点强度的点二列相关。越高说明越能按能力排序</td></tr>
+<tr><td><code>keep</code></td><td>是否判定为有区分度</td></tr>
+<tr><td><code>by_anchor</code></td><td>各锚点各自的通过率，用于诊断</td></tr>
+<tr><td><code>anchor_fingerprint</code></td><td>面板身份。哈希的是锚点配置文件的<strong>内容</strong>而非路径</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout warn">
+<p><strong>原始运行结果 <code>results.jsonl</code> 不发布。</strong> 其 <code>grade.detail</code> 字段包含运行器回溯信息，实测 59 条失败记录中有 27 条含测试源码。</p>
+</div>
+
+<h2 id="published">5. 已发布的校准数据</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>文件</th><th>集合</th><th>面板</th><th>n</th></tr></thead>
+<tbody>
+<tr><td><code>auto-v0_3anchor_20260805.json</code></td><td>模型编题基线</td><td>三锚点，repeats=2</td><td>126</td></tr>
+<tr><td><code>retrieval-v0_3anchor_20260805.json</code></td><td>检索类用例</td><td>三锚点检索面板</td><td>27</td></tr>
+<tr><td><code>disc-v0_2anchor_partial_20260805.json</code></td><td>早期集合</td><td><strong>两锚点残缺面板</strong></td><td>28</td></tr>
+<tr><td><code>scaleprobe60_3anchor_20260807.json</code></td><td>规模探路抽样</td><td>三锚点，repeats=2</td><td>60</td></tr>
+<tr><td><code>reverse-v1_3anchor_20260808.json</code></td><td><strong>反向构造</strong></td><td>三锚点，repeats=3</td><td>31</td></tr>
+<tr><td><code>reverse-v1-keep3_3anchor_20260809.json</code></td><td>反向构造 + 隐藏测试</td><td>同上</td><td>31</td></tr>
+<tr><td><code>reverse-v1-hidden1_3anchor_20260808.json</code></td><td>反向构造 + 大量隐藏</td><td>同上</td><td>31</td></tr>
+</tbody>
+</table></div>
+
+<p><code>disc-v0</code> 那份是进程中断后重建的，六轮只完成四轮，最强锚点从未运行。文件中的 <code>anchors_missing</code> 如实记录了这一点；<strong>它描述的是一个两锚点面板，不能与三锚点结果直接比较</strong>。</p>
+
+<h2 id="repro-env">6. 复现环境说明</h2>
+
+<p>评分在本机环境中执行，因此环境差异会影响结果。以下为已知的关键依赖：</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>项</th><th>影响</th></tr></thead>
+<tbody>
+<tr><td>Node 版本</td><td>&lt; 22 无法执行 TypeScript 测试；语言规格中的发现规则按 Node 24 实测确定</td></tr>
+<tr><td>Python 第三方包</td><td>评分环境未安装 numpy、pandas 等。导入这些包的用例在生成前即被过滤</td></tr>
+<tr><td>网络</td><td>评分工作区<strong>禁用网络</strong>。测试若发起真实网络请求，用例会被审计拒绝——此类用例本身不可复现</td></tr>
+</tbody>
+</table></div>
+
+<h2 id="terms">7. 术语表</h2>
+
+<dl class="kv">
+<dt>draft 草稿</dt><dd>从一条会话记录抽取出的中间产物，尚未成为用例</dd>
+<dt>stub</dt><dd>用例中待修复的代码。反向构造中即编辑前的真实文件</dd>
+<dt>gold 参考解</dt><dd>用于验证测试有效性的正确版本。反向构造中即编辑后的真实文件</dd>
+<dt>anchor 锚点</dt><dd>用于度量难度的固定参照配置</dd>
+<dt>p_hat</dt><dd>某用例在全部锚点尝试中的通过比例</dd>
+<dt>spread</dt><dd>最强与最弱锚点通过率之差</dd>
+<dt>uncollectable</dt><dd>测试未能运行（而非运行后失败）</dd>
+<dt>verbatim share</dt><dd>用例中逐字来自源仓库的实质代码行占比</dd>
+</dl>
+
+</section>

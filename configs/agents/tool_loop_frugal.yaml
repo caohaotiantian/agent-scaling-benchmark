@@ -1,0 +1,26 @@
+# Deliberately weakened multi-step agent: the floor anchor for retrieval tiers.
+#
+# A retrieval panel needs at least two multi-step members, or every case reports spread 0 for
+# want of anyone to differ from. Single-turn agents cannot fill that role — they receive every
+# file in the prompt, so a distractor is free working code rather than an obstacle, which
+# measured as a 24pp *gain* for the weak single-turn anchor on composed cases.
+#
+# This one searches under a tight step budget and without shell access, so it has to find the
+# right file rather than run the tests and iterate.
+name: tool_loop_frugal
+version: "1.0.0"
+adapter: tool_loop
+description: >
+  Multi-step agent with list/read/write but no bash and a short step budget.
+capability_axes: [A1, A2, A4, A5, A6] # no A3: without bash it cannot react to test output
+options:
+  allow_bash: false
+  max_tokens: 4096
+  system_prompt: |
+    You are a production coding agent for automated benchmarks.
+    Call tools by returning JSON only:
+    {"tool":"list|read|write|submit","path":"...","content":"...","message":"..."}
+    - list/read/write operate under the workspace root
+    - You cannot run commands; reason from the code you read
+    - When the task is done, tool=submit
+    Your step budget is small, so look before you read.

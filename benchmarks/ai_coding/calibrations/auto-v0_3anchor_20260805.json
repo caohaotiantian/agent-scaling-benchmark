@@ -1,0 +1,2630 @@
+{
+  "policy": {
+    "p_max": 0.9,
+    "p_min": 0.05,
+    "min_rpb": 0.15
+  },
+  "anchors": [
+    "mid-single-turn",
+    "strong-tool-loop",
+    "weak-single-turn"
+  ],
+  "run_count": 6,
+  "total_cases": 126,
+  "kept_count": 28,
+  "dropped_count": 98,
+  "p_hat_distribution": {
+    "0.0-0.2": 30,
+    "0.2-0.5": 4,
+    "0.5-0.8": 13,
+    "0.8-1.0": 79
+  },
+  "kept_p_hat_distribution": {
+    "0.0-0.2": 1,
+    "0.2-0.5": 3,
+    "0.5-0.8": 11,
+    "0.8-1.0": 13
+  },
+  "tier_distribution": {
+    "T1": 2,
+    "T3": 25,
+    "unset": 1
+  },
+  "cases": [
+    {
+      "case_id": "act_decoder_ffn_dim_mismatch",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "95feea61f3093405",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "bugfix-binary-search-loop-bound",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "8e4d4f1a4266a179",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5794481610171955,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "bugfix-chunked-001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "2eda70dbdb54a9a9",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix-fibonacci-off-by-one",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "4d8d936966cb4992",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix_chunk_list_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "7a5169e0360ea575",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix_count_vowels_case",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "1356f5f7a6bacf91",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8671064880798872,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "bugfix_discount_boundary_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "b50fb2ec5353410e",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5173644294796389,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "bugfix_extract_commit_shas",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "dd8c072d219657ba",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": -0.10347288589592778,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.10<0.15)"
+      ]
+    },
+    {
+      "case_id": "bugfix_is_prime_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "7acaaa756e0298de",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix_is_prime_boundary",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "e83ab87c22fd276a",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "bugfix_template_merge",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "e76c2ccd51ceba12",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5794481610171955,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "bump_version_major_reset",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "0aa34240f303e808",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "cangjie_check_t1",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "4bf8bee47b18cb66",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "chaos_action_registry_normalization",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "97feb82a6d208bd7",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "chunked_boundary_drop",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "4e7e3ad783b1b031",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "chunked_drops_partial_chunk",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "2322f4007f06db51",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "ci_debugger_classify_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "4ca8881ee1c28236",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "classify_test_cases_by_module",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "5b2ed199155defab",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "commit_analyzer_impact_inversion",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 2,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[9.7%, 70.0%]",
+      "fingerprint": "4b52af2e4bd93c2e",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8507459883047949,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "commit_classifier_boundaries",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "c3ac3ecfc69725ee",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "commit_hash_normalizer_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "4cd6de5bf996627a",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5235359928029507,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "commit_hash_validator_short_hash",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "3d11935fd0ff500f",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.3272099955018442,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "commit_impact_checklist_bugfix_or",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "1e9ef55c174de9aa",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "commit_range_filter_boundary",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "886261fa1a2e2054",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "coredump_crash_frame_t1",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "2deb20cf319874fb",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5173644294796389,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "crush_straw_weight_inversion",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "1b7e3889cd14ef0b",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": -0.016360499775092217,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.02<0.15)"
+      ]
+    },
+    {
+      "case_id": "cve_filter_boundary_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "c91d958de410b372",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "db-004b5bfd-d07-ffd1e3c60f1b3600",
+      "tier": null,
+      "attempts": 6,
+      "passes": 1,
+      "p_hat": 0.16666666666666666,
+      "confidence_interval": "[3.0%, 56.4%]",
+      "fingerprint": "dac939419730460a",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5380590066588244,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "db-0145c16b-9e4-dcc62a8cbfb2a135",
+      "tier": "T2",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "d5b044a82c4457e6",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-0a57944f-f7c-86167cb1777f4db1",
+      "tier": null,
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "509f0d4b5736adb5",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "db-0a7c760e-c1b-752941d87db03186",
+      "tier": "T2",
+      "attempts": 5,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 43.4%]",
+      "fingerprint": "3d13b19700682ed3",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-0cf7e420-780-b0cfecf90527b9a0",
+      "tier": null,
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "616b9cdd4abcef9c",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "db-10aafa71-596-091fce061f3fdef3",
+      "tier": "T2",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "93e0bf9e9843ed2d",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-115a7365-899-2182846e1687a1b0",
+      "tier": "T2",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "9b2870ea83212366",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-20e30250-034-88aed32c8f0c37bc",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "68904d7fc5be426e",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-226d7579-259-81b50d21ec8940a4",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "9e41a6ccf9687b1c",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-268966e6-aa3-f3f586321728cf28",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 2,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[9.7%, 70.0%]",
+      "fingerprint": "9048fb998b891bd7",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.35993099505202863,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "db-31f3711e-ff0-7d9674a731d9fc48",
+      "tier": "T2",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "841533483e7cb4c9",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-32c1491c-1d6-5bdc45f9f7beb182",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "c0562fbacae1fb59",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-34d82859-aed-7893abe72c10a9ee",
+      "tier": "T2",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "4552e090a07ac751",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-3af7116d-2fd-d610e7739dd939a0",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "8194b61b054347ad",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-3b972fd9-114-83c6f24ac18ff880",
+      "tier": null,
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "19184222c08d6eeb",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-3c517d5f-8c8-dd5568085493fba0",
+      "tier": null,
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "ff50a94136e13a95",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-3c6693b5-e02-14c0dc33c8976d59",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "bbbfe5fe956a51d4",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-417f23d6-068-0b9c1b2219c99ca5",
+      "tier": "T2",
+      "attempts": 5,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 43.4%]",
+      "fingerprint": "3673662b1b67f810",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-4214aade-7e7-5e6a93ec6cc2e11a",
+      "tier": null,
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "4aa71c95f9844b4e",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-4a4ec5ac-108-f57797159aec0a96",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "e08e6ceadb2e24e0",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-4a7c24c2-99f-6cecdc617027b2ad",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "18ce5670ef96b643",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-4ba7d2e8-f88-f7fe4f7e8cf41181",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "49180994b0804d03",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-52da4126-14d-cf735ae07d8a7816",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "23f57a0c3a00810c",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "db-59dace85-c44-f310e1d502c463ce",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "7721491f6412c507",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-607d9bc6-142-7581346e705c534c",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "d2f2cd518e6ce33e",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "db-65e8d77e-0dd-1026a09e1f973152",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 1,
+      "p_hat": 0.16666666666666666,
+      "confidence_interval": "[3.0%, 56.4%]",
+      "fingerprint": "9df1135710477261",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.5,
+      "point_biserial": -0.08277830871674222,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.08<0.15)"
+      ]
+    },
+    {
+      "case_id": "dnf5_fedora38_deprecation_boundary",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 3,
+      "p_hat": 0.5,
+      "confidence_interval": "[18.8%, 81.2%]",
+      "fingerprint": "e8a9669e8fccca03",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8792151454272203,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "embedded_boundary_locator_abs",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "746ca665d256bfa2",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "fla_chunk_cumsum_boundary_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "0058b5127483c149",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "gaussdb_explain_operator_taxonomy_normalize",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "18bf4e053db6f067",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.08277830871674222,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=0.08<0.15)"
+      ]
+    },
+    {
+      "case_id": "gaussdb_order_by_builder_bugfix_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "a7da32261f632c3c",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "gaussdb_order_by_clause_builder_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "e295c5dab446bf8a",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5173644294796389,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "git_commit_push_change_detection",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "11d95d01bc1058f1",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "gitcode_api_v4_to_v5",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "89ed5c0337941cc3",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "kmod_news_analyzer_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "c995afbbeb0bca07",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5173644294796389,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "kv_cache_prefix_hit_001",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "c411a68403be114a",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "leap_year_bugfix",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "0d4576b95e0453c5",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "leap_year_century_bugfix",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "2ecee0ea2f85fda2",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "leap_year_logic",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "e1e5c071563a5c73",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "linux_memview_docs_t1",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "c64e8c3851ab450d",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "materials_hill_formula_bugfix",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "3f8ce7ad16bd5811",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "mcs_softmac_validation",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "c7e0ed24bea7ce99",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "median_even_bug",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "0c56ea8292e9b601",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "meminfo-kb-to-bytes",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "58247c06c5391f79",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "meminfo-used-percent-fraction-bug",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "f73d121354bffb51",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "meminfo_indicators_bugfix_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "27f749b38f70a374",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.08277830871674222,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=0.08<0.15)"
+      ]
+    },
+    {
+      "case_id": "meminfo_parser_bugfix_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "f91e9a7ff243561e",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "meminfo_parser_kb_to_bytes",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "ba695e17897943ef",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "meminfo_parser_kb_unit",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "e2a030755fe5c3d5",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "merge_intervals_adjacent",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "11b149339955e701",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "merge_intervals_adjacent_bug",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "e321107781b1e2a6",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "mi_similar_compilations_skill_md_doi_prefix",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "2b2069260923b7fc",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8671064880798872,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "observed_v2_nested_propagation",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "df51af4b60c1881f",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "pager_off_by_one",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "31dc2f87fe4ff75b",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": -0.5380590066588244,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.54<0.15)"
+      ]
+    },
+    {
+      "case_id": "peering_activate_map_history_sync",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "ce522da557e38b42",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8671064880798872,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "pixel_diff_initial_frame_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "5b351abd9a594738",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py-bugfix-commit-report-001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "a1124725eb61dcae",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5173644294796389,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "py_change_categorizer_scope_case",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "2b20a7e135f9df87",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5794481610171955,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "py_chunk_list_off_by_one",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "92803d8e1c37a5fc",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_chunk_offbyone",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "0cbca69073b49063",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_commit_report_short_hash",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "b1642ecd572ace39",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "py_median_boundary",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "1e7c7aa0061331c9",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_merge_intervals_boundary",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "c851213fe43fa717",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_monitor_init_order",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "f6c6ebd0fa44b22b",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": -0.016360499775092217,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.02<0.15)"
+      ]
+    },
+    {
+      "case_id": "py_palindrome_normalize",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "72cc0169e60d8b77",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8671064880798872,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "py_rate_limiter_boundary",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 3,
+      "p_hat": 0.5,
+      "confidence_interval": "[18.8%, 81.2%]",
+      "fingerprint": "ea9e299508a34d08",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8792151454272203,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "py_spark_version_upgrade_binary_segment",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "d064af126d217b0a",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "py_sql_skill_duplicate_missing",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "f119ae22332d27a7",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "range_boundary_bugfix",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "b98cb40f41b59c2c",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "range_summary_clip_bug",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "eee81013f00f1643",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "rle_missing_final_run",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "efaa905155d7af42",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "rpm_patch_find_spec_subdir",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "78b6b33189dc9961",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5794481610171955,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "rustblade_api_coverage_bugfix",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "c8d0753542f8fa99",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "session_config_restore_after_compaction",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "b5ba649c25c49fe8",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "shm_logger_level_filter",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "f83e3729dfa856f9",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5794481610171955,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "similar_compilations_merge_dedup",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "065e3742f4ef771a",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "skill_duplicate_publish_version_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "0b8f4d982f91eeb2",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "smart_survival_rate_inconsistency",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 2,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[9.7%, 70.0%]",
+      "fingerprint": "973be3c0f0d44ae1",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": -0.03272099955018443,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.03<0.15)"
+      ]
+    },
+    {
+      "case_id": "t1_atomgit_pr_token",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 0,
+      "p_hat": 0.0,
+      "confidence_interval": "[0.0%, 39.0%]",
+      "fingerprint": "bb9ec2ef28726aec",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 0.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "unsolved_by_all(p=0.00<0.05) — verify the case itself"
+      ]
+    },
+    {
+      "case_id": "t1_critical_clip_scan",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "e32cac749ef7fe4d",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "t1_is_prime_return_bug",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "bbcedcd13aa13a7d",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "t1_json_pretty_print_indent",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 3,
+      "p_hat": 0.5,
+      "confidence_interval": "[18.8%, 81.2%]",
+      "fingerprint": "444eb9a66eedb520",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 0.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.37019585070619804,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "t1_median_even_length",
+      "tier": "T1",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "ecc69f5596dce84b",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "t1_packet_loss_diagnosis",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "e9c067cca7dcc83d",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "t1_skill_builder_gate",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "cf5c0fb67ae84c1f",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "t1_so_version_fallback",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "4b68747ba1eb2880",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.08277830871674222,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=0.08<0.15)"
+      ]
+    },
+    {
+      "case_id": "t1_team_multi_session",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "7edb299591871081",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "t1_upstream_merge_config",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "151fd290b7d2d08f",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "trends_top10_bugfix_001",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "8c656c81950a864e",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "truncate_message_boundary",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "5f025075c6e7648e",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5794481610171955,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "vllm_symbol_mapper_prefix_bug",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "99defeef66ae161e",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5794481610171955,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "vmstat-pressure-classifier-boundary",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "60e3d00c0846f867",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "vmstat_docs_simplified_flow_step_count",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 4,
+      "p_hat": 0.6666666666666666,
+      "confidence_interval": "[30.0%, 90.3%]",
+      "fingerprint": "5617c08b777f61f9",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 1.0,
+      "point_biserial": 0.8671064880798872,
+      "flaky": false,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "vmstat_frag_formula",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "18c26a8f5ee0b1fa",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": -0.10347288589592778,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=-0.10<0.15)"
+      ]
+    },
+    {
+      "case_id": "vmstat_iowait_threshold",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 3,
+      "p_hat": 0.5,
+      "confidence_interval": "[18.8%, 81.2%]",
+      "fingerprint": "b5df9f38aaf550bb",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 0.5
+      },
+      "spread": 1.0,
+      "point_biserial": 0.41647033204447276,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "vmstat_parser_compact_category",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 6,
+      "p_hat": 1.0,
+      "confidence_interval": "[61.0%, 100.0%]",
+      "fingerprint": "957ddf52b04ec479",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.0,
+      "point_biserial": null,
+      "flaky": false,
+      "keep": false,
+      "reasons": [
+        "too_easy(p=1.00>0.9)"
+      ]
+    },
+    {
+      "case_id": "white_screen_timer_tick_rounding",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 2,
+      "p_hat": 0.3333333333333333,
+      "confidence_interval": "[9.7%, 70.0%]",
+      "fingerprint": "23381058cd5e4abf",
+      "by_anchor": {
+        "weak-single-turn": 0.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 0.5
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5071754930278586,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "win_build_stub_arch_select",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "d8a10463fb49b316",
+      "by_anchor": {
+        "weak-single-turn": 0.5,
+        "mid-single-turn": 1.0,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.5794481610171955,
+      "flaky": true,
+      "keep": true,
+      "reasons": []
+    },
+    {
+      "case_id": "workflow_max_iterations_off_by_one",
+      "tier": "T3",
+      "attempts": 6,
+      "passes": 5,
+      "p_hat": 0.8333333333333334,
+      "confidence_interval": "[43.6%, 97.0%]",
+      "fingerprint": "decb13708a5f7160",
+      "by_anchor": {
+        "weak-single-turn": 1.0,
+        "mid-single-turn": 0.5,
+        "strong-tool-loop": 1.0
+      },
+      "spread": 0.5,
+      "point_biserial": 0.08277830871674222,
+      "flaky": true,
+      "keep": false,
+      "reasons": [
+        "no_discrimination(r_pb=0.08<0.15)"
+      ]
+    }
+  ],
+  "case_set": "auto-v0",
+  "repeats": 2,
+  "anchor_fingerprint": "f3913d65b0d0bf00",
+  "reused_case_count": 0,
+  "recalibrated_case_count": 126
+}

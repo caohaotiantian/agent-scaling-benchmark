@@ -1,0 +1,70 @@
+name: live-smoke
+
+# Exercises the parts the default CI cannot: the real DB, the real gateway, and the tiering
+# and calibration path end to end. Manual or nightly, never on a pull request — it spends money
+# and needs credentials a fork must not receive.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Records to scan from llm_chat_records
+        default: "60"
+      max_cases:
+        description: Cases to generate
+        default: "6"
+  schedule:
+    - cron: "0 3 * * 1" # Mondays, 03:00 UTC
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --extra dev
+
+      # A missing secret must skip the job, not fail it: a fork or a repo that has not been
+      # configured should not show a red build for credentials it was never meant to have.
+      - name: Check credentials
+        id: creds
+        env:
+          AIBENCH_DB_URL: ${{ secrets.AIBENCH_DB_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$AIBENCH_DB_URL" ] && [ -n "$OPENAI_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AIBENCH_DB_URL / OPENAI_API_KEY not set; skipping the live smoke."
+          fi
+
+      - name: Build a tiered case set from real traces
+        if: steps.creds.outputs.available == 'true'
+        env:
+          AIBENCH_DB_URL: ${{ secrets.AIBENCH_DB_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          AIBENCH_GENERATE_TIMEOUT: "300"
+        run: |
+          C=benchmarks/ai_coding/cases
+          uv run python -m aibench extract-from-db \
+            --output-dir "$C/drafts-from-db" --limit "${{ inputs.limit || 60 }}" --max-cases 40
+          uv run python -m aibench filter-drafts \
+            --input-dir "$C/drafts-from-db" --output-dir "$C/drafts-kept"
+          uv run python -m aibench generate-cases \
+            --input-dir "$C/drafts-kept" --output-dir "$C/auto-v0" \
+            --max-cases "${{ inputs.max_cases || 6 }}" --workers 4 --audit --secrets-scan
+          uv run python -m aibench validate-cases --case-set auto-v0
+          uv run python -m aibench audit-cases --case-set auto-v0 --fail-on-error
+
+      - name: Upload the generated cases
+        if: steps.creds.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-v0
+          path: benchmarks/ai_coding/cases/auto-v0/
+          if-no-files-found: error

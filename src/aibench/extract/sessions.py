@@ -44,19 +44,174 @@ def is_coding_session(session: SessionRecord) -> bool:
     return bool(_CODE_INTENT.search(text))
 
 
-def redact_secrets(text: str) -> str:
-    patterns = [
-        (r"(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+", r"\1=***"),
-        (r"sk-[A-Za-z0-9]{10,}", "sk-***"),
-        (
-            r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-            "***PRIVATE_KEY***",
-        ),
-    ]
-    out = text
-    for pat, repl in patterns:
-        out = re.sub(pat, repl, out)
-    return out
+def redact_secrets(text: str, *, aggressive: bool = False) -> str:
+    """Replace secret-looking values, without destroying the code around them.
+
+    The value pattern stops at the first quote or whitespace and puts back whatever quoting it
+    consumed. Matching ``\\S+`` instead swallowed the closing delimiter, so
+    ``assert "token=abc" in url`` became ``assert "token=*** in url`` — an unterminated string
+    literal. Measured over ``drafts-from-db``: 56 lines across 90 files in 45 drafts were left
+    with an unbalanced quote, and cases built from them shipped with a reference solution and
+    a hidden test that could not be parsed.
+
+    ``aggressive`` widens what counts as a secret value. It is only safe where a parse check
+    can veto the result, so it defaults off and :func:`redact_source` turns it on for exactly
+    the inputs it can verify.
+    """
+    return _redact_spanning(_redact_line_local(text, aggressive=aggressive))
+
+
+def _redact_line_local(text: str, *, aggressive: bool) -> str:
+    """The rewrites that act within one line — the only ones that can break syntax."""
+    out = _SECRET_ASSIGN.sub(lambda m: _redact_assignment(m, aggressive=aggressive), text)
+    return re.sub(r"sk-[A-Za-z0-9]{10,}", "sk-***", out)
+
+
+def _redact_spanning(text: str) -> str:
+    """Rewrites that legitimately cross lines. Applied whole-text, still subject to the veto.
+
+    Kept out of the line-by-line salvage because it cannot match a single line, which is how a
+    file with an embedded private key came back byte-identical whenever any other line tripped
+    the guard.
+
+    The body is restricted to what a PEM block can actually contain. Left unanchored it ran
+    from any BEGIN marker to the next END marker anywhere in the file, so a module that merely
+    *mentions* both markers had the code between them deleted — and if that code was a whole
+    function the result still parsed, so nothing noticed.
+    """
+    return re.sub(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----[A-Za-z0-9+/=\s]*?-----END [A-Z ]*PRIVATE KEY-----",
+        "***PRIVATE_KEY***",
+        text,
+    )
+
+
+#: A secret-looking assignment whose value is either a quoted literal or a bare token.
+#:
+#: The bare alternative refuses anything that continues into an expression, because `token =
+#: os.environ["K"]` names no secret and rewriting it only breaks the file. A bare value behind
+#: a colon is held to a higher bar (see :func:`_looks_like_a_secret`) because `token: str` is
+#: an ordinary annotation, not a leak.
+_SECRET_ASSIGN = re.compile(
+    r"""(?ix)
+    (?<![A-Za-z0-9])                      # a whole word, not a suffix. Without this, `Token`
+                                          # matched inside `CancellationToken` and broke 12 of
+                                          # the 20 real .js files the rule touched. Underscore
+                                          # is allowed, so `ZOTERO_API_KEY` still matches.
+    (api[_-]?key|token|secret|password|passwd|pwd)   # 1: the name that makes this a secret
+    (["']?[ \t]*(?P<sep>[:=])[ \t]*)      # 2: the assignment, preserved verbatim. Horizontal
+                                          #    space only: `\s*` let a separator ending one
+                                          #    line bind to the docstring opening the next.
+                                          #    The optional quote closes a quoted *key*.
+    (?:
+        # A quoted literal. No whitespace inside, because a value that spans one would be
+        # code: in `"…?token=" + tok + "&u="` the quote after `token=` CLOSES a literal, and
+        # treating it as an opening one swallowed `+ tok +`. Non-empty, so the first two
+        # quotes of a `\"\"\"` opener are never mistaken for an empty value.
+        # Six characters, the same floor both scanner rules use. Without it the redactor and
+        # the gate disagreed about `"pwd": "allow"` in opposite directions — the scanner
+        # deliberately declines to call a five-letter permission a secret, and the redactor
+        # masked it anyway.
+        (?P<q>["'])(?P<quoted>[^"'\s]{6,})(?P=q)
+      | (?P<bare>[A-Za-z0-9_\-]+)(?![\w\-.\[(])    # or a bare token that ends right here
+    )
+    """
+)
+
+
+def _looks_like_a_secret(value: str, *, aggressive: bool) -> bool:
+    """Whether a bare, unquoted value is worth rewriting.
+
+    An unquoted right-hand side is often code rather than a credential — ``token = None``,
+    ``password = password or b""``, ``token: SecretStr`` — and rewriting one breaks the file.
+    Requiring a digit, or real length, keeps ``hunter2`` and ``a1b2c3d4`` while leaving
+    identifiers and type names alone.
+
+    ``aggressive`` drops that bar, and is only justified where a parse check can veto the
+    result. It must stay off otherwise: a fragment that never parsed, a language with no
+    parser, and text inside a docstring all sit outside the guard's reach, and there a wider
+    pattern is pure damage with nothing to catch it.
+    """
+    if aggressive:
+        return len(value) >= 3
+    if value.isdigit():
+        return False  # `token=1048576` is a constant, not a credential
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) and not any(c.isdigit() for c in value):
+        # A bare identifier: `exports.createScalarToken = createScalarToken` names a symbol,
+        # and rewriting it deletes a reference. Real credentials are not valid identifiers,
+        # or at least carry a digit.
+        return False
+    return (any(c.isdigit() for c in value) and len(value) >= 6) or len(value) >= 16
+
+
+def _redact_assignment(m: re.Match[str], *, aggressive: bool) -> str:
+    quote = m.group("q")
+    if quote is not None:
+        return f"{m.group(1)}{m.group(2)}{quote}***{quote}"
+    if not _looks_like_a_secret(m.group("bare"), aggressive=aggressive):
+        return m.group(0)
+    return f"{m.group(1)}{m.group(2)}***"
+
+
+def redact_source(text: str, *, path: str | None = None, language: str | None = None) -> str:
+    """Redact file content, but never hand back source that stopped parsing.
+
+    Rewriting code with a regex cannot be made safe in general — the value may be an
+    expression, a fragment of a larger literal, or a docstring delimiter — so the guard is
+    empirical: if the file parsed before and does not after, the redaction is discarded.
+
+    Leaving a value in place means the secret stays in the case, which ``secrets_scan`` reports
+    and ``promote`` refuses to publish. That is the intended trade: a case blocked at the gate
+    is recoverable, while a case whose reference solution no longer parses ships as a hard one
+    and quietly corrupts the measurement.
+
+    Known bounds, all measured against ``benchmarks/ai_coding/cases`` and all currently at zero
+    live occurrences, all covered by ``secrets_scan``:
+
+    * In parse-verified Python no *bare* value is ever rewritten, because ``***`` is not a valid
+      expression, so the veto discards every such rewrite. The aggressive path is therefore
+      quoted-values-only for Python — which is not obvious from reading the pattern.
+    * A camelCase name (``accessToken``) is not matched: the word boundary that stopped ``Token``
+      matching inside ``CancellationToken`` excludes these too.
+    * A language with no parser here gets the conservative rule and no veto, so whitespace-free
+      or minified source can still be rewritten wrongly.
+    * An *encrypted* PEM block is not matched, because its ``Proc-Type``/``DEK-Info`` headers
+      fall outside the base64 body the pattern now requires.
+    """
+    from aibench.languages import registered_spec, spec_for_path
+
+    spec = spec_for_path(path) if path else None
+    if spec is None:
+        spec = registered_spec(language)
+    # The wide pattern is earned only when this exact input can be re-parsed afterwards. A
+    # language with no parser here, or a chat-extracted fragment that never parsed to begin
+    # with — 78% of real draft .py content — gets the conservative one, because there would be
+    # nothing to catch an over-reach.
+    verifiable = spec is not None and spec.parses(text) is True
+    line_redacted = _redact_line_local(text, aggressive=verifiable)
+
+    if verifiable and spec.parses(line_redacted) is False:
+        # The whole rewrite broke it. Rather than discard every redaction over one bad line —
+        # which would leave the other secrets in place — keep the ones that survive alone.
+        lines = text.splitlines(keepends=True)
+        kept = list(lines)
+        for i, line in enumerate(lines):
+            rewritten = _redact_line_local(line, aggressive=True)
+            if rewritten == line:
+                continue
+            trial = [*kept[:i], rewritten, *kept[i + 1 :]]
+            if spec.parses("".join(trial)) is not False:
+                kept = trial
+        line_redacted = "".join(kept)
+
+    # Applied after the line work because it cannot be matched line by line — but under the
+    # same veto, since it is not exempt from breaking a file. A declined PEM rewrite leaves the
+    # key for `secrets_scan`'s own `private_key` rule to block, which is the trade this whole
+    # function makes everywhere else.
+    with_pem = _redact_spanning(line_redacted)
+    if verifiable and spec.parses(with_pem) is False:
+        return line_redacted
+    return with_pem
 
 
 def task_fingerprint(prompt: str, file_paths: Iterable[str]) -> str:
@@ -89,7 +244,7 @@ def session_to_case_draft(
             files.append(
                 {
                     "path": str(art["path"]),
-                    "content": redact_secrets(str(art["content"])),
+                    "content": redact_source(str(art["content"]), path=str(art["path"])),
                 }
             )
 
@@ -103,7 +258,7 @@ def session_to_case_draft(
             gold_files.append(
                 {
                     "path": str(art["path"]),
-                    "content": redact_secrets(str(art["content"])),
+                    "content": redact_source(str(art["content"]), path=str(art["path"])),
                 }
             )
 
@@ -192,3 +347,50 @@ def load_sessions_from_export(rows: list[dict[str, Any]]) -> list[SessionRecord]
 
 def session_record_to_dict(session: SessionRecord) -> dict[str, Any]:
     return asdict(session)
+
+
+#: Home directories and drive-rooted project trees, which carry the engineer's account name
+#: and the internal project name. Measured on 8 reverse-constructed cases: every one had a real
+#: username in `metadata.reverse_source_path` (/home/plh, /home/mark, /home/tc, /home/li) and
+#: two still had one in the shipped source. Reverse construction ships real files, so these
+#: arrive by construction rather than by accident.
+_USER_PATH = re.compile(
+    r"(?:/home/[A-Za-z0-9._-]+|/Users/[A-Za-z0-9._-]+|[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9._-]+)",
+)
+_DRIVE_TREE = re.compile(r"(?:/mnt/[a-z]/|[A-Za-z]:[\\/]+)(?![\\/])")
+
+
+def redact_paths(text: str, *, path: str | None = None) -> str:
+    """Replace machine-specific path prefixes, keeping the file parseable.
+
+    Same veto as :func:`redact_source`: a rewrite that stops the file parsing is discarded,
+    because a reference solution that no longer parses ships as a hard case and corrupts the
+    measurement, while a leaked path is caught by review.
+    """
+    if not text:
+        return text
+    from aibench.languages import registered_spec, spec_for_path
+
+    spec = (spec_for_path(path) if path else None) or registered_spec(None)
+    before = spec.parses(text) if spec else None
+    out = _USER_PATH.sub("/workspace", text)
+    out = _DRIVE_TREE.sub("/workspace/", out)
+    if out == text:
+        return text
+    if before is True and spec is not None and spec.parses(out) is False:
+        return text
+    return out
+
+
+def redact_source_path(path: str) -> str:
+    """A source path safe to ship: the filename, plus a digest so distinct files stay distinct.
+
+    The full path is only ever used to tell one source file from another. Keeping it whole
+    published `/home/li/git/neo-designer/src/access/sdk/coreSdk.ts` — an account name and an
+    unreleased project — for no gain the digest does not provide.
+    """
+    import hashlib
+
+    name = re.split(r"[\\/]", str(path or "").strip())[-1]
+    digest = hashlib.sha256(str(path or "").encode("utf-8")).hexdigest()[:12]
+    return f"{name}#{digest}"

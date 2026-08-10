@@ -1,0 +1,17 @@
+# Test-only run config for the mock calibration panel.
+experiment_name: mock-calibration
+algorithm_name: Baseline
+algorithm_version: v0
+budget_axis: steps
+budget_value: "max_steps=4"
+branches: 1
+max_attempts: 1
+max_steps: 4
+max_wall_time_s: 60
+selection_strategy: first-submit
+case_set: seed-v0
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: tests/fixtures/configs/agents/mock.yaml
+model_config: tests/fixtures/configs/models/mock-model.yaml
+case_workers: 2

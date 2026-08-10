@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from urllib.parse import quote_plus
 
+from aibench.extract.file_versions import replay_file_versions
 from aibench.extract.history_parse import (
     extract_user_agent,
     files_from_messages,
@@ -23,8 +25,10 @@ from aibench.extract.sessions import (
     Message,
     SessionRecord,
     redact_secrets,
+    redact_source,
     task_fingerprint,
 )
+from aibench.extract.trace_signals import signals_from_messages, suggest_tier
 
 
 @dataclass
@@ -75,8 +79,9 @@ def fetch_chat_records(
     since: str | None = None,
     until: str | None = None,
     offset: int = 0,
+    require_edits: bool = False,
 ) -> list[ChatRecord]:
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import create_engine
 
     engine = create_engine(
         db_url,
@@ -100,6 +105,12 @@ def fetch_chat_records(
     if only_opencode:
         clauses.append("CAST(requests_tags AS CHAR) LIKE :ua")
         params["ua"] = "%opencode%"
+    if require_edits:
+        # Reverse construction needs traces that actually edited code, and most rows did not:
+        # sampling by recency alone, 51 of 150 carried any edit and they yielded one usable
+        # before/after pair. The scan is bounded by LIMIT, so MySQL stops once it has enough.
+        clauses.append("full_history LIKE :edit_tool")
+        params["edit_tool"] = '%"name": "edit"%'
 
     sql = f"""
         SELECT request_id, start_time, model, requests_tags, tools, full_history, key_alias, created_at
@@ -111,25 +122,33 @@ def fetch_chat_records(
     from aibench.retry import retry_call
 
     def _fetch() -> list[ChatRecord]:
-        rows_out: list[ChatRecord] = []
-        with engine.connect() as conn:
-            rows = conn.execute(text(sql), params).mappings().all()
-            for r in rows:
-                rows_out.append(
-                    ChatRecord(
-                        request_id=str(r["request_id"]),
-                        start_time=r.get("start_time"),
-                        model=r.get("model"),
-                        requests_tags=r.get("requests_tags"),
-                        tools=r.get("tools"),
-                        full_history=r.get("full_history"),
-                        key_alias=r.get("key_alias"),
-                        created_at=r.get("created_at"),
-                    )
-                )
-        return rows_out
+        return list(_iter_rows(engine, sql, params))
 
     return retry_call(_fetch, label="db_fetch_llm_chat_records")
+
+
+def _iter_rows(engine: Any, sql: str, params: dict[str, Any]) -> Iterator[ChatRecord]:
+    """Yield rows as the server sends them.
+
+    `full_history` is the whole conversation, so materialising the result set first costs
+    memory proportional to the entire scan: a 4,687-row pull sat at 1.25 GB and climbing with
+    nothing written yet. Streaming bounds that to a batch, and lets the caller persist each
+    draft as it is built instead of at the end.
+    """
+    from sqlalchemy import text as _text
+
+    with engine.connect().execution_options(stream_results=True, yield_per=100) as conn:
+        for r in conn.execute(_text(sql), params).mappings():
+            yield ChatRecord(
+                request_id=str(r["request_id"]),
+                start_time=r.get("start_time"),
+                model=r.get("model"),
+                requests_tags=r.get("requests_tags"),
+                tools=r.get("tools"),
+                full_history=r.get("full_history"),
+                key_alias=r.get("key_alias"),
+                created_at=r.get("created_at"),
+            )
 
 
 def chat_record_to_session(rec: ChatRecord) -> SessionRecord | None:
@@ -156,7 +175,7 @@ def chat_record_to_session(rec: ChatRecord) -> SessionRecord | None:
             {
                 "type": "context_file",
                 "path": f["path"],
-                "content": redact_secrets(f["content"]),
+                "content": redact_source(f["content"], path=f["path"]),
             }
         )
     for g in gold:
@@ -164,7 +183,7 @@ def chat_record_to_session(rec: ChatRecord) -> SessionRecord | None:
             {
                 "type": "accepted_file",
                 "path": g["path"],
-                "content": redact_secrets(g["content"]),
+                "content": redact_source(g["content"], path=g["path"]),
                 "accepted": True,
             }
         )
@@ -224,6 +243,7 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
     if not is_coding_record(user_agent=ua, tools=tools, user_text=user_text):
         return None
 
+    file_versions, replay_stats = replay_file_versions(messages)
     prompt = primary_user_prompt(messages)
     if not prompt or len(prompt) < 8:
         return None
@@ -234,7 +254,9 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
     gold = gold_from_assistant(messages, language)
     task_type = guess_task_type(prompt)
 
-    context_files = [{"path": f["path"], "content": redact_secrets(f["content"])} for f in files]
+    context_files = [
+        {"path": f["path"], "content": redact_source(f["content"], path=f["path"])} for f in files
+    ]
     if not context_files:
         # Still allow pure "write from scratch" tasks
         context_files = [
@@ -250,7 +272,9 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             }
         ]
 
-    gold_files = [{"path": g["path"], "content": redact_secrets(g["content"])} for g in gold]
+    gold_files = [
+        {"path": g["path"], "content": redact_source(g["content"], path=g["path"])} for g in gold
+    ]
 
     if gold_files:
         grader: dict[str, Any] = {
@@ -268,6 +292,9 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
     short_id = rec.request_id.replace("chatcmpl-", "")[:12]
     fp = task_fingerprint(prompt, [f["path"] for f in context_files])
     case_id = f"db-{short_id}-{fp}"
+
+    signals = signals_from_messages(messages)
+    tier, tier_reasons = suggest_tier(signals)
 
     return {
         "case_id": case_id,
@@ -302,6 +329,15 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             "has_context_files": bool(files),
             "has_gold_code": bool(gold),
             "review_status": "needs_review",
+            "tier": tier,
+            "tier_source": "trace_signals",
+            "tier_reasons": tier_reasons,
+            "trace_signals": signals.to_dict(),
+            # What the engineer actually changed, replayed from the trace's own edits. This is
+            # the material reverse construction builds on: the defect is then whatever they
+            # really got wrong, not what a model invents when asked for a benchmark case.
+            "file_versions": [fv.to_dict() for fv in file_versions],
+            "file_versions_stats": replay_stats.to_dict(),
         },
     }
 
@@ -340,7 +376,14 @@ def extract_case_drafts_from_db(
     require_gold: bool = False,
     since: str | None = None,
     until: str | None = None,
+    require_edits: bool = False,
+    on_draft: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
+    """Build drafts from the trace store.
+
+    ``on_draft`` is called with each draft the moment it is built. Without it a run that dies
+    part-way leaves nothing behind, however long it ran.
+    """
     records = fetch_chat_records(
         db_url,
         limit=limit,
@@ -349,6 +392,7 @@ def extract_case_drafts_from_db(
         only_opencode=only_opencode,
         since=since,
         until=until,
+        require_edits=require_edits,
     )
     drafts: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -362,6 +406,8 @@ def extract_case_drafts_from_db(
         if fp in seen:
             continue
         seen.add(fp)
+        if on_draft is not None:
+            on_draft(draft)
         drafts.append(draft)
         if len(drafts) >= max_cases:
             break

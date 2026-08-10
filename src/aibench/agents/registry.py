@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from aibench.agents.bare_model import BareModelAgent
 from aibench.agents.base import AgentAdapter
 from aibench.agents.mock import MockAgent
 from aibench.agents.openai_compat import OpenAICompatAgent
@@ -9,6 +10,7 @@ from aibench.models import AgentConfig, ModelConfig
 
 _REGISTRY: dict[str, type[AgentAdapter]] = {
     "mock": MockAgent,
+    "bare_model": BareModelAgent,
     "openai_compat": OpenAICompatAgent,
     "tool_loop": ToolLoopAgent,
     "shell": ShellAgent,

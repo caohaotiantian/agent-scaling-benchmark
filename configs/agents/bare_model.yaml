@@ -1,0 +1,27 @@
+# The model with no scaffold between it and the grader.
+#
+# Use this to measure a model. Use openai_compat or tool_loop to measure a model *in a
+# harness* — measured on the same 31 cases, the scaffold contributed nearly all the variance
+# and reversed the ranking:
+#
+#   protocol      GLM-5.1 spread over 3 repeats   Deepseek spread   winner
+#   bare_model              0.0pp                      3.2pp        GLM-5.1  90.3%
+#   tool_loop              12.9pp                     16.1pp        Deepseek 90.3%
+#
+# Conflating the two questions is what produced five rounds of contradictory rankings.
+name: bare_model
+version: "1.0.0"
+adapter: bare_model
+description: >
+  One call. The model replies with the complete corrected file in a fenced code block, which
+  is written to the workspace and graded by the ordinary grader. No JSON envelope, no tools,
+  no second turn, no step budget.
+# A single turn with everything pasted in: nothing to retrieve (A2), no turn to react in (A3).
+capability_axes: [A1, A4, A5, A6]
+options:
+  # Room to reason before answering; doubles to max_tokens_ceiling if the reply is truncated.
+  max_tokens: 16384
+  max_tokens_ceiling: 49152
+  # Visible tests are shown so the task is well posed. Hidden tests stay hidden — this is not
+  # the answer key.
+  show_tests: true

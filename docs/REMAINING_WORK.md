@@ -2,62 +2,104 @@
 
 > **展示版（推荐）**：[docs/html/remaining-work.html](html/remaining-work.html)
 
-更新时间：已完成一轮「遗留任务」落地（见 commit history）。
+更新时间：2026-08-04（分层区分度用例流水线落地后）。
 
 ## 已完成
 
 ### 主路径
-- [x] Case 协议 / schema / workspace 还原  
-- [x] mock + openai_compat + **tool_loop** + **shell** Agent  
-- [x] 会话抽库 → 规则筛选 → LLM/启发式生成 → validate  
-- [x] 一键 e2e、消融矩阵、综述表  
-- [x] 用户手册  
+- [x] Case 协议 / schema / workspace 还原
+- [x] mock + openai_compat + **tool_loop** + **shell** Agent
+- [x] 会话抽库 → 规则筛选 → LLM/启发式生成 → validate
+- [x] 一键 e2e、消融矩阵、综述表
+- [x] 用户手册
 
-### 原 P1
-- [x] **promote** CLI（人工门控发布到 `prod-v0`）  
-- [x] **weak_grader** 消融默认剔除（`--allow-weak-grader` 可关）  
-- [x] **失败诊断** 写入 `report.md` / `summary.failure_diagnostics`  
-- [x] **secrets-scan** CLI + generate `--secrets-scan`  
-
-### 原 P2
-- [x] **LLM 软过滤** `filter-drafts --llm-soft`  
-- [x] **snapshot-skeleton** CLI  
-- [x] **llm_judge** 判分实现  
-- [x] **tool_loop** 多步工具 Agent  
-- [x] **shell** 适配器（可包 mini-swe 等 CLI）  
-- [x] **并行消融** `--parallel N`  
-- [x] **相对基线收益**（`--baseline-experiment` / 矩阵首行）  
-- [x] **费用估算**（`AIBENCH_USD_PER_MTOK*`）  
-
-### 原 P3
-- [x] validate-cases 默认 `auto-v0`  
-- [x] **CSV / XLSX** 导出（`export-ablation` / ablation `--export-csv|--export-xlsx`）  
-- [x] **GitHub Actions CI**（pytest + dry-run）  
-- [x] 设计/实现文档状态更新  
+### 原 P1 / P2 / P3
+- [x] promote CLI、weak_grader 默认剔除、失败诊断、secrets-scan
+- [x] LLM 软过滤、snapshot-skeleton、llm_judge、tool_loop、shell 适配器
+- [x] 并行消融、相对基线收益、费用估算
+- [x] CSV / XLSX 导出、GitHub Actions CI
 
 ### 科学效度与并行（2026-07-27）
-- [x] stub-fail / 污染 / 难度 / 指纹审计（`audit-cases`）  
-- [x] Wilson CI + 分层成功率  
-- [x] case set fingerprint 入 manifest  
-- [x] case 级并行（`run --workers` / `case_workers`）  
-- [x] generate 并行（`generate-cases --workers`）  
-- [x] promote `--require-audit`  
+- [x] stub-fail / 污染 / 难度 / 指纹审计（`audit-cases`）
+- [x] Wilson CI + 分层成功率、case set fingerprint
+- [x] case 级并行、generate 并行、promote `--require-audit`
 
-## 仍可增强（非阻塞）
+### 分层区分度（2026-08-04）
+- [x] **T1–T5 分层契约** + 机器可检结构不变量（`src/aibench/tiers.py`）
+- [x] **trace 过程信号** 挖掘与层级推导（`extract/trace_signals.py`）
+- [x] **确定性消毒定级**：去缺陷标记、去题面泄露、拆隐藏测试（`extract/tier_shaping.py`）
+- [x] **隐藏测试** `grader.hidden_tests`（判分时注入）
+- [x] **防作弊** `grader.protected_paths` + `reward_hack` 归因
+- [x] **可解性门禁** `solvability_gate`（参考解必须通过，与 stub-fail 成对）。
+      **2026-08-04 收紧**：原先「无参考解则跳过」，实测 18 条无人能解的用例里 16 条正是走了这条豁免。
+      现在 script 模式下没有参考解即判失败
+- [x] **经验校准** `calibrate-cases`（p_hat / spread / point_biserial / flaky）
+- [x] **按区分度选题** `select-cases`
+- [x] **McNemar 配对显著性检验** + 按 tier 分层的消融报告
+- [x] **修复**：agent 的 model 解析改为「配置优先、env 兜底」。此前 `OPENAI_MODEL` 会覆盖
+      每行 `model_config`，导致多模型消融静默跑成同一个模型，而报告仍按不同模型标注
+- [x] **修复**：`tool_loop` 执行 bash 时 `[-2000]` 写成单字符索引而非切片，输出短于 2000 字符
+      即 `IndexError`。多步 agent 从未真正跑通测试 —— **agent 轴此前从未被测量过**。
+      修复后实测：14 步（list → read → read → write → pytest → submit），成功率 1.000
+- [x] **修复**：全部 case 都 infra_error 的实验，报告曾显示 `0.0% / -100.0pp`（读作能力结论）。
+      现加「有效Case / 基础设施失败」列 + 顶部显式警告
+- [x] **修复**：`run_benchmark` 为算内容哈希跑了完整审计（每 case 两次 pytest），改为直接算哈希
+- [x] **干扰文件反证校验**：`role=distractor` 却出现在参考解里即判违规（`distractor_in_solution`）
+- [x] **参考解最小性**：与初始文件完全相同判 error，改动行占比 >60% 告警
+- [x] 采样扩展 pass@k / 成本轴（原 P0 全部）
+- [x] **评分干扰检测**：conftest / pytest.ini / 跳过标记等绕过 `protected_paths` 的路子
+- [x] **`select-cases --tier-quota`**：按层配额选题，避免整批落在同一能力带
+- [x] **`plan-sample-size`**：按 McNemar 反推所需题量，可用 `--from-ablation` 实测不一致率
+- [x] **增量校准** `calibrate-cases --reuse-from`：case 内容与锚点面板都未变才复用旧结果
+- [x] **锚点漂移检测**：`anchor_fingerprint` 计入配置文件**内容**，改了 YAML 里的模型即整体失效
+- [x] **真机 CI** `.github/workflows/live-smoke.yml`：手动/每周触发，跑真实 DB + 网关的
+      抽取→分层生成→审计全链路；缺 secret 时**跳过而非失败**（fork 不该因为拿不到凭据而报红）
+- [x] **tool_loop bash 收紧为白名单**：原先只挡元字符，`rm -rf` / `curl` / `$(...)` 命令替换全都放行。改为程序名白名单 + 补上 `$(` `${` `&` 换行等逃逸语法，可用 `options.allowed_commands` 覆盖
+- [x] **多语言适配** `src/aibench/languages.py`：测试文件识别 / 测试计数 / 拆分 / 通过率解析 /
+      运行命令集中到 `LanguageSpec`。目前注册 Python(pytest) 与 JavaScript(`node --test`)，
+      两者均有端到端判分测试。**只注册本机能真跑的语言** —— 注册一个装不上的工具链，
+      用例会一路通过生成/分层/发布，直到判分时对所有配置一起失败，看起来像难题而不是坏题
+- [x] **消融行级容错**：单行失败不再中止整个矩阵，失败行进 `failed_runs` 并在报告顶部告警；
+      全部失败才报错
+- [x] **泄露检测 LLM 二审** `audit-cases --llm-disclosure-check`：正则仍是唯一阻断判据，
+      LLM 只能加 warn —— 不可用/解析失败/判错都不能单独否掉一条用例
+
+---
+
+## 未做（按优先级，待未来实现）
+
+### ~~P0 — 直接限制当前区分度结论的强度~~（2026-08-04 已完成）
+
+| # | 项 | 落地 |
+|---|----|------|
+| 1 | **多次采样与 pass@k** | `_run_one_case` 外层做 k 次独立采样，`_aggregate_attempts` 折成一行（保持一 case 一行，下游三个消费者无需改动）。产出 `pass_at_1` / `pass_at_k` / `pass_pow_k` / `selection_hit_rate`，并填上此前硬编码 `None` 的 `oracle_success_count` / `oracle_success_rate`。`success_rate` 口径不变 —— 它是「选择策略实际提交的结果」，`k=1` 时与旧行为逐字节一致 |
+| 2 | **采样温度** | `configs/models/glm52-sampling.yaml`（temperature 0.7）+ `configs/runs/passk.yaml`；`max_attempts>1` 且温度为 0 时 runner 告警并写入 `run_manifest.sampling_warning` |
+| 3 | **成本轴指标** | `stats.cost_curve` + `budget_quantiles`（档位取自实测 token 分布），进 `summary.cost_curve` 与运行报告；消融报告加 `token_amplification`（相对基线 token 倍数）与「采样扩展与成本」表 |
+
+消融矩阵新增第 4 行 `passk-glm52`（采样轴），与模型轴、Agent 轴并列，每行仍只变一条轴。
+
+### P1 — 分层体系本身的补强
+
+| # | 项 | 现状 | 落地建议 |
+|---|----|------|----------|
+| 5 | **T5 仍产出为 0** | A4 跨文件一致性（一个缺陷跨 2 文件）生成器造不出来；T4 已拆分并可由 `compose-cases` 产出 | 仓库快照裁剪 / 多轮生成，仍是独立工作量 |
+| 4 | ~~T4 产出率为 0~~（已解决：拆分 + 合成）**原始实测记录** | 强制 `--tier T4` 跑 10 条：**0 条达标**，全部落到 T3(7)/T1(2)/无(1)。60 条的大规模生成同样 T4=0。失败原因按频次：`too_few_solution_files` 10/10、`too_few_files` 9/10、`too_few_distractors` 8/10。即**生成器不会凭空造出「多文件项目 + 缺陷跨 2 个文件」**，改 brief 无效 | 换路子：用 `context.workspace` 已有的 snapshot/git 通路，从**真实仓库快照**裁剪出 T4 场景，而不是让 LLM 凭空发明；或改多轮生成（先要项目骨架，再植入跨文件缺陷，最后要测试）。干扰文件已可机械派生，不再是瓶颈 |
+| 7 | **`estimate_difficulty` 冗余** | 已在文档标记 deprecated；**不移除** —— `stratified_by_difficulty` 在已发布的 `summary.json` 里，删除属破坏性变更 | 待下一次 schema 大版本一并清理 |
+
+### ~~P2 — 校准的工程化~~（2026-08-04 已完成：增量校准、锚点漂移、样本量规划、分层配额、反作弊面）
+
+### P3 — 既有遗留（未变）
 
 | 项 | 说明 |
 |----|------|
-| 人工标定难度真值 / 反作弊红队 | 当前难度为启发式 |
-| Bootstrap / 置换检验 | 已有 Wilson CI |
+| Bootstrap / 置换检验 | 已有 Wilson CI 与 McNemar 配对检验 |
 | Git LFS / 远程 snapshot URI | 大体量现场 |
 | Fusion 时间拆解全字段 | 无 Fusion 时 null |
-| 消融 run 级失败继续/汇总 | 当前异常即中断 |
-| Docker/gVisor 沙箱 | 生产安全关键差距 |
-| tool_loop bash 白名单加严 | 已有基础限制 |
-| 真机 CI 连 DB/API | 默认 dry-run |
+| **Docker/gVisor 沙箱** | **仍是最大的安全缺口**：grader 命令与 tool_loop 的 bash 都在宿主机以 harness 权限执行。命令白名单（见已完成）只是缓解，不是隔离 —— 允许的 `python` 本身就能做任意事 |
 
 ## 明确不做
 
-- 无人审核自动发布正式集  
-- Fusion/投机算法本体  
-- 完整 IDE / 全量 OS 镜像现场  
+- 无人审核自动发布正式集
+- Fusion/投机算法本体
+- 完整 IDE / 全量 OS 镜像现场
+- 人工标定难度真值（改由「trace 推导 + 结构不变量 + 经验校准」三段替代）

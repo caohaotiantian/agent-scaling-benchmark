@@ -1,0 +1,10 @@
+# Test-only calibration panel: one anchor that solves the seed cases, one that never edits.
+anchors:
+  - name: weak-mock
+    agent_config: tests/fixtures/configs/agents/mock-weak.yaml
+    model_config: tests/fixtures/configs/models/mock-model.yaml
+    run_config: tests/fixtures/configs/runs/baseline.mock.yaml
+  - name: strong-mock
+    agent_config: tests/fixtures/configs/agents/mock.yaml
+    model_config: tests/fixtures/configs/models/mock-model.yaml
+    run_config: tests/fixtures/configs/runs/baseline.mock.yaml

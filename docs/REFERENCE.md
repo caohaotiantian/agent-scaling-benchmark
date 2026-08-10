@@ -34,6 +34,7 @@
 11. [Workspace 物化规则](#11-workspace-物化规则)
 12. [Agent 适配器](#12-agent-适配器)
 13. [判分（Grading）](#13-判分grading)
+13.5 [区分度分层（Tier）与校准](#135-区分度分层tier与校准)
 14. [科学效度审计与发布门控](#14-科学效度审计与发布门控)
 15. [重试与并行](#15-重试与并行)
 16. [运行产物与结果表映射](#16-运行产物与结果表映射)
@@ -262,13 +263,15 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 | `DATABASE_URL` | 无 | 可选 | `AIBENCH_DB_URL` 未设时的库连接兜底 |
 | `OPENAI_API_KEY` | 无 | 真 Agent / LLM 生成 | Bearer；兼容 `AIBENCH_API_KEY` |
 | `OPENAI_BASE_URL` | 无 | 同上 | Chat Completions 根，通常含 `/v1` |
-| `OPENAI_MODEL` | 无 | 建议设置 | 运行时覆盖 model YAML 中的 `model` 字段 |
+| `OPENAI_MODEL` | 无 | 可选 | **兜底**：仅当 model YAML 的 `model` 为空时生效（配置优先） |
 | `AIBENCH_API_KEY` | 无 | 可选 | 与 `OPENAI_API_KEY` 二选一 |
 | `AIBENCH_BASE_URL` | 无 | 可选 | 与 `OPENAI_BASE_URL` 同义兜底 |
 | `AIBENCH_MODEL` | 无 | 可选 | 与 `OPENAI_MODEL` 同义兜底 |
 | `AIBENCH_RETRY_MAX` | `3` | 可选 | HTTP/DB 最大尝试次数（含首次） |
 | `AIBENCH_RETRY_BACKOFF` | `1.0` | 可选 | 指数退避基数（秒）+ jitter |
 | `AIBENCH_RETRY_BACKOFF_MAX` | `20.0` | 可选 | 退避上限（秒） |
+| `AIBENCH_REQUEST_TIMEOUT` | `240` | 可选 | Agent 单次 LLM 请求超时（秒），上限为该 case 的 `max_wall_time_s`。默认 120 时慢网关下实测 5–9% infra 错误 |
+| `AIBENCH_GENERATE_TIMEOUT` | `300` | 可选 | `generate-cases` 单次 LLM 请求超时（秒）；推理模型出整份 case JSON 常需 2 分钟以上 |
 | `AIBENCH_CASE_RETRY` | `2` | 可选 | case 因 **infra_error** 整 case 重跑次数 |
 | `AIBENCH_USD_PER_MTOK` | 无 | 可选 | 统一 $/百万 tokens 估算成本 |
 | `AIBENCH_USD_PER_MTOK_INPUT` | `0.5` | 可选 | 分项时 input 单价 |
@@ -302,7 +305,7 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 |------|------|------|
 | `name` | string | 人类可读名称 |
 | `provider` | string | 如 `openai_compat` |
-| `model` | string | 模型 ID；可被 `OPENAI_MODEL` 覆盖 |
+| `model` | string | 模型 ID；**优先于** `OPENAI_MODEL`（后者仅在此处为空时兜底） |
 | `base_url` | string \| null | `null` 时用 `OPENAI_BASE_URL` / `AIBENCH_BASE_URL` |
 | `api_key_env` | string | 读 Key 的环境变量名，默认 `OPENAI_API_KEY` |
 | `temperature` | number | 采样温度，生产常用 `0` |
@@ -413,7 +416,7 @@ runs:
 |------|------|------|----------|
 | `--run-config` | Path | `configs/runs/baseline.yaml` | 实验元数据 + 预算（max_steps、wall time）+ 默认 case_set/agent/model + `case_workers` |
 | `--agent` | Path | run-config 的 `agent_config` | 覆盖 Agent YAML；决定 adapter 与 options（如 system_prompt） |
-| `--model` | Path | run-config 的 `model_config` | 覆盖模型 YAML；`model` 可再被 `OPENAI_MODEL` 覆盖 |
+| `--model` | Path | run-config 的 `model_config` | 覆盖模型 YAML；其 `model` 字段优先于 `OPENAI_MODEL` |
 | `--case-set` | str | run-config.case_set 或 `auto-v0` | 测评集名称 |
 | `--run-id` | str | `{experiment_name}-{uuid8}` | 本次 run 唯一 ID，进入目录名与 summary |
 | `--output-root` | Path | `runs/` | 结果根；实际目录为 `{benchmark}__{timestamp}_{run_id}` |
@@ -488,13 +491,25 @@ runs:
 | `--input-dir` | Path | 必填 | 草稿目录 |
 | `--output-dir` | Path | 必填 | 输出 case 目录（目录名即后续 case-set 名） |
 | `--heuristic-only` | flag | 关 | 不调 LLM，仅 `heuristic_case_from_draft` |
-| `--max-cases` | int | `50` | 成功写出的最大条数 |
+| `--max-cases` | int | `50` | 成功**写出**的最大条数 |
+| `--oversample` | float | `1.5` | 每想要 1 条用例尝试多少条草稿。约 1/4 草稿会在下游被跳过（无参考解等），故需超采样；**每多一条草稿就是一次付费生成**。开跑前会打印「本次将从 N 条草稿生成」。<br>⚠️ 此前该系数写死为 `3` 且不可见：`--max-cases 600` 配 810 条草稿，会为**全部 810 次**生成付费而只写 600 条 |
 | `--filter` | flag | 关 | 生成前再跑 `rule_filter_draft`，不 keep 则跳过 |
-| `--workers` | int | `1` | 并行生成；内部会对最多约 `max_cases×3` 个草稿尝试 |
+| `--workers` | int | `1` | 并行生成；尝试条数由 `--max-cases × --oversample` 决定 |
 | `--secrets-scan` | flag | 关 | 生成后 `scan_case_dir`，写 `_secrets_scan.json` |
 | `--audit` | flag | 关 | 生成后对每条 `audit_case` + `annotate` metadata |
+| `--tier` | `T1..T5` | 草稿 `metadata.tier` | 强制目标层；不传则用 trace 推导的层（§13.5.3） |
+| `--min-tier` | `T1..T5` | 无 | 定级低于此层的 case 直接丢弃 |
 
 **行为细节**：默认 LLM 最多尝试 2 次，失败则 print fallback 并启发式；schema 非法则 skip；最终 `n_ok==0` 时 exit 1。元数据常含 `generation=llm|heuristic`、`review_status=needs_review`。
+
+按目标层选用不同的生成 brief（`_TIER_BRIEFS`），产物再经 `settle_tier` 消毒定级，
+`metadata` 记录 `tier` / `tier_requested` / `tier_notes` / `capability_axes` / `tier_facts`。
+命令结束会打印实际定级分布，例如 `tier distribution: T2=31, T3=12`。
+
+> **case_id 重名会丢用例。** 文件名就是 `case_id`，所以生成器对不同草稿产出同一个 id 时，
+> 后写的会覆盖先写的。实测一次 600 条的构建报告 `generated 600 cases`、磁盘上只有 575 个文件，
+> 23 个 id 重复、32 次写入被吞掉。现在保留先到的那条、跳过后到的，并在结尾打印冲突数量与 id，
+> 且 `generated N cases` 这个数**保证等于磁盘文件数**。
 
 ### 8.8 `ablation` — 矩阵消融
 
@@ -506,10 +521,48 @@ runs:
 | `--output-root` | Path | `runs/` | 生成 `ablation_<timestamp>/` |
 | `--case-set` | str | 矩阵 `case_set` | CLI 覆盖矩阵默认集 |
 | `--allow-weak-grader` | flag | 关 | 默认 **剥离** `metadata.weak_grader=true` 的 case 再跑 |
-| `--parallel` | int | `1` | 矩阵行（实验）并行度 |
+| `--parallel` | int | `1` | 矩阵行（实验）并行度。各行的 case 集会在开跑前一次性过滤好，不在 worker 里做 —— 否则两行共用同一集合时会互相 rmtree，输家跑在半拷贝的集合上 |
 | `--baseline-experiment` | str | 矩阵字段或无 | 用于计算「相对基线收益」百分点 |
 | `--export-csv` | flag | 关 | 写 `ablation_overview.csv` |
 | `--export-xlsx` | flag | 关 | 写 xlsx（依赖 openpyxl） |
+
+### 8.8.1 `export-bundle` — 导出可共享用例包（仓库之外）
+
+用例**不入库**。要把用例交给别人复现，用这条路径导出到仓库之外的任意目录，再走你自己的共享渠道。
+
+```bash
+uv run python -m aibench export-bundle --from-set <set> \
+  --output-dir /path/outside/repo/bundle \
+  --drafts-dir benchmarks/ai_coding/cases/<该集合的草稿目录>
+```
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--from-set` | str | 必填 | 源 case set |
+| `--output-dir` | Path | 必填 | 任意路径，**刻意不是 case-set 名** —— 包要离开仓库，走 case-set 命名空间等于把生产代码放在离 git 历史一个 `git add` 的地方 |
+| `--drafts-dir` | Path | 无 | 该集合所源自的私有草稿目录，用于逐行重合检查。**不传会告警**（stderr），因为那等于没做这项检查 |
+| `--max-verbatim` | float | `0.05` | 逐行重合率上限 |
+| `--no-require-audit` | flag | 关 | 允许导出审计未通过的用例（默认必须通过） |
+| `--dry-run` | flag | 关 | 只出清单不写文件 |
+
+**五道门禁，全部机器判定，任一不过即排除**：schema、`metadata.validity_ok`、secrets 扫描干净、
+`metadata.generation == "llm"`（来源）、逐行重合 ≤ 阈值。**没有 `--force`** ——
+一个能一键绕过来源门禁的开关，迟早会在赶时间时被用掉，而那正是它要防的事。
+
+**为什么来源必须机器判**（实测 `_scaleprobe` 575 条 vs 其草稿）：
+
+| 生成路径 | 条数 | 实质代码行 | 逐行重合 |
+|---|---:|---:|---:|
+| `llm` | 541 | 8,156 | **1.7%**（全是样板） |
+| `heuristic` | 34 | 11,777 | **100%** —— `heuristic_case_from_draft` 是深拷贝草稿 |
+
+两类混在同一个目录里，**肉眼分不出来**；那 34 条逐字包含生产代码与内部路径。
+
+**为什么重合检查是独立的第二道门**：LLM 那 541 条的重合率中位数是 0，但 p99 是 0.167，
+**36 条超过 5%**。只看来源会把这批放行 —— 实测导出时正是 33 条因重合被拒。
+
+产物含 `MANIFEST.json`：各门禁的通过/拒绝计数、**每条被拒用例的 id 与原因**、所用阈值、
+tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程，不必选择相信我们（§5.1）。
 
 ### 8.9 `promote` — 人工门控发布
 
@@ -536,8 +589,67 @@ runs:
 |------|------|------|----------|
 | `--case-set` | str | 必填 | 目标集 |
 | `--report` | Path | 无 | 完整审计 JSON（含每 case issues） |
-| `--annotate` | flag | 关 | 写入 `difficulty`、`fingerprint`、`validity_ok`、`validity_issues` |
+| `--annotate` | flag | 关 | 写入 `difficulty`、`tier`、`fingerprint`、`validity_ok`、`validity_issues` |
+| `--llm-disclosure-check` | flag | 关 | 对非 T1 用例补一次 LLM 泄露二审（每条一次调用）。正则仍是唯一阻断判据，LLM 只能加 warn |
 | `--fail-on-error` | flag | 关 | `failed>0` 时 exit **2**（便于 CI） |
+
+报告含 `tier_distribution`；每条 case 的 `checks` 含 `stub_fail`、`reference_solution`、`tier`。
+
+### 8.9.1 `compose-cases` — 合成 T4 检索用例
+
+**作用**：把已验证用例的实现文件植入另一条已验证用例作为干扰文件，凑齐 T4 的广度要求。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--from-set` | str | 必填 | 已通过审计的源集合 |
+| `--to-set` | str | 必填 | 输出集合 |
+| `--target-files` | int | `6` | 每条合成用例的文件总数 |
+| `--donors-per-case` | int | `3` | 每条用例取几条其他用例作为干扰来源 |
+| `--donor-set` | str | 同 `--from-set` | 干扰文件的来源集合。**宿主应取校准保留的集合，供体只需是合理代码**——两者都从筛后的小集合取会把合成饿死（实测 28 条宿主只合成出 3 条，且 0 条到 T4；改从未筛的 126 条取供体后：27 条合成、25 条 T4） |
+| `--max-cases` | int | 无 | 上限 |
+
+**两道门禁由构造保持**：宿主的 stub、测试与参考解一字未改，只新增与解无关的文件；干扰文件放在 `vendor/<donor_id>/` 子目录，不会 shadow 宿主的导入，且都不是测试文件，pytest / node 都不会收集。捐赠方的**测试文件被排除**——它会被运行器收集并跑起来。
+
+捐赠方**自己的 stub 会被捐赠**：「是否属于解」是相对**宿主**而言的性质。B 的 stub 放进 A 的 `vendor/B/` 后，A 的导入路径够不到它，它不可能参与 A 的修复，正是合理但无关的代码。反过来排除它的代价实测过：一条典型用例只有 1 个实现文件，而那个文件恰是它自己的解要改的，于是 **126 条里有 109 条无任何可捐赠文件**。
+
+捐赠者按固定顺序轮转而非随机：集合内容每次都变的话，就无法和之前的校准结果对比。
+
+### 8.10.1 `calibrate-cases` — 经验校准（区分度实测）
+
+**作用**：用锚点面板跑 `anchors × repeats` 次，按 case 统计 `p_hat` / `spread` /
+`point_biserial` / `flaky`，给出 keep/drop 判定。见 §13.5.5。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--case-set` | str | 必填 | 待校准集合 |
+| `--anchors` | Path | `configs/runs/anchor-panel.yaml` | `anchors:` 列表（name/agent_config/model_config/run_config） |
+| `--repeats` | int | `3` | 每个锚点独立重复次数（用于识别 flaky） |
+| `--output-root` | Path | `runs/` | 生成 `calibration_<timestamp>/` |
+| `--workers` | int | run 配置 | 单个 pass 内同时跑的 case 数 |
+| `--parallel` | int | `1` | 锚点 pass 并发数。对网关的实际并发 ≈ `--parallel × --workers`；本网关实测在 16 并发下延迟仍平（4.7s→5.0s），吞吐 0.21→2.74/s |
+| `--p-max` | float | `0.9` | 高于此通过率判送分题 |
+| `--p-min` | float | `0.05` | 低于此通过率判无人能过 |
+| `--min-rpb` | float | `0.15` | 点二列相关低于此判噪声题 |
+| `--reuse-from` | Path | 无 | 上一次的 `calibration.json`；case 内容与锚点面板**都**未变的沿用旧结果，只跑变更/新增的 |
+
+产物：`calibration.json` + `calibration_report.md`。**成本 = 锚点数 × repeats 次全量跑测**，
+按需预算。`kept_count==0` 时 exit 1。
+
+### 8.10.2 `select-cases` — 按区分度选题
+
+**作用**：把校准保留的 case 复制成新集合，按 `spread`、`point_biserial` 降序。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--calibration` | Path | 必填 | `calibration.json` |
+| `--from-set` | str | 必填 | 源集合 |
+| `--to-set` | str | 必填 | 目标集合 |
+| `--max-cases` | int | 无 | 只取区分度最高的前 N 条 |
+| `--tier-quota` | str | 无 | 各层占比，如 `T2=0.3,T3=0.4,T4=0.3`。不传则纯按区分度排序，可能整批落在同一层，把单一能力带当成全貌 |
+| `--difficulty-quota` | str | 无 | 按**实测 p_hat** 的难度带配额组集，如 `easy=0.15,mid=0.70,hard=0.15`。带界：hard <0.2 / mid 0.2–0.8 / easy >0.8。份额须和为 1，带名拼错直接报错（否则会被当成池子不足，把人引去多跑校准）。与 `--tier-quota` 同时给出时，**难度带为外层**、tier 在带内分配。某带不够时**如实报欠填并返回偏少的集合**，绝不从相邻带补齐 |
+| `--dry-run` | flag | 关 | 不写盘，只回报选择结果 |
+
+写入时把 `metadata.calibration`（`p_hat` / `spread` / `point_biserial` / `attempts`）落到 case 上。
 
 ### 8.11 `secrets-scan`
 
@@ -635,7 +747,8 @@ runs:
 
 | 字段 | 说明 |
 |------|------|
-| `files[]` | `{path, content}` 列表；inline 工作区文件 |
+| `files[]` | `{path, content, role?}` 列表；inline 工作区文件 |
+| `files[].role` | `impl`（默认）\| `test` 可见测试 \| `distractor` 干扰文件 \| `spec` 规格说明 |
 | `notes` | 可选备注 |
 | `workspace` | 见 §11 |
 
@@ -645,10 +758,12 @@ runs:
 |------|------|
 | `mode` | `script` \| `gold` \| `llm_judge` \| `composite` |
 | `command` | script 模式命令（白名单：`pytest` / `python`） |
-| `gold_files` | gold 模式期望文件 |
+| `gold_files` | gold 模式期望文件；对 T3+ 同时充当**参考解**（§14.3.3） |
 | `match` | `exact` \| `normalized` \| `contains_key_lines` |
 | `key_lines` | 关键行列表 |
 | `judge_rubric` / `judge_threshold` | llm_judge 用 |
+| `hidden_tests` | `{path, content}` 列表；**判分时才写入工作区**，Agent 看不到（§13.1） |
+| `protected_paths` | 判分前字节必须与 `context.files` 一致的路径；被改判 `reward_hack` |
 
 ### 10.4 `metadata`（常用扩展）
 
@@ -659,7 +774,12 @@ runs:
 | `generation` | `llm` / `heuristic` |
 | `review_status` | 如 `needs_review` |
 | `weak_grader` | bool |
-| `difficulty` | `easy` / `medium` / `hard`（审计注解） |
+| `difficulty` | `easy` / `medium` / `hard`（**已废弃**：体积启发式，实测 93.8% 落在 medium。保留仅为兼容既有 `summary.json` 消费者，分层一律用 `tier`） |
+| `tier` | `T1`..`T5` 区分度层级（§13.5.2） |
+| `capability_axes` | 该层分离的能力轴，如 `["A1","A5","A6"]` |
+| `tier_requested` / `tier_notes` | 请求的目标层，以及每层被拒的原因 |
+| `trace_signals` | 源 trace 的过程信号（§13.5.3） |
+| `calibration` | `select-cases` 写回的 `p_hat` / `spread` / `point_biserial` |
 | `fingerprint` | case 指纹 |
 | `validity_ok` | 审计是否通过 |
 | `tags` / `split` | 标签与划分 |
@@ -705,6 +825,7 @@ runs:
 
 | 选项 | 说明 |
 |------|------|
+| `allowed_commands` | list | 见 `DEFAULT_ALLOWED_COMMANDS` | bash 允许的程序名白名单。命令在宿主机以 harness 权限执行，这是容器化之前唯一的防线 |
 | `allow_bash` | 是否允许 bash 工具 |
 | `max_tokens` | 每步请求上限 |
 | `system_prompt` | 工具调用 JSON 协议说明 |
@@ -732,6 +853,202 @@ runs:
 Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注入。  
 主指标仅统计 **非 infra_error** 的 case。
 
+### 13.1 隐藏测试与保护路径
+
+实现：`src/aibench/grading.py`。判分前依次执行两步：
+
+1. **保护路径校验** —— `grader.protected_paths` 里每个路径在工作区的字节必须与 `context.files`
+   一致。被改判 `reward_hack=true`、成绩 0；路径在 `context.files` 里找不到则记 `infra_error`
+   （用例配置错误，不算 agent 失败）。
+2. **评分干扰检测**（仅对声明了 `protected_paths` 的用例）—— 工作区里出现用例未附带的
+   `conftest.py` / `pytest.ini` / `setup.cfg` / `tox.ini` / `pyproject.toml` / `sitecustomize.py`，
+   或新文件里出现 `@pytest.mark.skip` / `pytest.skip(` 等跳过标记，一律判 `reward_hack`。
+   `protected_paths` 挡住「改可见测试」，这一条挡住绕过它的路子：注入 conftest 猴补丁被测模块、
+   或用 addopts 把失败用例 deselect 掉。
+3. **隐藏测试注入** —— `grader.hidden_tests` 的文件此时才写入工作区（仅 `script` / `composite`）。
+   Agent 全程看不到它们。
+
+因此 `grader.command` 对 T3+ 用例应为 `python -m pytest -q`（收集整个目录），而不是指定单个测试文件。
+`GradeResult.test_pass_ratio` 记录测试函数级通过比例，用于并列打散，不改变二值主指标。
+
+---
+
+## 13.5 区分度分层（Tier）与校准
+
+实现：`src/aibench/tiers.py`、`src/aibench/extract/trace_signals.py`、
+`src/aibench/extract/tier_shaping.py`、`src/aibench/calibrate.py`。
+
+### 13.5.1 为什么不用体积启发式
+
+`estimate_difficulty` 按文件数/LOC 打分，在首个自动集上把 **93.8% 判为 medium**，而那批用例
+平均 2 步即被解出 —— 它度量的是文件体积，不是所需能力。Tier 改为声明「用例结构上强迫求解者
+做什么」，每层配机器可检不变量。
+
+### 13.5.2 层级契约
+
+| 层 | 名称 | 结构不变量（`check_tier_invariants` 逐条校验） | 分离的能力轴 |
+|----|------|-----------------------------------------------|--------------|
+| T1 | 直接修复 | ≤3 文件；允许题面/注释给出缺陷位置 | 地板锚（几乎全过） |
+| T2 | 定位修复 | 2–4 文件；题面**无**机制泄露；stub **无** BUG/FIXME 标记 | A1 定位诊断 |
+| T3 | 隐藏规格 | T2 + ≥2 个隐藏测试函数 + 参考解 + 保护可见测试 | A5 规格遵从、A6 抗过拟合 |
+| T4 | 跨文件检索 | T3 + ≥5 文件 + ≥1 干扰文件 + 参考解触及 ≥2 文件 + ≥3 隐藏测试 | A2 检索、A4 跨文件一致性 |
+| T5 | 迭代自修复 | T4 + ≥4 个隐藏测试函数 | A3 迭代自修复 |
+
+能力轴：`A1` 定位诊断、`A2` 上下文检索、`A3` 迭代自修复、`A4` 跨文件一致性、
+`A5` 规格遵从、`A6` 抗过拟合。
+
+### 13.5.3 层级从 trace 推导
+
+`trace_signals.signals_from_messages` 从 `full_history` 解析过程信号：
+`read_ops` / `search_ops` / `edit_ops` / `exec_ops` / `test_runs` / `files_touched` /
+`repair_rounds`（test→edit→test 循环次数）/ `error_signals`。
+`suggest_tier` 自上而下取第一条命中的规则：
+
+| 条件 | 建议层 |
+|------|--------|
+| `repair_rounds ≥ 2` 且 `files_touched ≥ 3` | T5 |
+| `files_touched ≥ 3`，或 `search_ops ≥ 3` 且 `files_read ≥ 5` | T4 |
+| `test_runs ≥ 1` 且 `error_signals ≥ 1`，或 `repair_rounds ≥ 1` | T3 |
+| 有报错 / `files_read ≥ 2` / 有检索 | T2 |
+| 其余 | T1 |
+
+结果写入草稿 `metadata.tier` / `tier_reasons` / `trace_signals`，层级分布因此继承真实生产任务
+的难度分布，而非人工配额。
+
+### 13.5.35 多语言
+
+`src/aibench/languages.py` 的 `LanguageSpec` 收拢了所有 per-language 知识：
+
+| 语言 | 测试文件 | 运行命令 | 通过率解析 |
+|------|----------|----------|------------|
+| python | `test_*.py` / `*_test.py` | `python -m pytest -q` | `N passed/failed/error` |
+| javascript / typescript | `*.test.mjs` / `*.spec.ts` 等 | `node --test`（内置，零依赖） | `ℹ pass N` / `# pass N` |
+
+隐藏测试文件名由 `hidden_test_name` 生成，**必须仍被运行器识别为测试**：`clamp.test.mjs` 拆出的隐藏半边是 `clamp_spec.test.mjs` 而不是 `clamp.test_spec.mjs` ——后者不匹配 node 的发现规则，会被静默跳过，用例就只靠冒烟测试通过了，正是隐藏测试要防的那件事。
+
+### 13.5.4 消毒与定级
+
+`tier_shaping.settle_tier` 从 T5 逐层下探，每层用该层所需的变换塑形一份副本，取**第一层不变量
+成立**的作为标签：
+
+- `strip_defect_markers` —— 去掉实现文件里的 `# BUG` / `# FIXME`（bugfix 任务另含 `# TODO`）。
+- `split_tests_for_hiding` —— 保留 1 个冒烟测试可见，其余测试函数移入 `hidden_tests`
+  （装饰器与紧贴的注释随测试一起移动，避免留下悬空 `@parametrize`）。
+- `protect_visible_tests` / `use_whole_suite_command`。
+
+**标签描述的是产物，不是请求**：请求 T5 但材料只够 T3 会落到 T3；请求 T2 而材料够 T3 会升到 T3。
+无任何层成立时返回空并由调用方丢弃。
+
+题面机制泄露由 `find_disclosures` 检测（中英双语，对「当前实现用了 X 而不是 Y」这类**描述现有
+实现**的句式判为泄露；对「应该返回 X」这类**规格陈述**不判）。检出后 `generate-cases` 会做一次
+「只保留现象」的改写，仍失败则降级。
+
+此外 `prompt_names_changed_function` 检测**题面是否点名了参考解要改的那个函数**。
+它不是正则匹配题面，而是把参考解与 stub 逐行 diff，取每个改动块所在的函数名，
+再看题面有没有提到 —— 因为「点名被修函数」把「找出缺陷」变成了「读这个函数」，
+而定位能力正是 T1 以上各层要测的东西。
+
+实测（`auto-v0` 有参考解的 105 条 × `runs/calibration_20260805_090754`）：
+
+| 分组 | n | mean p_hat |
+|---|---:|---:|
+| 题面点名被修函数 | 56 | **0.905** |
+| 未点名 | 49 | **0.704** |
+
+**判为 `warn` 而非 `error`**：它命中约半数用例，直接拒绝会把题量腰斩。
+它的作用是在 `generate-cases` 里触发那次「只保留现象」的改写；
+审计里只作为告警出现，不阻断发布。
+
+> 与之配套：`_delocalize_prompt` 的系统提示原本明文要求 "Keep the same function and file names"，
+> 与本检测直接矛盾 —— 已改为「指称可观察行为，必要时可提入口或文件，但不得点名被改的函数」。
+
+### 13.5.5 经验校准
+
+结构不变量保证用例「看起来该有区分度」，只有跑起来才知道有没有。
+`aibench calibrate-cases` 用锚点面板（`configs/runs/anchor-panel.yaml`）跑 `anchors × repeats` 次，
+按 case 统计：
+
+| 指标 | 含义 | 淘汰规则（默认） |
+|------|------|------------------|
+| `p_hat` | 全部尝试的通过率 | `> 0.9` 送分题；`< 0.05` 无人能过（多半是坏题） |
+| `spread` | 最强锚点通过率 − 最弱锚点通过率 | 越大越能分离配置 |
+| `point_biserial` | 该 case 结果与总体能力的相关 | `< 0.15` 判为噪声题 |
+| `flaky` | 同一锚点多次重复结果不一致 | 标记，供人工复核 |
+
+`anchor_fingerprint` 计入每个引用配置文件的**内容**而非路径：改了 `glm52.yaml` 里的 model 字段，路径全都没变但锚点含义已变，旧的 `p_hat` 必须整体失效，不能继续沿用。
+
+**锚点面板必须能施展被测层级的能力轴。** Agent 配置用 `capability_axes` 声明自己能施展哪些轴，
+`calibrate-cases` 在开跑前核对该集合出现的所有 tier，不匹配直接拒绝（`--allow-unfit-anchors` 可强制）。
+
+这条不是形式主义，是实测教训：单轮 agent 把**整个工作区贴进 prompt**，所以 T4 的干扰文件对它不是需要绕过的障碍，而是白送的可用代码 —— 在合成 T4 用例上，弱单轮锚点的通过率比同一批用例合成前**高了 24 个百分点**。一个施展不了某条轴的成员不会在那条轴上得低分，它得的是另一回事的分，跨这种面板算出来的 spread 不是那个能力的度量。
+
+检索层（T4+）用 `configs/runs/anchor-panel-retrieval.yaml`：三个成员全是多步 agent，
+差异落在真正支配检索的维度上 —— 步数预算、能否执行命令、读代码的模型强弱。
+该面板**不能测 T5**（frugal 成员无 bash，缺 A3），核对会如实报出来。
+
+锚点面板**必须跨越**要区分的能力带（至少一个弱锚、一个强锚，且同时变化模型与 agent 两条轴），
+否则 `spread` 恒为 0，会把所有用例判为无区分度。
+
+`aibench select-cases` 按 `spread`、`point_biserial` 降序把保留的 case 复制成新集合，并把
+`metadata.calibration` 写回。
+
+---
+
+## 13.6 采样扩展（pass@k）与成本轴
+
+实现：`src/aibench/runner.py`（`_run_one_case` / `_aggregate_attempts`）、
+`src/aibench/report.py`（`_scaling_metrics`）、`src/aibench/stats.py`（`cost_curve`）。
+
+### 13.6.1 三个必须分开的量
+
+单次采样时 `pass@1`、`pass@k`、成功率三者恒等，因此**单次采样的 run 说明不了任何采样扩展收益**。
+`max_attempts > 1` 后：
+
+| 指标 | 定义 | 回答什么问题 |
+|------|------|--------------|
+| `pass_at_1` | 每 case 在 k 次中的通过比例，再对 case 求均值 | 单次抽样的期望结果 = 模型+Agent 原始能力 |
+| `pass_at_k` | 至少一次成功的 case 比例（= `oracle_success_rate`） | 重复采样暴露出的**上限** |
+| `pass_pow_k` | k 次全部成功的 case 比例 | 稳定性 |
+| `success_rate` | **选择策略实际提交的**结果 | 主指标口径不变 |
+| `selection_hit_rate` | 有解可选时策略选中成功解的比例 | 上限中有多少被策略吃到 |
+
+`pass@k − pass@1` 是采样暴露的空间，`成功率 − pass@1` 是策略实际拿到的部分。
+
+### 13.6.2 落盘布局
+
+`results.jsonl` 仍是**一 case 一行**（`ablation.paired_outcomes`、`calibrate.aggregate_calibration`、
+`report.build_summary` 都依赖这一点），新增 `attempts[]` 明细与聚合字段。
+`total_tokens` / `wall_time_s` / `step_count` 等按 k 次**求和** —— 跑 k 次就是花了 k 次的预算。
+`k=1` 时行为与单次采样逐字节一致。
+
+`k > 1` 时每次尝试落在 `cases/<case_id>/attempt-<n>/`，聚合行写在 `cases/<case_id>/result.json`。
+
+### 13.6.3 选择策略
+
+| 值 | 含义 |
+|----|------|
+| `first-submit`（默认） | 提交第 1 次尝试 |
+| `best-of-k` | 提交第一个通过的尝试 |
+
+两者都会**跳过 infra_error 的尝试**：没跑起来的尝试不算一次提交，否则聚合行会带着基础设施失败的
+`grade` / `failure_category`，却把自己报告成正常结果。
+
+### 13.6.4 温度不为 0 是前提
+
+`temperature: 0` 下 k 次采样是同一个样本，`pass@k ≡ pass@1`，指标看起来正常但恒为零收益。
+`max_attempts > 1` 且温度为 0 时，runner 会在 stdout 告警并在 `run_manifest.json` 写入
+`sampling_warning`。生产采样配置：`configs/models/glm52-sampling.yaml`（temperature 0.7）+
+`configs/runs/passk.yaml`。
+
+### 13.6.5 成本轴
+
+`cost_curve` = 若干 token 预算档位上「在该预算内解出的 case 数 / 有效 case 数」。
+档位由该 run 的 per-case token 分布分位数产生（`budget_quantiles`），不是人工拍板。
+
+**跨配置比较时必须用同一组档位**，否则每条曲线各有各的 x 轴，无法横向对比。
+消融报告另给 `token_amplification`（相对基线的 token 倍数）：准确率提升若是用 5 倍 token 买来的，
+和等成本下的同等提升不是同一个结论。
+
 ---
 
 ## 14. 科学效度（Scientific Validity）：定义、门禁与逻辑
@@ -758,14 +1075,23 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 
 | 门禁 | issue code | 级别 | 阻断 ok | 说明 |
 |------|------------|------|---------|------|
-| Stub 必须失败 | `stub_fail_gate` | error | 是 | 见 §14.3.1 |
+| Stub 必须失败（下界） | `stub_fail_gate` | error | 是 | 见 §14.3.1 |
+| 参考解必须通过（上界） | `solvability_gate` | error | 是 | 见 §14.3.3 |
+| 分层不变量 | `tier_<violation>` | error | 是 | §13.5.2，逐条来自 `check_tier_invariants` |
+| 干扰文件自相矛盾 | `tier_distractor_in_solution` | error | 是 | 声明 `role=distractor` 却被参考解改动 |
+| 参考解无改动 | `tier_solution_file_unchanged` | error | 是 | 某个 gold file 与初始文件完全相同，是凑数项 |
+| 参考解疑似重写 | `tier_solution_rewrites_file` | warn | 否 | 改动行占比 > 60%，无法定位缺陷 |
+| 题面点名被修函数 | `tier_prompt_names_changed_function` | warn | 否 | §13.5.4；实测 +20pp p_hat，命中约半数用例故不阻断，改为触发题面改写 |
+| 工作区不可收集（stub） | `stub_fail_gate` + `checks.stub_fail.uncollectable` | error | 是 | §14.3.1；与「stub 如预期失败」分开计数 |
+| 工作区不可收集（参考解） | `solvability_gate` + `checks.reference_solution.uncollectable` | error | 是 | §14.3.3；与「参考解真正失败」分开计数 |
 | Gold 污染 | `contamination_gold_in_context` | error | 是 | gold 全文已在 context |
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
 | 弱 grader 标记 | `weak_grader_flag` | warn | 否 | script 却标 weak_grader |
+| 未定级 | `tier_missing` | warn | 否 | `metadata.tier` 缺失 |
 | 重复指纹 | `duplicate_fingerprint` | warn | 否 | 集内 fingerprint 冲突 |
-| 难度 | （写入 checks/metadata） | 注解 | — | easy/medium/hard |
+| 难度 | （写入 checks/metadata） | 注解 | — | easy/medium/hard（旧口径，保留兼容） |
 | 指纹 | fingerprint / content_fingerprint | 注解 | — | 去重与复现 |
 
 ### 14.3 门禁逻辑详解
@@ -786,6 +1112,31 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 ```
 
 **意图**：Agent 必须做出有效修改才能得分。
+
+#### 14.3.3 Reference-solution（可解性上界）
+
+```text
+若 grader.mode != "script":
+    → 跳过（无命令可跑）
+
+若无 gold_files:
+    → 失败 no_reference_solution   # 没有参考解就无法验证可解性
+
+否则:
+    materialize_workspace(case)          # 初始现场
+    覆盖 grader.gold_files 到工作区        # 参考解
+    grade_case(...)                      # 注入隐藏测试后判分
+    必须 passed，否则 solvability_gate 失败
+```
+
+**意图**：与 stub-fail 成对，构成难度的上下界。没有它，一个写坏的隐藏测试会让所有配置都失败，
+在报告里看起来像「难题」，实际是**坏题**。
+
+**实测证据（59 条集合，3 锚点 × 2 重复）**：18 条无人能解的用例里 **16 条没有参考解**；
+而带参考解的 31 条里只有 2 条无人能解。因此「没有参考解就跳过检查」这一条豁免，
+正是那 16 条坏题得以出厂的原因 —— 现在改为**没有参考解即判失败**。
+代价是 41 条实测可解的用例里有 11 条因缺参考解被一并拒掉；正确的修法在上游：
+让生成器始终产出参考解（T3 brief 已要求，59 条里 32 条做到了）。
 
 #### 14.3.2 Contamination（答案污染）
 
@@ -824,7 +1175,16 @@ else       → hard
 #### 14.3.5 指纹与集级去重
 
 ```text
-case_fingerprint = sha256(f"{task_type}|{prompt.strip()}|{'|'.join(sorted paths)}")[:16]
+case_fingerprint = "v3:" + sha256(json 规范化的 {
+    version, task_type, language, prompt.strip(),
+    files:   [[path, sha256(content)], ...]   # 按声明顺序，顺序参与哈希
+    grader:  {mode, command, match, key_lines, protected_paths,
+              judge_rubric, judge_threshold,
+              gold_files:   [[path, sha256(content)], ...],
+              hidden_tests: [[path, sha256(content)], ...]},
+    workspace: {mode, spec}
+})[:16]
+
 content_fingerprint(set) = sha256(sorted "case_id:fp" 行)[:16]
 
 同集内相同 fingerprint 的多条:
@@ -833,14 +1193,35 @@ content_fingerprint(set) = sha256(sorted "case_id:fp" 行)[:16]
 
 `content_fingerprint` 会写入 run 的 `run_manifest.json` / summary，便于复现核对「是否同一 case 集」。
 
+> **难度带的分辨率取决于尝试次数。** p_hat 只能取 `k/(anchors × repeats)`。
+> 3 锚点 × 2 重复 = 6 次时，实测取值就是 `{0, 1/6, 2/6, 3/6, 4/6, 5/6, 1}`；
+> `SelectionPolicy` 丢掉 0 和 1 之后，**hard 带只剩 1/6 一个值、easy 带只剩 5/6 一个值**。
+> 想要 15:70:15 这类分布真正有意义，必须先提高每条用例的尝试次数，
+> 光靠多攒用例是凑不出来的。
+
+**为什么带版本前缀（`v3:`）**：指纹的唯一消费者是 `calibrate-cases --reuse-from`
+的复用判据。旧口径只哈希 `task_type|prompt|paths`，**改文件内容、改 `grader.command`
+都不会让指纹变化**，于是复用会交还一份在另一份代码上测出来的 p_hat。
+版本前缀让旧值与新值永远不可能相等，复用门禁据此直接拒绝并打印丢弃条数。
+
+> **这是有意的破坏性变更**：升级后所有既有校准结果都不再可复用，`--reuse-from` 会全量重跑。
+> 这是正确行为而非 bug —— 旧指纹本来就无法反映内容变化。
+
+**不覆盖的部分**：`context.workspace` 为 `snapshot` / `git` / `mixed` 时，
+指纹只包含 workspace **规格**，不包含快照或克隆的**内容**（`case_fingerprint` 不做 I/O，
+也拿不到 case-set 目录）。这类用例由 `validity.external_workspace()` 标出，
+`plan_calibration` 对它们**一律不复用**，而不是信任一个证明不了内容未变的指纹。
+
 #### 14.3.6 `annotate` 写回字段
 
 | metadata 键 | 值 |
 |-------------|-----|
 | `difficulty` | easy/medium/hard |
-| `fingerprint` | 16 位 hex |
+| `fingerprint` | `v3:` + 16 位 hex |
 | `validity_ok` | bool |
 | `validity_issues` | issue 对象列表 |
+| `uncollectable_stub` | bool，stub 工作区是否根本收集不起来 |
+| `uncollectable_reference` | bool，参考解工作区是否根本收集不起来 |
 
 ### 14.4 与 `promote` 发布门控的关系
 
@@ -985,6 +1366,24 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 - 剔除 `weak_grader=true` 的 case（除非 `--allow-weak-grader`）
 - 可计算相对基线成功率收益（百分点）
 - 可并行实验行、导出 CSV/XLSX
+
+### 17.4 配对显著性检验（McNemar）
+
+`ablation_report.md` 除综述表外，还输出**分层成功率（按 tier）**与**配对显著性检验**：
+
+| 列 | 含义 |
+|----|------|
+| `b` | 仅基线通过的 case 数 |
+| `c` | 仅候选通过的 case 数 |
+| 不一致数 | `b + c`，即两者结论不同的 case 数 |
+| p 值 | 精确二项双侧检验；`p < 0.05` 判显著 |
+
+**为什么不看各自的 Wilson CI**：两组跑的是同一个 case 集，属于配对数据。各自算独立区间会
+丢掉配对信息 —— 例如 56/64 与 62/64 的 Wilson 区间大幅重叠、看起来「无差异」，而配对检验
+在 6 个不一致 case 上给出 `p≈0.03`，判定显著。两者都通过或都失败的 case 不携带「谁更强」的
+信息，配对检验按构造把它们排除，灵敏度因此高得多。
+
+`ablation_summary.json` 对应字段：`pairwise_comparisons`、`tier_matrix`。
 
 ---
 

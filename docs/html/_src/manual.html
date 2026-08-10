@@ -1,0 +1,339 @@
+<header class="hero">
+  <h1>用户手册</h1>
+  <p>从环境准备到产出一批经过校准的 benchmark 用例，逐步说明每条命令、每个参数的含义与实测效果。</p>
+  <div class="meta">
+    <span class="pill">端到端复现</span>
+    <span class="pill">参数含义与效果</span>
+    <span class="pill">故障排查</span>
+  </div>
+</header>
+
+<section class="md-body">
+
+<h2 id="prereq">1. 环境准备</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>依赖</th><th>版本要求</th><th>用途</th><th>核验命令</th></tr></thead>
+<tbody>
+<tr><td>Python</td><td>3.13</td><td>主程序；同时是 Python 用例的评分运行器</td><td><code>uv run python -V</code></td></tr>
+<tr><td>uv</td><td>任意近期版本</td><td>依赖与虚拟环境管理</td><td><code>uv --version</code></td></tr>
+<tr><td>Node.js</td><td>≥ 22（建议 24）</td><td>JavaScript / TypeScript 用例的评分运行器</td><td><code>node --version</code></td></tr>
+<tr><td>MySQL 可达性</td><td>—</td><td>读取现网会话库</td><td>见下方 <code>AIBENCH_DB_URL</code></td></tr>
+</tbody>
+</table></div>
+
+<p>Node 22 以下无法直接执行 TypeScript 测试文件；Node 24 原生支持类型擦除，实测可直接运行 <code>.ts</code> 测试。</p>
+
+<h3>配置文件 <code>.env</code></h3>
+
+<pre><code>AIBENCH_DB_URL=mysql+pymysql://用户:口令@主机:3306/库名?charset=utf8mb4
+OPENAI_BASE_URL=http://网关地址:8080/v1
+OPENAI_API_KEY=sk-……
+OPENAI_MODEL=GLM-5.2</code></pre>
+
+<dl class="kv">
+<dt>AIBENCH_DB_URL</dt><dd>现网会话库连接串。仅在抽取阶段使用。</dd>
+<dt>OPENAI_BASE_URL</dt><dd>模型网关地址，需兼容 OpenAI Chat Completions 接口。</dd>
+<dt>OPENAI_API_KEY</dt><dd>网关凭据。生成与校准阶段都会消耗额度。</dd>
+<dt>OPENAI_MODEL</dt><dd>用于编写测试与题面的模型。</dd>
+</dl>
+
+<p>安装与自检：</p>
+
+<pre><code>uv sync
+uv run pytest tests/ -q     # 应全部通过
+./scripts/lint.sh           # 代码风格检查</code></pre>
+
+<h2 id="pipeline">2. 端到端流程</h2>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 108" role="img" aria-label="六步流程">
+  <g font-size="12" fill="#18212f" text-anchor="middle">
+    <rect x="0" y="26" width="104" height="46" rx="8" fill="#e4f0f8" stroke="#27628f"/>
+    <text x="52" y="46" font-weight="700">① 抽取</text><text x="52" y="63" font-size="10.5" fill="#667085">extract-from-db</text>
+    <rect x="124" y="26" width="104" height="46" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="176" y="46" font-weight="700">② 生成</text><text x="176" y="63" font-size="10.5" fill="#667085">generate-cases</text>
+    <rect x="248" y="26" width="104" height="46" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="300" y="46" font-weight="700">③ 审计</text><text x="300" y="63" font-size="10.5" fill="#667085">audit-cases</text>
+    <rect x="372" y="26" width="104" height="46" rx="8" fill="#ffffff" stroke="#d6dee8"/>
+    <text x="424" y="46" font-weight="700">④ 校准</text><text x="424" y="63" font-size="10.5" fill="#667085">calibrate-cases</text>
+    <rect x="496" y="26" width="104" height="46" rx="8" fill="#e5f4ed" stroke="#166534"/>
+    <text x="548" y="46" font-weight="700">⑤ 选集</text><text x="548" y="63" font-size="10.5" fill="#667085">select-cases</text>
+    <rect x="620" y="26" width="100" height="46" rx="8" fill="#ece7f7" stroke="#5b3fa8"/>
+    <text x="670" y="46" font-weight="700">⑥ 度量</text><text x="670" y="63" font-size="10.5" fill="#667085">run · ablation</text>
+  </g>
+  <g stroke="#27628f" fill="none" marker-end="url(#ar2)">
+    <path d="M106 49 H122"/><path d="M230 49 H246"/><path d="M354 49 H370"/>
+    <path d="M478 49 H494"/><path d="M602 49 H618"/>
+  </g>
+  <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#27628f"/></marker></defs>
+</svg>
+<figcaption>①②消耗模型额度，③⑤为本地计算，④⑥消耗额度且耗时最长。</figcaption>
+</figure>
+
+<div class="step">
+<h3><span class="num">1</span>抽取草稿</h3>
+<pre><code>uv run aibench extract-from-db \
+  --output-dir benchmarks/ai_coding/cases/_drafts \
+  --limit 30000 --max-cases 12000 \
+  --require-edits --all-agents \
+  --min-messages 3 --max-messages 400</code></pre>
+<p><strong>不消耗模型额度</strong>，只读数据库。草稿逐条落盘，中途中断已产出部分仍保留。</p>
+<dl class="kv">
+<dt>--require-edits</dt><dd>只取真正修改过代码的会话。反向构造需要编辑前后两个版本，按时间抽样几乎取不到：150 条近期记录只产出 1 条可用，加此参数后为 21 条。</dd>
+<dt>--max-messages</dt><dd><strong>影响最大的参数。</strong> 默认 60 会丢弃 69% 的含编辑会话，且丢弃的正是编辑最多的长会话。放宽到 400 后语料从 1,229 条增至 4,687 条。</dd>
+<dt>--all-agents</dt><dd>不限定来源客户端。不加此参数会额外过滤掉约 15% 的记录。</dd>
+<dt>--limit</dt><dd>数据库扫描行数上限。</dd>
+<dt>--max-cases</dt><dd>写出草稿数上限。</dd>
+</dl>
+</div>
+
+<div class="step">
+<h3><span class="num">2</span>生成用例</h3>
+<pre><code>uv run aibench generate-cases \
+  --input-dir benchmarks/ai_coding/cases/_drafts \
+  --output-dir benchmarks/ai_coding/cases/_cases \
+  --reverse --max-cases 120 --oversample 30 \
+  --workers 5 --resume --audit --secrets-scan</code></pre>
+<p><strong>消耗模型额度。</strong> 每条可用草稿一次调用。</p>
+<dl class="kv">
+<dt>--reverse</dt><dd>启用反向构造：stub 取编辑前版本，参考解取编辑后版本，模型只写测试与题面。不加则退回「让模型编题」的旧路径。</dd>
+<dt>--oversample</dt><dd>为写出 N 条用例而尝试的草稿倍数。<strong>直接决定费用</strong>：<code>--max-cases 120 --oversample 30</code> 意味着最多扫描 3,600 条草稿。反向模式下无可用编辑对的草稿在调用模型<em>之前</em>即被剔除，不计费。</dd>
+<dt>--workers</dt><dd>并发数。实测 5 较稳妥；8 会触发网关限流。</dd>
+<dt>--resume</dt><dd>续跑未完成的任务。已写出的用例与已判定的草稿不再送模型。<strong>建议始终开启</strong>。</dd>
+<dt>--audit</dt><dd>生成后立即运行效度门禁并写回结果。</dd>
+<dt>--secrets-scan</dt><dd>扫描密钥并输出报告。</dd>
+</dl>
+<div class="callout good">
+<p><strong>中断安全。</strong> 用例一产出即落盘，同时向输出目录的 <code>_progress.jsonl</code> 追加一行。进程被杀后，用 <code>--resume</code> 重跑只会补做未完成的部分。实测一次被限流中断的运行：3,166 条已判定草稿全部跳过、零重复计费，仅重试 146 条。</p>
+</div>
+</div>
+
+<div class="step">
+<h3><span class="num">3</span>效度审计</h3>
+<pre><code>uv run aibench audit-cases --case-set _cases --annotate</code></pre>
+<p><strong>不消耗额度</strong>，在本地实际运行每条用例的测试。输出形如：</p>
+<pre><code>audit case_set=_cases passed=43/120 failed=77 uncollectable_stub=54 \
+      uncollectable_reference=44 fingerprint=…</code></pre>
+<dl class="kv">
+<dt>--annotate</dt><dd>把审计结论写回用例的 <code>metadata.validity_ok</code>，供后续步骤筛选。</dd>
+<dt>--fail-on-error</dt><dd>存在错误级问题时以状态码 2 退出，便于接入 CI。</dd>
+</dl>
+<p>通过率约 36%–45% 属正常。主要失败原因为 <code>uncollectable</code>——真实文件依赖单文件工作区无法提供的模块。</p>
+</div>
+
+<div class="step">
+<h3><span class="num">4</span>难度校准</h3>
+<pre><code>uv run aibench calibrate-cases --case-set _cases \
+  --anchors configs/runs/anchor-panel.yaml \
+  --repeats 3 --parallel 3 --workers 3</code></pre>
+<p><strong>消耗额度，耗时最长。</strong> 总运行次数 = 用例数 × 锚点数 × <code>repeats</code>。31 条用例约需 2–3 小时。</p>
+<dl class="kv">
+<dt>--repeats</dt><dd>每个锚点独立运行次数。<strong>决定 <code>p_hat</code> 的分辨率</strong>，见下表。</dd>
+<dt>--parallel</dt><dd>并发的锚点通道数。</dd>
+<dt>--workers</dt><dd>每个通道内并发的用例数。对网关的总压力约为二者之积，实测余量约 16。</dd>
+<dt>--reuse-from</dt><dd>指定既往校准结果；内容与面板均未变的用例直接复用，不重跑。</dd>
+</dl>
+<div class="table-wrap"><table>
+<thead><tr><th><code>repeats</code></th><th>每条尝试次数</th><th>难档可取值</th><th>易档可取值</th></tr></thead>
+<tbody>
+<tr><td>2</td><td>6</td><td>0, 0.167</td><td>0.833, 1.000</td></tr>
+<tr><td>3</td><td>9</td><td>0, 0.111</td><td>0.889, 1.000</td></tr>
+</tbody>
+</table></div>
+<div class="callout warn">
+<p><code>p_hat</code> 是量化值，只能取 <code>k /（锚点数 × repeats）</code>。跨不同 <code>repeats</code> 比较档位占比时必须声明——分辨率变化本身就会移动占比，不可将其算作难度变化。</p>
+</div>
+</div>
+
+<div class="step">
+<h3><span class="num">5</span>挑选可用集合</h3>
+<pre><code>uv run aibench select-cases --calibration runs/calibration_…/calibration.json \
+  --output-set my-benchmark</code></pre>
+<p>依据校准结果保留有区分度的用例。判定条件：通过率处于中段、且强弱锚点之间存在可测量的差距。</p>
+</div>
+
+<div class="step">
+<h3><span class="num">6</span>度量与消融</h3>
+<pre><code># 单次评测
+uv run aibench run --case-set my-benchmark \
+  --agent configs/agents/tool_loop.yaml \
+  --model configs/models/glm52.yaml \
+  --run-config configs/runs/baseline-tool-loop.yaml
+
+# 消融矩阵
+uv run aibench ablation --matrix configs/runs/ablation-matrix.yaml \
+  --case-set my-benchmark --parallel 3</code></pre>
+<p>消融会按矩阵逐一改变单个变量并比较结果差异。所需样本量可用 <code>plan-sample-size</code> 估算。</p>
+</div>
+
+<h2 id="protocols">3. 三种测量口径：先想清楚在测什么</h2>
+
+<p>项目提供三个 agent 适配器。<strong>它们回答的不是同一个问题</strong>，混用是此前五轮矛盾结论的根源。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>适配器</th><th>回答的问题</th><th>协议</th><th>何时用</th></tr></thead>
+<tbody>
+<tr><td><code>bare_model</code></td><td><strong>模型本身有多强</strong></td><td>一次调用，回一段围栏代码</td><td>比较模型</td></tr>
+<tr><td><code>openai_compat</code></td><td>模型 + 单轮 JSON 协议</td><td>整个文件塞进 JSON</td><td>能力下限锚点</td></tr>
+<tr><td><code>tool_loop</code></td><td>模型 + 多步工具循环</td><td>可读写文件、跑测试、迭代</td><td>能力上限锚点</td></tr>
+</tbody>
+</table></div>
+
+<p>实测证据（同一批 31 条用例、同两个模型、各 3 次重复）：</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>口径</th><th>GLM-5.1 轮间极差</th><th>Deepseek 轮间极差</th><th>GLM-5.1 逐用例翻转率</th><th>胜者</th></tr></thead>
+<tbody>
+<tr><td><code>bare_model</code></td><td><strong>0.0pp</strong></td><td>3.2pp</td><td><strong>0.0%</strong></td><td>GLM-5.1 (90.3%)</td></tr>
+<tr><td><code>tool_loop</code></td><td>12.9pp</td><td>16.1pp</td><td>32.3%</td><td>Deepseek (90.3%)</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout warn">
+<p><strong>脚手架贡献了几乎全部测量噪声，并且颠倒了排序。</strong> 比较模型时使用 <code>bare_model</code>；
+用带脚手架的口径得到的排名，测的是「模型 + 该脚手架」的组合。</p>
+<p><strong>任何模型比较至少 3 次重复并报轮间极差。</strong> 同一对比单次运行给出 p = 0.0312「显著」，
+三次重复给出 p = 0.167 不显著 —— 单次运行不足以支撑排名。</p>
+</div>
+
+<pre><code>uv run aibench ablation --matrix configs/runs/ablation-bare-models.yaml \
+  --case-set _revmixed --parallel 3</code></pre>
+
+<p>该矩阵已内置 3 次重复。要换模型，复制它并替换 <code>model_config</code> 指向的文件。</p>
+
+<h2 id="tuning">4. 调整难度分布</h2>
+
+<p>若产出的用例过于集中在易档，可用隐藏测试提高难度。该机制把模型写的测试拆成可见与隐藏两部分，隐藏部分仅在评分时注入。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>隐藏条数</th><th>最强锚点通过率</th><th>效果说明</th></tr></thead>
+<tbody>
+<tr><td>0（全部可见）</td><td>90.3%</td><td>Agent 可反复运行测试直至全绿</td></tr>
+<tr><td>1</td><td>87.5%</td><td>几乎无影响</td></tr>
+<tr><td><strong>2</strong></td><td><strong>50.0%</strong></td><td>通过率腰斩</td></tr>
+<tr><td>3</td><td>46.7%</td><td>—</td></tr>
+<tr><td>4</td><td>33.3%</td><td>—</td></tr>
+<tr><td>5 及以上</td><td>0%</td><td><strong>过度隐藏</strong>，退化为无人能解</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout warn">
+<pre><code># 只对易档用例隐藏 2 条测试（当前最优配置）
+uv run python -c "
+import json; from pathlib import Path
+from aibench.extract.tier_shaping import split_tests_for_hiding
+cal = {c['case_id']: c['p_hat'] for c in json.load(open('runs/calibration_.../calibration.json'))['cases']}
+for p in Path('benchmarks/ai_coding/cases/my-set').glob('*.json'):
+    c = json.loads(p.read_text())
+    if cal.get(c['case_id'], 0) > 0.8:          # 仅易档
+        split_tests_for_hiding(c, hide_count=2)
+        p.write_text(json.dumps(c, indent=1, ensure_ascii=False))
+"</code></pre>
+
+<p><strong>务必按「隐藏条数」控制（<code>hide_count</code>），而非「保留条数」（<code>keep_visible</code>）。</strong> 模型通常写 4–10 条测试，「保留 3 条」与「保留 1 条」实际隐藏中位数分别为 2 条与 4 条，都已越过崩塌点，实测结果几乎相同。</p>
+<p>过度隐藏会把「仅最强能解」变成「无人能解」，而后者与送分题一样不产生区分度：实测区分度用例由 26 条降至 11 条。</p>
+</div>
+
+<h2 id="artifacts">5. 用例在哪里：可复用的产物清单</h2>
+
+<div class="callout warn">
+<p><strong>用例本身不入库。</strong> 反向构造的用例逐字包含真实仓库源码（实测 13%–75.2%），
+因此 <code>benchmarks/ai_coding/cases/_rev*/</code> 全部在 <code>.gitignore</code> 中。
+克隆本仓库<strong>不会</strong>得到用例文件，只会得到生成它们的代码与校准数字。</p>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>产物</th><th>位置</th><th>是否入库</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><strong><code>_revmixed</code></strong></td><td><code>benchmarks/ai_coding/cases/_revmixed/</code></td><td>否</td><td><strong>当前最优集合</strong>：31 条，全部通过效度门禁，易档已按 <code>hide_count=2</code> 处理</td></tr>
+<tr><td><code>_revfinal2</code></td><td>同上目录</td><td>否</td><td>同 31 条，测试全部可见（未做隐藏处理）</td></tr>
+<tr><td><code>_rev6</code></td><td>同上目录</td><td>否</td><td>120 条原始产物，其中 43 条通过门禁</td></tr>
+<tr><td><code>_rev_raw4</code></td><td>同上目录</td><td>否</td><td>3,312 条草稿，重跑生成的输入</td></tr>
+<tr><td>校准数据</td><td><code>benchmarks/ai_coding/calibrations/</code></td><td><strong>是</strong></td><td>14 份，纯数字无代码，任何人可复算</td></tr>
+<tr><td>运行记录</td><td><code>runs/</code></td><td>否</td><td>含 <code>grade.detail</code>，可能带测试源码</td></tr>
+</tbody>
+</table></div>
+
+<h3>取用方式</h3>
+
+<p>要把用例交给他人，走导出流程而非直接复制目录 —— 导出会逐条过五道门禁，并生成说明清单：</p>
+
+<pre><code>uv run aibench export-bundle --from-set _revmixed \
+  --output-dir /要交付的路径 \
+  --drafts-dir benchmarks/ai_coding/cases/_rev_raw4 \
+  --allow-production-derived</code></pre>
+
+<p>产出目录含通过门禁的用例与 <code>MANIFEST.json</code>，后者逐条记录源文件名、语言与实测逐字比例。
+不加 <code>--allow-production-derived</code> 时反向构造用例会被全部拒绝，理由 <code>production_derived</code>。</p>
+
+<h2 id="export">6. 对外分发的门禁</h2>
+
+<pre><code>uv run aibench export-bundle --from-set my-benchmark \
+  --output-dir /path/outside/repo \
+  --drafts-dir benchmarks/ai_coding/cases/_drafts</code></pre>
+
+<p>导出前逐条检查五道门禁，任一不过即排除并在清单中记录原因：</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>门禁</th><th>判定</th><th>是否可绕过</th></tr></thead>
+<tbody>
+<tr><td>schema</td><td>符合用例 JSON 结构</td><td>否</td></tr>
+<tr><td>audit</td><td><code>validity_ok</code> 为真</td><td><code>--no-require-audit</code></td></tr>
+<tr><td>secrets</td><td>密钥扫描为空</td><td>否</td></tr>
+<tr><td>provenance</td><td>非启发式回退产物</td><td><strong>否</strong>（该路径逐字复制草稿，即生产代码）</td></tr>
+<tr><td>verbatim</td><td>与草稿逐字重合比例低于阈值</td><td><code>--max-verbatim</code></td></tr>
+</tbody>
+</table></div>
+
+<div class="callout warn">
+<p><strong>反向构造的用例默认被拒绝，理由是 <code>production_derived</code>。</strong> 这类用例按定义逐字包含真实仓库源码，实测逐字比例 13%–75.2%。</p>
+<p>确需分发时使用 <code>--allow-production-derived</code>。该开关<strong>不跳过任何检查</strong>，其余门禁照常生效；它记录「分发生产代码是有意为之」这一决定，并在清单中逐条写明源文件名、语言与实测逐字比例，使接收方知悉所收内容。</p>
+</div>
+
+<h2 id="repro">7. 复现已发布的结论</h2>
+
+<p>已发布的校准结果为纯数字，不含任何代码，位于 <code>benchmarks/ai_coding/calibrations/</code>。任何一项报告数值都可独立复算：</p>
+
+<pre><code>import json, collections, statistics
+
+def band(p):
+    return 'hard' if p &lt; 0.2 else ('mid' if p &lt;= 0.8 else 'easy')
+
+j = json.load(open('benchmarks/ai_coding/calibrations/reverse-v1_3anchor_20260808.json'))
+v = [c['p_hat'] for c in j['cases']]
+print(collections.Counter(band(x) for x in v), statistics.mean(v))</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>已报告数值</th><th>复算方法</th></tr></thead>
+<tbody>
+<tr><td><code>reverse-v1</code> 易/中/难 = 22.6 / 74.2 / 3.2</td><td>使用 <code>reverse-v1_3anchor_20260808.json</code> 全部 31 条</td></tr>
+<tr><td><code>auto-v0</code> 易/中/难 = 75.2 / 16.2 / 8.6</td><td>使用 <code>auto-v0_3anchor</code>，<strong>仅取有参考解的 105 条</strong></td></tr>
+<tr><td>隐藏测试剂量曲线</td><td>对比 <code>reverse-v1</code> 与 <code>reverse-v1-keep3</code>、<code>reverse-v1-hidden1</code></td></tr>
+</tbody>
+</table></div>
+
+<div class="callout">
+<p><strong>比较前先确认面板一致。</strong> <code>anchor_fingerprint</code> 哈希的是锚点配置文件的内容而非路径。指纹不同不必然意味着行为不同——例如某次提交仅为配置增加了声明性字段，不改变 Agent 行为。既不要因指纹相同就假定可比，也不要因不同就放弃比较。</p>
+</div>
+
+<h2 id="trouble">8. 故障排查</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>现象</th><th>原因</th><th>处理</th></tr></thead>
+<tbody>
+<tr><td>HTTP 429，消息含 <code>budget_exceeded</code></td><td>凭据额度耗尽，与并发无关</td><td>提额或更换凭据。程序会立即失败，不再重试</td></tr>
+<tr><td>HTTP 429，消息含 <code>rate limit</code></td><td>并发过高</td><td>降低 <code>--workers</code>，程序会退避重试</td></tr>
+<tr><td>HTTP 403，提示模型不在允许列表</td><td>凭据未授权该模型</td><td>报错信息会列出允许的模型名</td></tr>
+<tr><td>大量 <code>timed out</code></td><td>源文件过大，单次生成耗时长</td><td>属瞬时失败，不记账；<code>--resume</code> 会重试</td></tr>
+<tr><td>审计报 <code>uncollectable</code> 比例高</td><td>真实文件依赖工作区不存在的模块</td><td>正常现象，这些用例应被剔除</td></tr>
+<tr><td>输出目录长时间为空</td><td>抽取与校准在结束时才汇总输出</td><td>观察 <code>_progress.jsonl</code> 行数或运行目录下的 <code>result.json</code> 数量</td></tr>
+</tbody>
+</table></div>
+
+<div class="callout">
+<p><strong>判断长任务是否存活</strong>：用一次独立的 <code>pgrep</code> 确认进程存在，不要以「已发出启动命令」为依据。若使用轮询等待，模式串不可出现在发起它的那条命令中，否则会匹配到等待进程自身，导致永远等待。</p>
+</div>
+
+</section>

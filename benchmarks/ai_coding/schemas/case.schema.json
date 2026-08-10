@@ -42,7 +42,13 @@
             "additionalProperties": false,
             "properties": {
               "path": { "type": "string" },
-              "content": { "type": "string" }
+              "content": { "type": "string" },
+              "role": {
+                "type": "string",
+                "enum": ["impl", "test", "distractor", "spec"],
+                "default": "impl",
+                "description": "impl=待修改实现; test=可见测试; distractor=干扰文件(与解无关); spec=规格说明"
+              }
             }
           }
         },
@@ -136,6 +142,24 @@
           "type": ["number", "null"],
           "minimum": 0,
           "maximum": 1
+        },
+        "hidden_tests": {
+          "type": "array",
+          "description": "Written into the workspace only at grading time, after the agent stops. The agent never sees them.",
+          "items": {
+            "type": "object",
+            "required": ["path", "content"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "content": { "type": "string" }
+            }
+          }
+        },
+        "protected_paths": {
+          "type": "array",
+          "description": "Workspace paths whose bytes must equal context.files at grading time. Any change fails the case as reward_hack.",
+          "items": { "type": "string" }
         }
       }
     },
@@ -147,7 +171,22 @@
         "source_session_id": { "type": ["string", "null"] },
         "difficulty": { "type": "string" },
         "tags": { "type": "array", "items": { "type": "string" } },
-        "split": { "type": "string" }
+        "split": { "type": "string" },
+        "tier": {
+          "type": "string",
+          "enum": ["T1", "T2", "T3", "T4", "T5"],
+          "description": "Discrimination tier; see src/aibench/tiers.py for the structural invariants of each."
+        },
+        "capability_axes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Capability axes this case is meant to separate (A1..A6)"
+        },
+        "trace_signals": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Process signals mined from the source production trace; basis for the tier suggestion"
+        }
       }
     }
   }

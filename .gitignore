@@ -22,8 +22,23 @@ benchmarks/ai_coding/cases/e2e-demo/
 benchmarks/ai_coding/cases/.ablation-filtered-*/
 benchmarks/ai_coding/cases/_test_*/
 benchmarks/ai_coding/cases/review-pack-v0/
+benchmarks/ai_coding/cases/disc-v0/
 .e2e-artifacts/
 /tmp_aibench*
 
 benchmarks/ai_coding/cases/prod-v0/
 benchmarks/ai_coding/cases/.ablation-filtered-*/
+
+# three-loop-workflow task state
+.agent/
+
+# calibration working set (subset materialized for incremental re-runs)
+benchmarks/ai_coding/cases/.calibrating-*/
+
+benchmarks/ai_coding/cases/_t4probe*/
+benchmarks/ai_coding/cases/_p5*/
+benchmarks/ai_coding/cases/_scaleprobe*/
+benchmarks/ai_coding/cases/_calsubset*/
+benchmarks/ai_coding/cases/_rev*/
+benchmarks/ai_coding/cases/_compose*/
+benchmarks/ai_coding/cases/retrieval-v0/

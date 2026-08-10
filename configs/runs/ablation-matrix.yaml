@@ -1,5 +1,13 @@
 # Production ablation: real agents × models on session-derived auto-v0
 # Requires .env: AIBENCH_DB_URL (for build) + OPENAI_API_KEY + OPENAI_BASE_URL
+#
+# The matrix varies ONE axis at a time against the baseline, so the paired McNemar test in
+# ablation_report.md attributes any difference to the thing that actually changed:
+#   row 2 vs row 1 -> model axis  (identical single-turn scaffold)
+#   row 3 vs row 1 -> agent axis  (identical model)
+#
+# Each row's model_config is authoritative; OPENAI_MODEL in .env is only a fallback for a
+# config that leaves `model` blank.
 case_set: auto-v0
 baseline_experiment: openai-compat-glm52
 parallel: 1
@@ -12,17 +20,28 @@ runs:
     run_id: prod-oc-glm52
     run_config: configs/runs/baseline.yaml
 
-  # - experiment_name: tool-loop-glm52
-  #   algorithm_name: Baseline
-  #   agent_config: configs/agents/tool_loop.yaml
-  #   model_config: configs/models/glm52.yaml
-  #   run_id: prod-tl-glm52
-  #   run_config: configs/runs/baseline-tool-loop.yaml
+  # Model axis: different model, same single-turn scaffold.
+  - experiment_name: openai-compat-glm51
+    algorithm_name: Model-ablation
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: prod-oc-glm51
+    run_config: configs/runs/baseline.yaml
 
-  # Optional second model (uncomment when gateway exposes it):
-  # - experiment_name: openai-compat-glm51
-  #   algorithm_name: Baseline
-  #   agent_config: configs/agents/openai_compat.yaml
-  #   model_config: configs/models/glm51.yaml
-  #   run_id: prod-oc-glm51
-  #   run_config: configs/runs/baseline.yaml
+  # Agent axis: same model, multi-step tool loop that can run the tests and react.
+  - experiment_name: tool-loop-glm52
+    algorithm_name: Agent-ablation
+    agent_config: configs/agents/tool_loop.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: prod-tl-glm52
+    run_config: configs/runs/baseline-tool-loop.yaml
+
+  # Sampling axis: same model and scaffold, 5 independent draws instead of 1. Its
+  # pass@k - pass@1 gap is the headroom repeated sampling exposes, and its cost is ~5x the
+  # baseline's tokens — the point of the cost curve is to make that trade visible.
+  - experiment_name: passk-glm52
+    algorithm_name: Sampling-scaling
+    agent_config: configs/agents/openai_compat.yaml
+    model_config: configs/models/glm52-sampling.yaml
+    run_id: prod-passk-glm52
+    run_config: configs/runs/passk.yaml

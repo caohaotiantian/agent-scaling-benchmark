@@ -1,0 +1,292 @@
+"""Shaping a case set by measured difficulty.
+
+Thresholds cannot produce a distribution. `SelectionPolicy` drops the unusable, and everything
+between p_min and p_max is then ranked purely by discrimination — which is why a selected set
+still ran 39.3% easy: the whole 0.8-0.9 slice survives. A quota is what gives the set a shape.
+
+The shortfall is reported rather than back-filled from a neighbouring band, because a set that
+missed its target is a fact about the pool, and hiding it would let the next reader believe a
+shape was achieved that never was.
+"""
+
+import collections
+import itertools
+
+import pytest
+
+from aibench.calibrate import apply_difficulty_quota, difficulty_band, select_cases
+
+
+def _case(cid, p_hat, spread=0.5, tier="T3"):
+    return {
+        "case_id": cid,
+        "p_hat": p_hat,
+        "spread": spread,
+        "point_biserial": 0.4,
+        "tier": tier,
+        "keep": True,
+    }
+
+
+class TestBands:
+    @pytest.mark.parametrize(
+        ("p_hat", "band"),
+        [
+            (0.0, "hard"),
+            (0.19, "hard"),
+            (0.2, "mid"),
+            (0.5, "mid"),
+            (0.8, "mid"),
+            (0.81, "easy"),
+            (1.0, "easy"),
+        ],
+    )
+    def test_boundaries(self, p_hat, band):
+        assert difficulty_band(p_hat) == band
+
+    def test_an_unmeasured_case_gets_its_own_band(self):
+        # Calling it "mid" would let an uncalibrated case fill the quota that carries the
+        # set's whole claim to discriminating, then be counted as if it had been measured.
+        assert difficulty_band(None) == "unmeasured"
+
+
+class TestQuota:
+    def test_shares_are_honoured_when_the_pool_allows(self):
+        pool = (
+            [_case(f"e{i}", 0.95) for i in range(10)]
+            + [_case(f"m{i}", 0.5) for i in range(20)]
+            + [_case(f"h{i}", 0.1) for i in range(10)]
+        )
+        picked, rep = apply_difficulty_quota(
+            pool, quota={"easy": 0.15, "mid": 0.70, "hard": 0.15}, max_cases=20
+        )
+        assert rep["bands"]["easy"]["got"] == 3
+        assert rep["bands"]["mid"]["got"] == 14
+        assert rep["bands"]["hard"]["got"] == 3
+        assert rep["shortfall"] == {}
+        assert len(picked) == 20
+
+    def test_a_short_band_is_reported_not_back_filled(self):
+        # The real pool has exactly this shape: plenty of easy and mid, almost no hard.
+        pool = [_case(f"e{i}", 0.95) for i in range(10)] + [_case(f"m{i}", 0.5) for i in range(20)]
+        picked, rep = apply_difficulty_quota(
+            pool, quota={"easy": 0.15, "mid": 0.70, "hard": 0.15}, max_cases=20
+        )
+        assert rep["shortfall"] == {"hard": 3}
+        assert rep["bands"]["hard"] == {"wanted": 3, "got": 0, "pool": 0}
+        # The missing three are NOT made up from easy or mid.
+        assert len(picked) == 17
+        assert all(difficulty_band(c["p_hat"]) != "hard" for c in picked)
+
+    def test_actual_shares_are_reported_against_the_target(self):
+        pool = [_case(f"e{i}", 0.95) for i in range(10)] + [_case(f"m{i}", 0.5) for i in range(20)]
+        _, rep = apply_difficulty_quota(
+            pool, quota={"easy": 0.15, "mid": 0.70, "hard": 0.15}, max_cases=20
+        )
+        assert rep["target"] == {"easy": 0.15, "mid": 0.70, "hard": 0.15}
+        assert rep["requested_total"] == 20
+        assert rep["actual_shares"]["hard"] == 0.0
+        # Denominator is the REQUESTED total, so a missing band leaves the others visibly
+        # short of target rather than renormalised up to it.
+        assert rep["actual_shares"]["mid"] == 0.7
+        assert sum(rep["actual_shares"].values()) < 1.0
+
+    def test_the_best_discriminators_win_within_a_band(self):
+        pool = [_case("weak", 0.5, spread=0.1), _case("strong", 0.5, spread=0.9)]
+        picked, _ = apply_difficulty_quota(pool, quota={"mid": 1.0}, max_cases=1)
+        assert [c["case_id"] for c in picked] == ["strong"]
+
+    def test_no_quota_leaves_the_selection_untouched(self):
+        pool = [_case(f"m{i}", 0.5) for i in range(5)]
+        picked, rep = apply_difficulty_quota(pool, quota={}, max_cases=3)
+        assert len(picked) == 3
+        assert rep == {}
+
+
+class TestTierWithinBand:
+    def test_a_tier_quota_spreads_the_picks_inside_each_band(self):
+        pool = [_case(f"a{i}", 0.5, tier="T2") for i in range(10)] + [
+            _case(f"b{i}", 0.5, tier="T3") for i in range(10)
+        ]
+        picked, _ = apply_difficulty_quota(
+            pool, quota={"mid": 1.0}, max_cases=10, tier_quota={"T2": 0.5, "T3": 0.5}
+        )
+        tiers = [c["tier"] for c in picked]
+        assert tiers.count("T2") == 5
+        assert tiers.count("T3") == 5
+
+    def test_without_a_tier_quota_the_band_ranks_purely_by_discrimination(self):
+        pool = [_case("t2", 0.5, spread=0.9, tier="T2"), _case("t3", 0.5, spread=0.1, tier="T3")]
+        picked, _ = apply_difficulty_quota(pool, quota={"mid": 1.0}, max_cases=1)
+        assert picked[0]["tier"] == "T2"
+
+
+class TestSelectCasesReporting:
+    def test_the_report_carries_the_achieved_distribution(self):
+        cal = {
+            "cases": [_case(f"m{i}", 0.5) for i in range(4)] + [_case("e0", 0.95)],
+        }
+        rep = select_cases(
+            cal,
+            source_set="auto-v0",
+            dest_set="_quota_test",
+            max_cases=4,
+            difficulty_quota={"easy": 0.25, "mid": 0.75},
+            dry_run=True,
+        )
+        assert rep["difficulty_quota"]["bands"]["mid"]["got"] == 3
+        assert rep["difficulty_quota"]["bands"]["easy"]["got"] == 1
+        assert "difficulty_distribution" in rep
+
+
+class TestAllocationIsExact:
+    """`round()` per band does not add up, in either direction."""
+
+    def test_the_requested_total_is_never_exceeded(self):
+        pool = (
+            [_case(f"e{i}", 0.95) for i in range(10)]
+            + [_case(f"m{i}", 0.5) for i in range(20)]
+            + [_case(f"h{i}", 0.1) for i in range(10)]
+        )
+        # 0.15/0.70/0.15 of 10 rounds to 2+7+2 = 11 if each band rounds independently.
+        picked, rep = apply_difficulty_quota(
+            pool, quota={"easy": 0.15, "mid": 0.70, "hard": 0.15}, max_cases=10
+        )
+        assert len(picked) == 10
+        assert rep["total"] == 10
+
+    def test_equal_shares_do_not_under_fill(self):
+        # Three equal thirds of 10 round to 3+3+3 = 9, silently one short.
+        pool = (
+            [_case(f"e{i}", 0.95) for i in range(10)]
+            + [_case(f"m{i}", 0.5) for i in range(10)]
+            + [_case(f"h{i}", 0.1) for i in range(10)]
+        )
+        picked, rep = apply_difficulty_quota(
+            pool, quota={"easy": 1 / 3, "mid": 1 / 3, "hard": 1 / 3}, max_cases=10
+        )
+        assert len(picked) == 10
+        assert rep["shortfall"] == {}
+
+
+class TestQuotaValidation:
+    def test_a_misspelt_band_is_refused(self):
+        # It was accepted, reported as a pool shortfall, and the operator told to calibrate
+        # more cases while the ones they asked for sat unused.
+        with pytest.raises(ValueError, match="unknown difficulty band"):
+            apply_difficulty_quota([_case("m0", 0.5)], quota={"esay": 0.5, "mid": 0.5}, max_cases=2)
+
+    def test_shares_must_sum_to_one(self):
+        with pytest.raises(ValueError, match="sum to"):
+            apply_difficulty_quota(
+                [_case("m0", 0.5)], quota={"easy": 0.5, "mid": 0.5, "hard": 0.5}, max_cases=2
+            )
+
+
+class TestTierAllocationIsOrderIndependent:
+    def _pool(self):
+        out = []
+        for band_p in (0.95, 0.5, 0.1):
+            for t in ("T2", "T3", "T4", "T5"):
+                out += [_case(f"{t}{band_p}{i}", band_p, tier=t) for i in range(20)]
+        return out
+
+    def test_no_tier_is_starved_by_flag_order(self):
+        forward = {"T2": 0.25, "T3": 0.25, "T4": 0.25, "T5": 0.25}
+        reverse = {"T5": 0.25, "T4": 0.25, "T3": 0.25, "T2": 0.25}
+        quota = {"easy": 0.15, "mid": 0.70, "hard": 0.15}
+        a, _ = apply_difficulty_quota(self._pool(), quota=quota, max_cases=20, tier_quota=forward)
+        b, _ = apply_difficulty_quota(self._pool(), quota=quota, max_cases=20, tier_quota=reverse)
+        counts_a = collections.Counter(c["tier"] for c in a)
+        counts_b = collections.Counter(c["tier"] for c in b)
+        assert counts_a == counts_b, "flag order changed the set"
+        assert min(counts_a.values()) >= 4, f"a tier was starved: {counts_a}"
+
+    def test_a_tier_that_cannot_be_filled_is_reported(self):
+        pool = [_case(f"m{i}", 0.5, tier="T3") for i in range(10)]
+        _, rep = apply_difficulty_quota(
+            pool, quota={"mid": 1.0}, max_cases=10, tier_quota={"T2": 0.5, "T3": 0.5}
+        )
+        assert rep["tier_shortfall"]["mid"]["T2"] == 5
+
+
+class TestOrderIndependence:
+    """The selected set must follow from the flag VALUES, never their typing order.
+
+    Fixed once for tiers, then reintroduced for bands by deriving the tie-break rotation from
+    each band's position in the flag string: six permutations of the same quota produced six
+    different case sets, and `content_fingerprint` diverged with nothing recording why.
+    """
+
+    def _pool(self):
+        return [
+            _case(f"{t}{bp}{i}", bp, tier=t)
+            for bp in (0.95, 0.5, 0.1)
+            for t in ("T2", "T3", "T4", "T5")
+            for i in range(20)
+        ]
+
+    def test_permuting_the_band_order_selects_the_same_set(self):
+        shares = {"easy": 0.15, "mid": 0.70, "hard": 0.15}
+        tier_quota = {"T2": 0.25, "T3": 0.25, "T4": 0.25, "T5": 0.25}
+        sets = set()
+        for perm in itertools.permutations(shares):
+            picked, _ = apply_difficulty_quota(
+                self._pool(),
+                quota={k: shares[k] for k in perm},
+                max_cases=20,
+                tier_quota=tier_quota,
+            )
+            sets.add(tuple(sorted(c["case_id"] for c in picked)))
+        assert len(sets) == 1, f"{len(sets)} distinct sets from the same quota"
+
+    def test_permuting_the_tier_order_selects_the_same_set(self):
+        shares = {"easy": 0.15, "mid": 0.70, "hard": 0.15}
+        sets = set()
+        for perm in itertools.permutations(("T2", "T3", "T4", "T5")):
+            picked, _ = apply_difficulty_quota(
+                self._pool(),
+                quota=shares,
+                max_cases=20,
+                tier_quota=dict.fromkeys(perm, 0.25),
+            )
+            sets.add(tuple(sorted(c["case_id"] for c in picked)))
+        assert len(sets) == 1
+
+
+class TestInputIsValidated:
+    def test_tier_shares_must_sum_to_one(self):
+        # Unnormalised shares overshot `want`, and the excess was truncated in flag order —
+        # dropping a whole tier with nothing reported.
+        with pytest.raises(ValueError, match="tier quota shares sum to"):
+            apply_difficulty_quota(
+                [_case("m0", 0.5)],
+                quota={"mid": 1.0},
+                max_cases=1,
+                tier_quota={"T2": 0.4, "T3": 0.4, "T4": 0.4, "T5": 0.4},
+            )
+
+    def test_a_negative_share_is_refused_even_though_the_sum_is_one(self):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            apply_difficulty_quota(
+                [_case("m0", 0.5)], quota={"easy": -0.5, "mid": 1.5}, max_cases=10
+            )
+
+    def test_a_negative_max_cases_is_refused(self):
+        with pytest.raises(ValueError, match="must not be negative"):
+            apply_difficulty_quota([_case("m0", 0.5)], quota={"mid": 1.0}, max_cases=-5)
+
+
+class TestReportDescribesWhatWasReturned:
+    def test_a_repeated_case_id_cannot_consume_two_slots(self):
+        pool = [_case("x", 0.5), _case("x", 0.5, spread=0.9)] + [
+            _case(f"m{i}", 0.5) for i in range(5)
+        ]
+        picked, rep = apply_difficulty_quota(pool, quota={"mid": 1.0}, max_cases=7)
+        assert len({c["case_id"] for c in picked}) == len(picked)
+        assert rep["total"] == len(picked)
+
+    def test_the_reported_total_matches_the_returned_set(self):
+        pool = [_case(f"m{i}", 0.5) for i in range(20)]
+        picked, rep = apply_difficulty_quota(pool, quota={"mid": 1.0}, max_cases=5)
+        assert rep["total"] == len(picked) == 5

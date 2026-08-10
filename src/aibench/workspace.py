@@ -231,12 +231,21 @@ def _apply_snapshot(
     raise ValueError(f"unsupported snapshot format: {src}")
 
 
-def _safe_relpath(path: str) -> str:
+def safe_relpath(path: str) -> str:
+    """Confine a case-supplied path to the workspace.
+
+    Case paths are generated text, so they are untrusted. `workspace / "/home/code/x.py"`
+    resolves to the absolute path and writes outside the workspace, which is why this lives in
+    one place rather than being re-derived at each call site.
+    """
     rel = path.replace("\\", "/").lstrip("/")
     parts = Path(rel).parts
     if ".." in parts:
         raise ValueError(f"path escapes workspace: {path}")
     return str(Path(*parts)) if parts else "unnamed"
+
+
+_safe_relpath = safe_relpath
 
 
 def _safe_extract_tar(tf: tarfile.TarFile, dest: Path) -> None:
