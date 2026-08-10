@@ -1,0 +1,1314 @@
+{
+ "protocol": "bare model, one call, fenced code block, no agent scaffold",
+ "case_set": "_revmixed",
+ "cases": 31,
+ "repeats": 3,
+ "models": [
+  "Deepseek-V4-Flash-0731",
+  "GLM-5.1"
+ ],
+ "rows": [
+  {
+   "case": "rev-1f1563e5cdce9714",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-24a5ff20e2cb6691",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-2ca580a0192883ce",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-40473af819aab141",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-429688dd814e45fe",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-452aa920a815b796",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-45d9a8eedc412aa7",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-461e8d91390e3915",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-4646d93ae250add0",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-5e56df47ee4f862c",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-62ef1cb54b48c416",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-6c31f4fcb26cf2ce",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-724174b7d8074da8",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-749e2c2faf594605",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": false,
+   "reason": "collection"
+  },
+  {
+   "case": "rev-772a0200c25e3bb1",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-8aa4cadfc9034cc0",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-9029660c5a575277",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ac427816b0ed447b",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-acd893abd8b3897e",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b27a96dd8b258ae9",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b860d42d120e1ea6",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-be51b11a3ed4f8a7",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d098848d56868e13",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-d326423b2e842029",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-d5c3ff936818ef85",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d94dc43d70c2458d",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-dd703d1eb36b1620",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e423a39bf8c61e28",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e57d50ae4bf90593",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ea040c6cc651d689",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-f4f8a7a78fa184cd",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-1f1563e5cdce9714",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-24a5ff20e2cb6691",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-2ca580a0192883ce",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-40473af819aab141",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-429688dd814e45fe",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-452aa920a815b796",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-45d9a8eedc412aa7",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-461e8d91390e3915",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-4646d93ae250add0",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-5e56df47ee4f862c",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-62ef1cb54b48c416",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-6c31f4fcb26cf2ce",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-724174b7d8074da8",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-749e2c2faf594605",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": false,
+   "reason": "collection"
+  },
+  {
+   "case": "rev-772a0200c25e3bb1",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-8aa4cadfc9034cc0",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-9029660c5a575277",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ac427816b0ed447b",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-acd893abd8b3897e",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b27a96dd8b258ae9",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b860d42d120e1ea6",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-be51b11a3ed4f8a7",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d098848d56868e13",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-d326423b2e842029",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-d5c3ff936818ef85",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d94dc43d70c2458d",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-dd703d1eb36b1620",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e423a39bf8c61e28",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e57d50ae4bf90593",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ea040c6cc651d689",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-f4f8a7a78fa184cd",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-1f1563e5cdce9714",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-24a5ff20e2cb6691",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-2ca580a0192883ce",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-40473af819aab141",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-429688dd814e45fe",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-452aa920a815b796",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-45d9a8eedc412aa7",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-461e8d91390e3915",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-4646d93ae250add0",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-5e56df47ee4f862c",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-62ef1cb54b48c416",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-6c31f4fcb26cf2ce",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-724174b7d8074da8",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-749e2c2faf594605",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": false,
+   "reason": "collection"
+  },
+  {
+   "case": "rev-772a0200c25e3bb1",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-8aa4cadfc9034cc0",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-9029660c5a575277",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ac427816b0ed447b",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-acd893abd8b3897e",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b27a96dd8b258ae9",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b860d42d120e1ea6",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-be51b11a3ed4f8a7",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d098848d56868e13",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d326423b2e842029",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-d5c3ff936818ef85",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d94dc43d70c2458d",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-dd703d1eb36b1620",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": false,
+   "reason": "collection"
+  },
+  {
+   "case": "rev-e423a39bf8c61e28",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e57d50ae4bf90593",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ea040c6cc651d689",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-f4f8a7a78fa184cd",
+   "model": "Deepseek-V4-Flash-0731",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-1f1563e5cdce9714",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-24a5ff20e2cb6691",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-2ca580a0192883ce",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-40473af819aab141",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-429688dd814e45fe",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-452aa920a815b796",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-45d9a8eedc412aa7",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-461e8d91390e3915",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-4646d93ae250add0",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-5e56df47ee4f862c",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-62ef1cb54b48c416",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-6c31f4fcb26cf2ce",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-724174b7d8074da8",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-749e2c2faf594605",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": false,
+   "reason": "collection"
+  },
+  {
+   "case": "rev-772a0200c25e3bb1",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-8aa4cadfc9034cc0",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-9029660c5a575277",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ac427816b0ed447b",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-acd893abd8b3897e",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b27a96dd8b258ae9",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b860d42d120e1ea6",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-be51b11a3ed4f8a7",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d098848d56868e13",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d326423b2e842029",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-d5c3ff936818ef85",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d94dc43d70c2458d",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-dd703d1eb36b1620",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e423a39bf8c61e28",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e57d50ae4bf90593",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ea040c6cc651d689",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-f4f8a7a78fa184cd",
+   "model": "GLM-5.1",
+   "rep": 1,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-1f1563e5cdce9714",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-24a5ff20e2cb6691",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-2ca580a0192883ce",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-40473af819aab141",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-429688dd814e45fe",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-452aa920a815b796",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-45d9a8eedc412aa7",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-461e8d91390e3915",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-4646d93ae250add0",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-5e56df47ee4f862c",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-62ef1cb54b48c416",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-6c31f4fcb26cf2ce",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-724174b7d8074da8",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-749e2c2faf594605",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": false,
+   "reason": "collection"
+  },
+  {
+   "case": "rev-772a0200c25e3bb1",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-8aa4cadfc9034cc0",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-9029660c5a575277",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ac427816b0ed447b",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-acd893abd8b3897e",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b27a96dd8b258ae9",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b860d42d120e1ea6",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-be51b11a3ed4f8a7",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d098848d56868e13",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d326423b2e842029",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-d5c3ff936818ef85",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d94dc43d70c2458d",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-dd703d1eb36b1620",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e423a39bf8c61e28",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e57d50ae4bf90593",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ea040c6cc651d689",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-f4f8a7a78fa184cd",
+   "model": "GLM-5.1",
+   "rep": 2,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-1f1563e5cdce9714",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-24a5ff20e2cb6691",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-2ca580a0192883ce",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-40473af819aab141",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-429688dd814e45fe",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-452aa920a815b796",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-45d9a8eedc412aa7",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-461e8d91390e3915",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-4646d93ae250add0",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-5e56df47ee4f862c",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-62ef1cb54b48c416",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-6c31f4fcb26cf2ce",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-724174b7d8074da8",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-749e2c2faf594605",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": false,
+   "reason": "collection"
+  },
+  {
+   "case": "rev-772a0200c25e3bb1",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-8aa4cadfc9034cc0",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-9029660c5a575277",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ac427816b0ed447b",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-acd893abd8b3897e",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b27a96dd8b258ae9",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-b860d42d120e1ea6",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-be51b11a3ed4f8a7",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d098848d56868e13",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d326423b2e842029",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": false,
+   "reason": "tests failed"
+  },
+  {
+   "case": "rev-d5c3ff936818ef85",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-d94dc43d70c2458d",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-dd703d1eb36b1620",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e423a39bf8c61e28",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-e57d50ae4bf90593",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-ea040c6cc651d689",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  },
+  {
+   "case": "rev-f4f8a7a78fa184cd",
+   "model": "GLM-5.1",
+   "rep": 3,
+   "passed": true,
+   "reason": ""
+  }
+ ]
+}
