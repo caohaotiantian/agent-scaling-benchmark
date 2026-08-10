@@ -495,6 +495,50 @@ GLM-5.1 77.4% / 64.5% / 77.4%（极差 12.9pp）—— <strong>模型自身的�
 25.8% → 48.4% → 67.7%，换用工具循环后 83.9%。<strong>在确认失败原因之前，任何排名都不能当作能力测量。</strong></p>
 </div>
 
+
+<h3>8.1 裸模型测量：脚手架是主要噪声源，且会颠倒排序</h3>
+
+<p>上述全部测量都隔着一层 agent 脚手架。去掉它 —— 一次调用，模型回一段围栏代码，
+用同一套评分链路判定 —— 结果如下：</p>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 200" role="img" aria-label="裸模型与工具循环的轮间波动对比">
+  <g font-size="12.5" fill="#18212f">
+    <text x="0" y="14" font-weight="700">同一模型、同一 31 条用例、三次重复的通过率区间</text>
+
+    <text x="0" y="46" font-size="12" fill="#667085">工具循环</text>
+    <rect x="120" y="34" width="600" height="18" fill="#f5f7fa" stroke="#d6dee8" rx="3"/>
+    <rect x="246" y="34" width="193" height="18" fill="#b42318" rx="3" opacity="0.75"/>
+    <text x="342" y="47" font-size="11" fill="#fff" text-anchor="middle">Deepseek 71.0–87.1%（16.1pp）</text>
+    <rect x="120" y="58" width="600" height="18" fill="#f5f7fa" stroke="#d6dee8" rx="3"/>
+    <rect x="174" y="58" width="155" height="18" fill="#b42318" rx="3" opacity="0.75"/>
+    <text x="252" y="71" font-size="11" fill="#fff" text-anchor="middle">GLM-5.1 64.5–77.4%（12.9pp）</text>
+
+    <text x="0" y="112" font-size="12" fill="#667085">裸模型</text>
+    <rect x="120" y="100" width="600" height="18" fill="#f5f7fa" stroke="#d6dee8" rx="3"/>
+    <rect x="527" y="100" width="38" height="18" fill="#166534" rx="3"/>
+    <text x="600" y="113" font-size="11" fill="#166534">Deepseek 83.9–87.1%（3.2pp）</text>
+    <rect x="120" y="124" width="600" height="18" fill="#f5f7fa" stroke="#d6dee8" rx="3"/>
+    <rect x="604" y="124" width="4" height="18" fill="#166534" rx="1"/>
+    <text x="618" y="137" font-size="11" fill="#166534">GLM-5.1 90.3%（0.0pp，三轮逐条一致）</text>
+
+    <text x="120" y="164" font-size="11" fill="#667085">60%</text>
+    <text x="400" y="164" font-size="11" fill="#667085">80%</text>
+    <text x="690" y="164" font-size="11" fill="#667085">100%</text>
+    <text x="0" y="188" font-size="12" fill="#667085">去掉脚手架后，GLM-5.1 的逐用例翻转率由 32.3% 降至 0.0%，Deepseek 由 25.8% 降至 22.6%。</text>
+  </g>
+</svg>
+<figcaption>GLM-5.1 在裸模型下完全确定；其此前的抖动全部来自脚手架。Deepseek 保留 22.6%，是模型自身在 <code>temperature: 0</code> 下的不确定性。</figcaption>
+</figure>
+
+<div class="callout warn">
+<p><strong>脚手架颠倒了排序。</strong> 裸模型：GLM-5.1 (90.3%) 高于 Deepseek (83.9%)；
+工具循环：Deepseek (90.3%) 高于 GLM-5.1 (71.0%)。同一批用例、同两个模型，方向相反。</p>
+<p>三轮合并配对 McNemar：GLM-5.1 独赢 7、Deepseek 独赢 2，<strong>p = 0.1797 不显著</strong>，
+三轮都稳定分开两模型的用例仍为 <strong>0 条</strong>。
+即便在最干净的测量下，这批用例也区分不出这两个模型。</p>
+</div>
+
 <h2 id="open-lang">9. 待决问题：语言覆盖</h2>
 
 <p class="callout"><strong>本节供内部讨论使用。</strong> 陈述问题、实测数据、技术阻塞点与可选方案及其代价，不预设结论。</p>
