@@ -80,6 +80,10 @@ def build_prompt(
         "- prompt: describes ONLY the observable symptom — what was expected and what "
         "happened. Never name the cause, the mechanism, the line, or the function that "
         "changes. Do not mention 'before' or 'after'.\n"
+        "- Write `prompt` in the SAME LANGUAGE the engineer used in their request below. "
+        "If they wrote in Chinese, write the prompt in Chinese. These cases are meant to "
+        "read like the task the engineer actually faced, and translating it changes what is "
+        "being measured.\n"
         "Do not restate or fix the code. The fix already exists; you are writing the test that "
         "would have caught it."
     )
