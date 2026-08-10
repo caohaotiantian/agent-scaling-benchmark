@@ -1,12 +1,80 @@
 # 交接文档：分层区分度 Benchmark
 
-分支 `feat/tiered-discrimination-benchmark`，434 项测试全绿。基线 `4898b36`。
+分支 `feat/tiered-discrimination-benchmark`，**504 项测试全绿**，lint 干净。
 
-> **2026-08-07 更新**：§6.1 的原归因已被本仓库数据推翻（§5.6）；§5.6–5.11 是新增教训；
-> §7 已按新证据重排。本轮交付了「坏题 ≠ 难题」的一整套测量能力
-> （判分层 `collection_error`、内容寻址指纹、消毒 parse 兜底、题面点名被修函数检测）、
-> 按难度带组集的 `--difficulty-quota`，以及产线成本与数据完整性的加固。
-> 四个阶段各经 2–3 轮独立评审关闭。完整计划与证据在 `.agent/*/plan.md`。
+> **2026-08-10 更新（接手请先读 §0）。** 本轮把主线从「调生成器」转到「反向构造」，
+> 产出 31 条经效度门禁的用例；随后在模型消融中发现 **agent 适配器有三处缺陷，
+> 系统性惩罚推理模型**，导致此前全部难度校准与模型排名不可信。已修复并新增
+> `bare_model` 适配器（无脚手架测量）。**§0 是当前状态与下一步，其余章节为历史记录。**
+
+---
+
+## 0. 接手须知（2026-08-10）
+
+### 0.1 一句话状态
+
+反向构造能产出有效用例（31 条，全部过门禁），**但当前所有难度数字都需要重测** ——
+校准所用的最强锚点 `tool_loop` 有缺陷，修复后同一模型通过率变化达 58 个百分点。
+
+### 0.2 立刻可用的产物
+
+| 产物 | 位置 | 入库 | 说明 |
+|---|---|---|---|
+| **`_revmixed`** | `benchmarks/ai_coding/cases/_revmixed/` | 否 | **当前最优集合**：31 条，全过门禁，易档已按 `hide_count=2` 处理 |
+| `_revfinal2` | 同目录 | 否 | 同 31 条，测试全可见（未隐藏） |
+| `_rev_raw4` | 同目录 | 否 | 3,312 条草稿，重跑生成的输入 |
+| 校准数据 | `benchmarks/ai_coding/calibrations/` | **是** | 14 份纯数字，可独立复算 |
+| HTML 文档 | `docs/html/index.html` | 是 | 三板块：项目介绍 / 用户手册 / 参考资料 |
+
+**用例不入库**（含 13%–75.2% 逐字生产代码），交付走 `export-bundle --allow-production-derived`。
+
+### 0.3 必须先做的一件事：重新校准
+
+`_revmixed` 的分布（16.1 : 77.4 : 6.5）是在有缺陷的 harness 上测的，**不可信**。
+
+```bash
+uv run aibench calibrate-cases --case-set _revmixed --repeats 3 \
+  --anchors configs/runs/anchor-panel.yaml --parallel 3 --workers 3
+```
+
+**但先解决面板反转**：修复后实测 weak(GLM-5.1) 85.2% > strong(tool_loop) 78.0%，
+「弱锚点」比「强锚点」还强，`spread` 会变成负数。面板的档次划分基于旧的有偏测量，
+需要重新指派。建议先单独实测三个锚点配置的真实强弱（成本远低于全量校准）。
+
+### 0.4 三种测量口径 —— 不要混用
+
+| 适配器 | 回答的问题 | 何时用 |
+|---|---|---|
+| **`bare_model`** | **模型本身有多强** | 比较模型 |
+| `openai_compat` | 模型 + 单轮 JSON 协议 | 能力下限锚点 |
+| `tool_loop` | 模型 + 多步工具循环 | 能力上限锚点 |
+
+实测（同 31 条用例、同两模型、各 3 轮）：
+
+| 口径 | GLM-5.1 极差 | Deepseek 极差 | GLM-5.1 翻转率 | 胜者 |
+|---|---:|---:|---:|---|
+| `bare_model` | **0.0pp** | 3.2pp | **0.0%** | GLM-5.1 90.3% |
+| `tool_loop` | 12.9pp | 16.1pp | 32.3% | Deepseek 90.3% |
+
+**脚手架贡献了几乎全部噪声，并颠倒了排序。** 混用这两个口径是本轮五次矛盾结论的根源。
+
+### 0.5 硬性使用要求
+
+1. **任何模型比较至少 3 次重复并报轮间极差。** 同一对比单次跑 p=0.0312「显著」，
+   三次跑 p=0.167 不显著。
+2. **看到排名先看失败原因构成。** 单轮消融的排名曾 100% 由 JSON 解析失败决定。
+3. **长任务用 `--resume`。** 用例一产出即落盘，`_progress.jsonl` 记录已结案草稿。
+
+### 0.6 下一步（按证据排序）
+
+1. **重新指派锚点面板 + 重新校准**（§0.3）—— 一切结论的前提，不做则后续都是沙上建塔
+2. **用 `bare_model` 重跑模型消融** —— `configs/runs/ablation-bare-models.yaml` 已备好
+3. **语言覆盖**（§9 待决问题）—— 产量首要瓶颈，丢弃量是可用量的 23 倍，需团队决策
+4. **不建议**继续扩产量：语料还剩约 100 条可构建草稿，但按当前分布新增的仍落在中档
+
+---
+
+## 附：2026-08-07 之前的历史记录
 
 ### 本轮实测规模
 
@@ -438,6 +506,63 @@ reasoning_tokens: 4096   content: len=0   reasoning_content: len=17840
 
 JavaScript 那条端到端用例逼出两个 bug：隐藏测试文件名 `clamp.test_spec.mjs` 不匹配 node 的发现规则（静默不跑）、tally 正则只认 TAP 的 `# pass` 而 node 默认输出 `ℹ pass`。纯 Python 单测覆盖不到。
 
+### 5.14 测量工具的方差可以完全淹没被测对象的差异（2026-08-10）
+
+本轮做模型消融，五轮跑出**五套互相矛盾的排名**，每一轮的变化都来自我修掉的一个
+harness 缺陷，而非模型：
+
+| 轮次 | 脚手架 | GLM-5.2 通过率 | 修掉的缺陷 |
+|---|---|---:|---|
+| 1 | 单轮 JSON | 25.8% | — |
+| 2 | 单轮 JSON | 48.4% | `content or reasoning_content` 跨语义边界 |
+| 3 | 单轮 JSON | 67.7% | 固定 8192 输出预算 |
+| 4 | 工具循环 | 83.9% | 换掉整个协议 |
+
+**同一模型、同一批用例，仅修 harness 跨度 58 个百分点。** 而模型之间的真实差距只有个位数。
+
+三个缺陷两个同时存在于 `tool_loop` —— **所有校准面板的最强锚点** ——
+所以此前发布的每一份难度校准都建立在一个系统性惩罚推理模型的测量上。
+
+判据三条：
+
+1. **看到排名，先看失败原因构成。** 单轮消融的排名 100% 由 JSON 解析失败决定：
+   GLM-5.2 的 23 次失败里 22 次是解析报错，只有 1 次是真做了没通过测试。
+2. **任何"回退"不得跨越语义边界。** `content or reasoning_content` 在网关把答案放推理字段时
+   是对的，在**响应被截断**时是错的 —— 它把「模型没答完」变造成「模型答得不合法」。
+3. **测量工具本身要先被测量。** 加一个「无脚手架」的对照口径（`bare_model`），
+   它与带脚手架口径的差，就是脚手架贡献的量。实测这个差是 12.9pp 对 0.0pp。
+
+### 5.15 单次运行不能支撑任何排名（2026-08-10）
+
+同一对比、同一批用例：
+
+| | 不一致对 | p 值 | 结论 |
+|---|---|---:|---|
+| 单次运行 | 6 : 0 | **0.0312** | 「显著」 |
+| 三次重复 | 13 : 6 | **0.167** | 不显著 |
+
+`p = 0.0312` 是 6 个不一致对全部同向时**能达到的最小值** —— 结论踩在可能范围内最薄的边上。
+
+更直接的证据：同一模型、同一用例，工具循环下三轮结果翻转率 **25.8%–32.3%**，
+而三轮都能稳定分开两个模型的用例是 **0 条**。表面差异全部来自自己就在翻转的用例。
+
+`temperature: 0` 已设置 —— 抖动来自脚手架的路径依赖，换 `bare_model` 后
+GLM-5.1 的翻转率降到 **0.0%**（三轮 31 条逐条一致）。
+
+**要求：任何模型比较至少 3 次重复并报轮间极差。**
+
+### 5.16 用流水线自己的语义算，别自己从原始文件统计（2026-08-10）
+
+我从 `result.json` 直接统计锚点通过率，把 `infra_error` 当成用例失败，报出 mid 锚点
+19.4%，并据此说「harness 没过滤网关错误」。
+
+**两处都错**：`calibrate.py:278` 本来就跳过 `infra_error`，`calibration.json` 也逐条记录
+`attempts`。按正确口径重算是 66.7%。真正的问题是**过滤之后只剩 27/93 有效样本**，
+即样本损耗，而非污染 —— 对策是提高 `AIBENCH_CASE_RETRY`，不是「过滤得更狠」。
+
+判据：**流水线有自己的口径时，用它；自己重算等于新写一份实现，而它没被测试覆盖。**
+
+
 ---
 
 ## 6.0 反向构造：截至 2026-08-07 的账（这是当前主线）
@@ -640,6 +765,37 @@ n=27 远低于 §6.5 所需的 153，属**欠功效**。
 > 重开它们之前，请先读 §5.12：观察数据上的相关性（哪怕 p<1e-8）不构成证据。
 
 ## 8. 常用命令
+
+### 8.0 反向构造主线（2026-08-10 现行）
+
+```bash
+# 抽取草稿（不花模型钱；--max-messages 默认 60 会丢掉 69% 的含编辑 trace）
+uv run aibench extract-from-db --output-dir benchmarks/ai_coding/cases/_drafts \
+  --limit 30000 --max-cases 12000 --require-edits --all-agents \
+  --min-messages 3 --max-messages 400
+
+# 反向构造生成（--resume 务必带上；无可导入 pre/post 对的草稿在调模型前即被剔除，不计费）
+uv run aibench generate-cases --input-dir benchmarks/ai_coding/cases/_drafts \
+  --output-dir benchmarks/ai_coding/cases/_cases --reverse \
+  --max-cases 120 --oversample 30 --workers 5 --resume --audit --secrets-scan
+
+# 审计（本地，不花钱）
+uv run aibench audit-cases --case-set _cases --annotate
+
+# 模型比较：用无脚手架口径，且内置 3 次重复
+uv run aibench ablation --matrix configs/runs/ablation-bare-models.yaml \
+  --case-set _revmixed --parallel 3
+
+# 交付（不加 --allow-production-derived 会全部拒绝，理由 production_derived）
+uv run aibench export-bundle --from-set _revmixed --output-dir <交付路径> \
+  --drafts-dir benchmarks/ai_coding/cases/_rev_raw4 --allow-production-derived
+
+# 网关抖动时提高 infra 重试预算（默认仅 2）
+AIBENCH_CASE_RETRY=4 uv run aibench calibrate-cases --case-set _revmixed --repeats 3 \
+  --anchors configs/runs/anchor-panel.yaml --parallel 3 --workers 3
+```
+
+### 8.1 历史命令（2026-08-07 及以前）
 
 ```bash
 # 建集
