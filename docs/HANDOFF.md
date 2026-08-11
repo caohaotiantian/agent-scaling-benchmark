@@ -1,6 +1,9 @@
 # 交接文档：分层区分度 Benchmark
 
-分支 `feat/tiered-discrimination-benchmark`，**536 项测试全绿**，lint 干净。
+分支 `feat/tiered-discrimination-benchmark`。当前测试数与门禁命令见 [`docs/SESSION-2026-08-11.md`](SESSION-2026-08-11.md) §3。
+
+> **2026-08-11：最近一次会话的状态、未决问题与已知缺陷在 [`docs/SESSION-2026-08-11.md`](SESSION-2026-08-11.md)。**
+> 那份文档刻意不给推荐方案；本文 §0.7–0.10 是该会话交付内容的技术细节。
 
 > **2026-08-10 更新（接手请先读 §0）。** 本轮把主线从「调生成器」转到「反向构造」，
 > 产出 31 条经效度门禁的用例；随后在模型消融中发现 **agent 适配器有三处缺陷，
