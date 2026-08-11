@@ -290,7 +290,14 @@ Deepseek 保留 22.6%，那是模型自身在 `temperature: 0` 下的不确定�
 | 面板 | 指纹 | 可与 `auto-v0` 比较 |
 |---|---|---|
 | `auto-v0_3anchor_20260805` 当时的面板 | `f3913d65b0d0bf00` | — |
-| 当前 `configs/runs/anchor-panel.yaml` | `5f5233c7214879f4` | **可以** |
+| 当前 `configs/runs/anchor-panel.yaml` | ~~`5f5233c7214879f4`~~ → `v2:` 前缀的新值 | **不可以** |
+
+> **⚠️ 2026-08-11：面板指纹口径已变，本表上方的结论作废。**
+> `anchor_fingerprint` 现在并入 harness 源码摘要并带 `v2:` 前缀 —— 旧值只哈希三个 YAML，
+> 因此在一次让同模型通过率变动 58pp 的适配器修复前后**完全相同**。
+> 这里全部 9 份带指纹的数据都是旧口径，**与当前面板不可比，也不可复用**。
+> 同时：`point_biserial` 的定义已修（扣除本题 + 按实测题数归一），
+> 下方引用的 r_pb 统计量出自旧估计量，仅作历史记录。详见 `docs/REFERENCE.md` §13.5.5。
 
 两者差异的全部内容是 `5961d65` 给 `openai_compat.yaml` 与 `tool_loop.yaml`
 各加了一行 `capability_axes:` 和注释。已核查该字段的读取点只有

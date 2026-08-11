@@ -305,11 +305,15 @@ def run_benchmark(
     except Exception:
         set_fp = None
 
+    from aibench.provenance import environment
+
     manifest: dict[str, Any] = {
         "run_id": rid,
         "experiment_name": run_cfg.experiment_name,
         "experiment_time": date.today().isoformat(),
-        "code_version": f"aibench@0.1.0 / agent@{agent_cfg.version}",
+        # Was `aibench@0.1.0 / agent@{version}` — two literals, identical across all 148
+        # manifests on disk, including the ones straddling an adapter fix worth 58 points.
+        **environment(),
         "benchmark_name": run_cfg.benchmark_name,
         "case_set": cs,
         "case_set_fingerprint": set_fp,

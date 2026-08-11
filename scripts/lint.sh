@@ -10,7 +10,7 @@ else
   RUFF=(ruff)
 fi
 
-TARGETS=(src tests)
+TARGETS=(src tests scripts)
 if [[ $# -gt 0 ]]; then
   TARGETS=("$@")
 fi
