@@ -1013,7 +1013,7 @@ INDEX_BODY = """
   <div class="meta">
     <span class="pill">数据来源 · 现网 trace</span>
     <span class="pill">度量 · 三锚点校准</span>
-    <span class="pill">当前集合 · 31 条</span>
+    <span class="pill">当前集合 · 31 条（新门禁后 19 条有效）</span>
   </div>
 </header>
 <section class="md-body" style="margin-top:22px">
@@ -1044,7 +1044,7 @@ INDEX_BODY = """
       <tr><td>有区分度占比</td><td>22.2%</td><td><strong>83.9%</strong></td></tr>
     </tbody>
   </table></div>
-  <p>中档 74.2%（95% 区间 [56.8%, 86.3%]）已达成 70% 的目标。
+  <p>中档 74.2%（95% 区间 [56.8%, 86.3%]）——但这个数测于 2026-08-09 之前的有缺陷 harness，<strong>暂不可作为结论</strong>。
      完整数据、置信区间与已知边界见<a href="overview.html#distribution">项目介绍</a>。</p>
 
   <div class="callout warn">
@@ -1061,7 +1061,7 @@ INDEX_BODY = """
        <strong>4,472 个因语言未注册被丢弃</strong>，而最终可用的仅 194 个——丢弃量约为可用量的 23 倍。
        C++ 与 Rust 需要编译，而评分工作区只有两个文件。</p>
     <p>问题陈述、实测数据、技术阻塞点、四个可选方案及其代价与风险，
-       见<a href="overview.html#open-lang">项目介绍 · 第 8 节</a>。</p>
+       见<a href="overview.html#open-lang">项目介绍 · 第 9 节</a>。</p>
   </div>
 
   <h2>重建本站</h2>

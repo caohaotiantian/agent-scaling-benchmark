@@ -1,10 +1,10 @@
 # Production configs（无 mock）
 
-> **展示版（推荐）**：[docs/html/configs.html](../docs/html/configs.html)
+> **展示版（推荐）**：[用户手册](../docs/html/manual.html)
 
 `configs/` 下全部文件用于**真实评测**。Mock 仅存在于 `tests/fixtures/configs/`（单测与 `e2e_pipeline.sh --dry-run`）。
 
-权威字段说明见 [参考手册 HTML](../docs/html/reference.html) §7（Markdown 源：`docs/REFERENCE.md`）。
+权威字段说明见 [`docs/REFERENCE.md`](../docs/REFERENCE.md) §7。（[参考资料 HTML](../docs/html/reference.html) 是另一份文档，讲设计论证，不含配置字段。）
 
 ## Layout
 
@@ -69,3 +69,16 @@ uv run python -m aibench ablation \
 - 锚点面板必须**同时跨越模型与 Agent 两条轴**，且含一个明显弱的锚点；否则 `spread` 恒为 0，
   校准会把所有用例误判为无区分度。
 - `shell.yaml` 的 `command_template` 默认为空，接入外部 CLI 前必须填写。
+
+## 本文未逐条展开的配置
+
+`configs/` 下共 23 个 YAML。上面的布局表按目录讲结构，这里按文件补齐未逐条展开的部分：
+
+| 文件 | 用途 |
+|---|---|
+| `agents/bare_model.yaml` | **无脚手架口径** —— 比较模型时唯一该用的适配器（`docs/HANDOFF.md` §0.4） |
+| `models/glm5.yaml` / `deepseek-v4-flash.yaml` / `glm52-sampling.yaml` | 模型消融与采样实验用 |
+| `runs/ablation-bare-models.yaml` | 用 `bare_model` 重跑模型消融（§0.6 的第 2 优先级） |
+| `runs/ablation-models.yaml` / `ablation-models-toolloop.yaml` / `ablation-two-models.yaml` | 模型轴消融矩阵 |
+| `runs/baseline-bare.yaml` / `baseline-tool-loop-frugal.yaml` | 对应适配器的基线 run |
+| `runs/passk.yaml` | 采样扩展（pass@k）。**已**配好 `models/glm52-sampling.yaml`；注意 temperature 0 下 pass@k 恒等于 pass@1 |

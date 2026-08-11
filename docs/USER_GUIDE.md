@@ -1,12 +1,12 @@
 # AI-Coding-Assist Benchmark — 用户使用手册
 
-> **展示版（推荐）**：[docs/html/user-guide.html](html/user-guide.html)  
+> **⚠️ 本文内容早于 2026-08-10 的主线转向**，描述的是已被否决的「正向生成」路线，且未提及 `bare_model` 适配器。当前状态以 [`docs/HANDOFF.md`](HANDOFF.md) §0 为准，操作步骤以 [用户手册 manual.html](html/manual.html) 为准。
 > 文档站首页：[docs/html/index.html](html/index.html)
 
 面向：从真实会话构建候选测评集、一键跑测、Agent/模型消融，并产出对齐 Agentic Scaling 结果表的报告。
 
-**更细的参数级说明**见 [参考手册 HTML](html/reference.html)（源：`REFERENCE.md`）。  
-**浏览器演示总览**见 [`docs/html/project-overview.html`](html/project-overview.html)。
+**参数级说明**见 [`docs/REFERENCE.md`](REFERENCE.md)；设计论证与门禁规则见 [参考资料 HTML](html/reference.html)。两者是不同的文档，不是同一份的两种形态。  
+**浏览器演示总览**见 [`docs/html/overview.html`](html/overview.html)。
 
 ---
 
@@ -160,7 +160,7 @@ uv run python -m aibench ablation \
 | 包外部 CLI | `configs/agents/shell.yaml`（填 `command_template`） |
 | 单测 / dry-run mock | **仅** `tests/fixtures/configs/` |
 
-说明见 [生产配置 HTML](html/configs.html) 与 [REFERENCE §7](html/reference.html)。
+说明见 [用户手册 manual.html](html/manual.html) 与 [REFERENCE §7](html/reference.html)。
 
 ---
 
@@ -186,7 +186,7 @@ uv run python -m aibench ablation \
 | `scripts/e2e_pipeline.sh` | DB→case→消融；`--dry-run` 仅 fixture |
 
 **完整参数清单（每个 flag 的默认值与作用）**：  
-[REFERENCE HTML](html/reference.html) · 演示页 [§七](html/project-overview.html#s7)。
+[REFERENCE HTML](html/reference.html) · 演示页 [§七](html/overview.html#modules)。
 
 ---
 
@@ -224,7 +224,7 @@ uv run python -m aibench ablation \
 ## 8. 科学效度与并行（实用）
 
 **科学效度** = 可自动执行的 case 质量门禁（实现于 `validity.py`），保证指标差异尽量来自 Agent/模型，而非坏题/答案泄漏。  
-完整门禁列表与算法逻辑见 [REFERENCE HTML](html/reference.html) §14 与演示页 [§八](html/project-overview.html#s8)。
+完整门禁列表与算法逻辑见 [REFERENCE HTML](html/reference.html) §14 与演示页 [§八](html/overview.html#ablation)。
 
 | 级别 | 门禁示例 | 是否阻断 `validity_ok` |
 |------|----------|------------------------|
@@ -276,12 +276,12 @@ uv run python -m aibench ablation --matrix ... --parallel 2
 |------|------|
 | [docs/html/index.html](html/index.html) | **文档站首页（HTML 归档）** |
 | [reference.html](html/reference.html) | 参数级权威参考手册 |
-| [project-overview.html](html/project-overview.html) | 项目介绍演示页 |
-| [user-guide.html](html/user-guide.html) | 本向导的 HTML 展示 |
-| [configs.html](html/configs.html) | 生产配置 |
-| [agentic-scaling-benchmark.html](html/agentic-scaling-benchmark.html) | 结果表设计报告 |
-| [tables.html](html/tables.html) | 字段字典 |
-| [remaining-work.html](html/remaining-work.html) | 未尽事项 |
+| [项目介绍 overview.html](html/overview.html) | 项目介绍演示页 |
+| [用户手册 manual.html](html/manual.html) | 本向导的 HTML 展示 |
+| [用户手册 manual.html](html/manual.html) | 生产配置 |
+| [参考资料 reference.html](html/reference.html) | 结果表设计报告 |
+| [参考资料 reference.html](html/reference.html) | 字段字典 |
+| [未尽事项 REMAINING_WORK.md](REMAINING_WORK.md) | 未尽事项 |
 
 ---
 

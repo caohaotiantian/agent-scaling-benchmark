@@ -1,4 +1,5 @@
-> **展示版（推荐）**：[docs/html/tables.html](docs/html/tables.html) · 文档站：[docs/html/index.html](docs/html/index.html)
+> 本文件是**孤儿内容**：`build_docs_html.py` 的 `write_tables_page` 已不再被 `main()` 调用，
+> 字段字典页不再生成。保留供查阅。文档站：[docs/html/index.html](../index.html)
 
 # Agentic Scaling 项目效果综述
 

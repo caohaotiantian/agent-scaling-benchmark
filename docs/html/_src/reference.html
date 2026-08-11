@@ -171,7 +171,7 @@
 <tr><td>测试文件名必须是运行器真正会发现的名字</td><td>空跑退出 0 会被读成「stub 通过」</td></tr>
 <tr><td>测试不得 grep 实现的源码文本（<code>test_reads_source_text</code>）</td><td>源码文本天然区分编辑前后两版，这类测试<strong>按构造</strong>通过上面两道门禁，而它评的是抄写不是行为。实测 31 条中 12 条如此</td></tr>
 <tr><td>只改注释的编辑不作为缺陷（<code>defect_is_not_semantic</code>）</td><td>剥离注释与 docstring 后两版相同即拒绝。曾有两条用例的实现与参考解<strong>逐字节相同</strong>、通过率 1.00 与 0.00，「缺陷」是一次注释清理</td></tr>
-<tr><td>测试文件本身不作为被测实现</td><td>会生成「给测试写测试」的用例。草稿池中 27/91 的 Python 编辑对落在此类</td></tr>
+<tr><td>测试文件本身不作为被测实现</td><td>会生成「给测试写测试」的用例。草稿池中 <strong>35/91</strong> 的 Python 编辑对落在此类（JS/TS 88/269）</td></tr>
 </tbody>
 </table></div>
 
@@ -196,7 +196,7 @@
 
 <p>第二条只看含读调用的那一行而非整个文件，是刻意的：JavaScript 测试必然在 import 行写出实现文件名，
 按全文匹配会退化成「任何读操作都算」，同一集合上从 4 条涨到 11 条，把合法的数据 fixture 读取也抓进来。
-单条宽正则还会额外误伤 5 条——4 条用 <code>open(..., 'w')</code> 写 fixture，1 条在测真实 HTTP 端点。
+单条宽正则还会额外误伤 6 条：3 条用 <code>open(..., 'w')</code> 写 fixture（靠 mode 实参排除），2 条用 <code>os.fdopen(fd, 'w')</code>、1 条调 <code>urlopen</code>（后三条压根不匹配——<code>fdopen</code>/<code>urlopen</code> 里的 <code>open</code> 前面没有词边界）。
 隐藏测试与可见测试一起扫描，抄写可以藏在求解者看不到的那一半里。</p>
 
 <h2 id="calibration-format">4. 校准结果格式</h2>
@@ -265,7 +265,7 @@
 <tbody>
 <tr><td>Node 版本</td><td>&lt; 22 无法执行 TypeScript 测试；语言规格中的发现规则按 Node 24 实测确定</td></tr>
 <tr><td>Python 第三方包</td><td>评分环境未安装 numpy、pandas 等。导入这些包的用例在生成前即被过滤</td></tr>
-<tr><td>网络</td><td>评分工作区<strong>禁用网络</strong>。测试若发起真实网络请求，用例会被审计拒绝——此类用例本身不可复现</td></tr>
+<tr><td>网络</td><td><strong>未隔离。</strong>评分命令以 <code>subprocess.run(shell=True)</code> 在宿主机执行，继承环境，无沙箱、无网络限制；<code>allow_network</code> 参数只控制要不要 git clone 来物化工作区，与测试运行时无关。也没有任何审计会因为测试联网而拒绝用例——相反，联网测试被<em>刻意</em>排除在 <code>test_reads_source_text</code> 的误伤之外。Docker/gVisor 隔离未做，是目前最大的安全缺口</td></tr>
 </tbody>
 </table></div>
 
