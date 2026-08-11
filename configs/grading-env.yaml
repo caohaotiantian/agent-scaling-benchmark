@@ -1,0 +1,47 @@
+# What the grading environment provides beyond each runtime's standard library.
+#
+# This file is the contract, and `unsatisfiable_imports` reads it instead of asking the machine
+# it happens to be running on. Asking the machine was not reproducible: `importlib.find_spec`
+# resolves implicit namespace packages, so with the repository root importable a trace's
+# `import src...` or `import tests...` was satisfied by this project's own directories — the
+# same draft pool yielded 24 survivors when the predicate ran from the repository root and 21
+# from anywhere else. Which cases got built depended on the working directory.
+#
+# Adding a name here is a promise that the grading environment can import it. `aibench
+# generate-cases --reverse` verifies the promise before spending a single model call, because a
+# case built against a package the grader lacks fails at grading time and looks like difficulty.
+#
+# Keep in step with the `grading` extra in pyproject.toml; tests/test_grading_env.py asserts it.
+
+python:
+  # Chosen from the draft pool, not from taste: these six unblock 15 of the (pre, post) pairs
+  # that fail the import gate for third-party packages alone, taking the pool from 77 to 89.
+  # The rest need private modules (`config`, `pypto`, `obstacle_avoidance`, `@opencode-ai/*`,
+  # `vscode`), which no install fixes. Installed by the `grading` extra.
+  - numpy
+  - pandas
+  - requests
+  - matplotlib
+  - flask
+  - av
+
+  # aibench's own runtime dependencies. The grader runs in this very interpreter — there is no
+  # container yet — so a case importing these does resolve, and declaring that is worth 3 more
+  # pairs. Re-check this block the day grading gets isolated: these come along by accident of
+  # sharing the environment, not by design.
+  - httpx
+  - jsonschema
+  - openpyxl
+  - pymysql
+  - pytest
+  - rich
+  - sqlalchemy
+  - yaml
+
+javascript:
+  # Deliberately empty. The five JavaScript pairs in the same category want `vite`,
+  # `@playwright/test` and `@vitejs/plugin-*` — build tooling a unit test has no business
+  # needing — and providing any of it means a package.json and a node_modules this repository
+  # does not have. Five pairs is not worth that. Node's builtins remain available and are
+  # handled in code, not here.
+  []

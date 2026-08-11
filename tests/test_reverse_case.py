@@ -176,11 +176,19 @@ def test_versions_are_offered_largest_change_first():
 
 
 def test_a_pair_needing_absent_packages_is_dropped_before_generation():
-    """The 41% loss, and worse: it also let cases pass the stub gate for the wrong reason."""
+    """The 41% loss, and worse: it also let cases pass the stub gate for the wrong reason.
+
+    `obstacle_avoidance` is a private module out of the corpus, not a package anyone can
+    install — the category `configs/grading-env.yaml` cannot rescue.
+    """
     draft = _draft(
         metadata={
             "file_versions": [
-                {"path": "a.py", "pre": "import numpy\nx=1\n", "post": "import numpy\nx=2\n"},
+                {
+                    "path": "a.py",
+                    "pre": "import obstacle_avoidance\nx=1\n",
+                    "post": "import obstacle_avoidance\nx=2\n",
+                },
                 {"path": "b.py", "pre": "import json\nx=1\n", "post": "import json\nx=2\n"},
             ]
         }

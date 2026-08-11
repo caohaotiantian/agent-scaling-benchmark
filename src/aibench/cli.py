@@ -604,6 +604,20 @@ def main(argv: list[str] | None = None) -> int:
 
         reverse_chat = None
         if args.reverse:
+            # The extraction predicate lets a draft through when `configs/grading-env.yaml` says
+            # its imports resolve. If that promise is unmet, the case is built, paid for, and
+            # then fails at grading — where a missing package is indistinguishable from a hard
+            # task. Check before the first model call, not after the last.
+            from aibench.grading_env import unsatisfied_promises
+
+            if missing := unsatisfied_promises():
+                print(
+                    "configs/grading-env.yaml promises packages this interpreter cannot import: "
+                    f"{', '.join(missing)}.\n"
+                    "Install them (`uv sync --extra grading`) or remove them from the manifest. "
+                    "Generating against an unmet promise produces cases that fail at grading."
+                )
+                return 1
             settings = openai_settings()
             if not all((settings["api_key"], settings["base_url"], settings["model"])):
                 print("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL required for --reverse")

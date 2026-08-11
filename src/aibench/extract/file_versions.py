@@ -120,11 +120,12 @@ _JS_REQUIRE = re.compile(r"""require\(\s*['"]([^'"]+)['"]""")
 
 
 def unsatisfiable_imports(path: str, content: str) -> set[str]:
-    """Imports this file needs that a one-file workspace cannot provide.
+    """Imports this file needs that the grading environment cannot provide.
 
-    A case is graded with the file under test and a test file, nothing else. A real file from
-    a real repository routinely imports numpy, or a sibling module from its own tree, and
-    neither is there at grading time.
+    A case is graded with the file under test, a test file, and whatever
+    ``configs/grading-env.yaml`` promises. A real file from a real repository routinely imports
+    numpy, or a sibling module from its own tree; the first is a declaration away, the second is
+    not there at all.
 
     That is not merely lost yield. Measured on 22 reverse-constructed cases, an unsatisfiable
     import let five of them pass the stub gate for the wrong reason: the pre-edit file imported
@@ -132,11 +133,16 @@ def unsatisfiable_imports(path: str, content: str) -> set[str]:
     packages happened to be installed rather than by the defect. Every one of the 16 cases with
     an unsatisfiable import failed the corrected gate, and the one case that survived it had
     none — so this predicate is worth applying before paying for generation, not after.
-    """
-    if path.endswith(".py"):
-        import importlib.util
-        import sys
 
+    Availability comes from the manifest, never from ``find_spec`` on the current interpreter.
+    That call resolves implicit namespace packages, so a trace's ``import src...`` was satisfied
+    by this repository's own ``src/`` whenever the root was importable: the same draft pool
+    survived 24 pairs from the repository root and 21 from anywhere else, which meant the set of
+    cases built depended on the working directory.
+    """
+    from aibench.grading_env import is_available
+
+    if path.endswith(".py"):
         out: set[str] = set()
         for mod in _PY_IMPORT.findall(content or ""):
             if mod.startswith("."):
@@ -145,23 +151,20 @@ def unsatisfiable_imports(path: str, content: str) -> set[str]:
                 # before a single test runs.
                 out.add(mod)
                 continue
-            if mod in sys.stdlib_module_names:
-                continue
-            try:
-                if importlib.util.find_spec(mod) is None:
-                    out.add(mod)
-            except (ImportError, ValueError):
-                # A parent package that itself fails to import is no more available than a
-                # missing one; either way the suite cannot be collected.
+            if not is_available("python", mod):
                 out.add(mod)
         return out
     if path.endswith((".js", ".mjs", ".cjs", ".ts")):
         specs = set(_JS_IMPORT.findall(content or "")) | set(_JS_REQUIRE.findall(content or ""))
         # Builtins ship with the runtime, whether or not they carry the `node:` prefix —
         # `require("fs")` resolves exactly as `require("node:fs")` does. Everything else is
-        # either a package needing node_modules or a sibling file the case does not carry.
+        # either a package the manifest has to promise or a sibling file the case does not carry.
         return {
-            s for s in specs if not s.startswith("node:") and s.split("/")[0] not in _NODE_BUILTINS
+            s
+            for s in specs
+            if not s.startswith("node:")
+            and s.split("/")[0] not in _NODE_BUILTINS
+            and not is_available("javascript", s)
         }
     return set()
 

@@ -16,6 +16,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Packages `configs/grading-env.yaml` promises the grading environment provides. Declared there
+# and installed here; tests/test_grading_env.py asserts the two agree, and
+# `generate-cases --reverse` refuses to spend model calls when the promise is unmet.
+grading = [
+  "numpy>=1.26",
+  "pandas>=2.0",
+  "requests>=2.31",
+  "matplotlib>=3.8",
+  "flask>=3.0",
+  "av>=12.0",
+]
 dev = [
   "ruff>=0.9.0",
   "pre-commit>=4.0.0",
