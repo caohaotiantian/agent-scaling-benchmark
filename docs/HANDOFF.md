@@ -1,6 +1,6 @@
 # 交接文档：分层区分度 Benchmark
 
-分支 `feat/tiered-discrimination-benchmark`，**504 项测试全绿**，lint 干净。
+分支 `feat/tiered-discrimination-benchmark`，**536 项测试全绿**，lint 干净。
 
 > **2026-08-10 更新（接手请先读 §0）。** 本轮把主线从「调生成器」转到「反向构造」，
 > 产出 31 条经效度门禁的用例；随后在模型消融中发现 **agent 适配器有三处缺陷，
@@ -13,14 +13,14 @@
 
 ### 0.1 一句话状态
 
-反向构造能产出有效用例（31 条，全部过门禁），**但当前所有难度数字都需要重测** ——
+反向构造能产出有效用例（31 条过了当时的门禁；**2026-08-11 新增 `test_reads_source_text` 后为 19/31**，见 §0.7），**且当前所有难度数字都需要重测** ——
 校准所用的最强锚点 `tool_loop` 有缺陷，修复后同一模型通过率变化达 58 个百分点。
 
 ### 0.2 立刻可用的产物
 
 | 产物 | 位置 | 入库 | 说明 |
 |---|---|---|---|
-| **`_revmixed`** | `benchmarks/ai_coding/cases/_revmixed/` | 否 | **当前最优集合**：31 条，全过门禁，易档已按 `hide_count=2` 处理 |
+| **`_revmixed`** | `benchmarks/ai_coding/cases/_revmixed/` | 否 | **当前最优集合**：31 条，易档已按 `hide_count=2` 处理。**新门禁后 19/31**，被拒的 12 条是抄写题（§0.7），刻意保留作回归样本 |
 | `_revfinal2` | 同目录 | 否 | 同 31 条，测试全可见（未隐藏） |
 | `_rev_raw4` | 同目录 | 否 | 3,312 条草稿，重跑生成的输入 |
 | 校准数据 | `benchmarks/ai_coding/calibrations/` | **是** | 14 份纯数字，可独立复算 |
@@ -71,6 +71,82 @@ uv run aibench calibrate-cases --case-set _revmixed --repeats 3 \
 2. **用 `bare_model` 重跑模型消融** —— `configs/runs/ablation-bare-models.yaml` 已备好
 3. **语言覆盖**（§9 待决问题）—— 产量首要瓶颈，丢弃量是可用量的 23 倍，需团队决策
 4. **不建议**继续扩产量：语料还剩约 100 条可构建草稿，但按当前分布新增的仍落在中档
+
+### 0.7 廉价静态门禁（2026-08-11 交付，T1）
+
+反向构造的安全性论证有一个洞：**源码文本天然能区分 pre 与 post**，所以一份 grep 源码的测试
+在 stub 上必失败、在 gold 上必通过，**两道效度门禁按构造 100% 通过**，而它评的是抄写不是行为。
+
+实测 `_revmixed` 31 条：**12 条如此，JavaScript 11/14，Python 1/17**。
+其中 `rev-9029660c5a575277` 与 `rev-ac427816b0ed447b` 的 impl 与 gold **逐字节相同**、
+p̂ 分别是 1.00(9/9) 与 0.00(0/9)，而那个「缺陷」是一次注释清理。
+
+本轮交付五条纯确定性、零模型调用、语言无关的改动（细节见 `.agent/cheap-static-gates/plan.md`）：
+
+| 改动 | 落点 | 实测影响 |
+|---|---|---|
+| `test_reads_source_text` 门禁（error 级） | `validity.py` | `_revmixed` 从 31/31 通过降到 **19/31** |
+| `defect_is_not_semantic` 谓词 | `file_versions.py` | Python 池排除 4/91 仅注释改动（已扣除测试文件） |
+| 抽取端排除测试文件本身 | `reverse_case.py` | Python 池排除 **35/91**，JS/TS 池 88/269 |
+| `_PY_IMPORT` 修正相对导入 | `file_versions.py` | import 门存活 −1（绝对值见下方注意事项） |
+| 反向路径补 `protected_paths` | `reverse_case.py` | 此前 8 个反向集**全为 0**，反作弊因此整体关闭 |
+
+各集合受影响程度（「新增不合格」= 此前 `validity_ok≠false`、现被新门禁拒）：
+
+| case set | n | 门禁命中 | 新增不合格 |
+|---|---:|---:|---:|
+| `_revmixed` / `_revfinal2` | 31 | 12 | 12 |
+| `_rev6` | 120 | 28 | 14（43 → 29 通过） |
+| `_scaleprobe` | 575 | 2 | 2 |
+| **`auto-v0` / `disc-v0` / `retrieval-v0`** | 126 / 28 / 27 | **0** | **0** |
+
+**三个已发布集合零损伤。** 但注意这不是强证据：那 181 条里总共只有 1 处读调用，
+所以「不误伤」实际只在 `_revmixed` 的 31 条上验证过。
+
+三道过滤后草稿池总存活 **77/360**（Python 17、JS/TS 60）。JS/TS 承担了绝大部分损失，
+而它占语料 73.1% —— 这个方向上的代价比 Python 侧大得多。
+
+那 12 条**保留在 `_revmixed` 里不删**，作为门禁有效性的回归样本
+（`scripts/t1_gate_report.py` 断言的是命中**集合**而非命中数）。
+
+**已知局限**：当「被测行为本身就是文件内容」时（文档生成器、配置写入工具），
+规则 3 会误伤一个做得对的测试。`_scaleprobe` 里剩下的 2 条正是这一类。
+根治要把规则 3 绑定到读取**目标**（解析到 case 自带的 impl 文件才触发），本轮未做。
+
+> ### ⚠️ 关于产量外推的一个教训
+>
+> 本轮曾计划走「确定性差分验收」（从 pre→post diff 自动构造差分测试，LLM 只写题面），
+> 估算产量 `737 × 29% ≈ 214`。**这个外推错了约两个数量级，实测可用 1–9 条。**
+>
+> 错因：29.4% 是在 `_revmixed`（**已过全部门禁的幸存者**）的 Python 子集上量的条件概率，
+> 却被乘到了未过滤的**全语种**池上。而最大的一层衰减恰好被幸存者偏差抹掉了 ——
+> 141/198（71.2%）的 Python 对死在 `unsatisfiable_imports` 门上。
+>
+> 实测漏斗（`_rev_raw4` 全量，按 `sha1(pre+post)` 去重）：
+> 3312 草稿 → 335 含 `file_versions` → 737 条目（去重 360，**重复因子 2.05×**）
+> → `.py` 198（`.ts` 463，JS/TS 占 **73.1%**）→ 去重 91 → 过 import 门 **24** → 有纯函数改动 **9**。
+>
+> **判据：任何产量外推都必须说明它的比率是在哪个总体上量的，并按 `(pre,post)` 内容去重后计数。**
+> 完整记录与两名评审的证伪见 `.agent/deterministic-acceptance/plan.md`。
+
+> ### ⚠️ `unsatisfiable_imports` 的判定依赖工作目录（现存缺陷，本轮未修）
+>
+> `find_spec` 会解析**隐式命名空间包**，所以只要仓库根在 `sys.path` 上，任何与仓库目录同名的
+> 顶层 import 就被判为「可满足」。语料里 `import src...` 与 `import tests...` 正好撞上
+> 本项目自己的 `src/` 和 `tests/`。
+>
+> 同一批草稿、同一个解释器，仅因调用方式不同：
+>
+> | 条件 | 存活 Python 对 |
+> |---|---:|
+> | 仓库根在 `sys.path` 上（`python -c`、heredoc、`PYTHONPATH=.`） | 24 → 23 |
+> | 不在（`python scripts/x.py`，`sys.path[0]` 是脚本目录） | **21 → 20** |
+>
+> 这不是统计口径问题，是**生产路径的不可复现性** ——
+> `iter_file_versions` → `unsatisfiable_imports` 在 `generate-cases --reverse` 上，
+> 所以同一批草稿在不同工作目录下会产出不同的用例集合。
+> `scripts/t1_gate_report.py` 现在会连同 `repo root on sys.path: <bool>` 一起打印。
+> **根治属于 T2（攻 import 门）的范围**，因为改解析语义本身就会改变产量。
 
 ---
 

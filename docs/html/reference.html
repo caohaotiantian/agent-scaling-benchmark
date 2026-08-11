@@ -180,8 +180,35 @@
 <tr><td>待修复版本「跑不起来」时，若其为完整文件（反向构造），直接拒绝</td><td>反向构造的 stub 是真实可运行文件，不存在「函数尚未实现」这一合理解释。实测 6 条通过门禁的用例中有 5 条是因编辑前后导入差异（一版引入 numpy、另一版未引入）而「区分成功」，与缺陷无关</td></tr>
 <tr><td>无参考解的用例一律拒绝</td><td>实测 18 条无配置可解的用例中，16 条没有参考解</td></tr>
 <tr><td>测试文件名必须是运行器真正会发现的名字</td><td>空跑退出 0 会被读成「stub 通过」</td></tr>
+<tr><td>测试不得 grep 实现的源码文本（<code>test_reads_source_text</code>）</td><td>源码文本天然区分编辑前后两版，这类测试<strong>按构造</strong>通过上面两道门禁，而它评的是抄写不是行为。实测 31 条中 12 条如此</td></tr>
+<tr><td>只改注释的编辑不作为缺陷（<code>defect_is_not_semantic</code>）</td><td>剥离注释与 docstring 后两版相同即拒绝。曾有两条用例的实现与参考解<strong>逐字节相同</strong>、通过率 1.00 与 0.00，「缺陷」是一次注释清理</td></tr>
+<tr><td>测试文件本身不作为被测实现</td><td>会生成「给测试写测试」的用例。草稿池中 27/91 的 Python 编辑对落在此类</td></tr>
 </tbody>
 </table></div>
+
+<h3 id="transcription">测试抄写源码：反向构造安全性论证的漏洞</h3>
+
+<p>反向构造的立论是：模型写不出能区分编辑前后两版的测试，用例就会被上面两道门禁拒掉，
+所以模型<strong>没有能力</strong>把题变简单。这个论证有一个洞——<strong>源码文本天然能区分两版</strong>，
+因为修复改动的就是文本。一份 <code>assert.match(source, /async function prepareReview/)</code>
+这样的测试在待修复版本上必失败、在参考解上必通过，两道门禁<strong>按构造 100% 通过</strong>。</p>
+
+<p>实测当前集合 31 条中 <strong>12 条</strong>如此，语种分布 <strong>JavaScript 11/14、Python 1/17</strong>。</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>判定规则（三条并集）</th><th>命中</th><th>独有命中</th></tr></thead>
+<tbody>
+<tr><td>反射取源码（<code>inspect.getsource</code> / <code>getsourcelines</code>）</td><td>1</td><td>1</td></tr>
+<tr><td>含读调用的<strong>那一行</strong>里出现实现文件名（排除写模式）</td><td>4</td><td>1</td></tr>
+<tr><td>存在读调用<strong>且</strong>有字符串包含/正则断言</td><td>10</td><td>7</td></tr>
+<tr><td><strong>并集</strong></td><td><strong>12</strong></td><td>—</td></tr>
+</tbody>
+</table></div>
+
+<p>第二条只看含读调用的那一行而非整个文件，是刻意的：JavaScript 测试必然在 import 行写出实现文件名，
+按全文匹配会退化成「任何读操作都算」，同一集合上从 4 条涨到 11 条，把合法的数据 fixture 读取也抓进来。
+单条宽正则还会额外误伤 5 条——4 条用 <code>open(..., 'w')</code> 写 fixture，1 条在测真实 HTTP 端点。
+隐藏测试与可见测试一起扫描，抄写可以藏在求解者看不到的那一半里。</p>
 
 <h2 id="calibration-format">4. 校准结果格式</h2>
 

@@ -114,8 +114,14 @@ class LanguageSpec:
         exits 0 having run nothing, the stub gate sees a pass and reports ``stub_passed_grader``.
         Measured on an 11-case build, that accounted for all 7 JavaScript failures against 0 of
         4 Python ones.
+
+        Backslashes are normalised first. Real traces carry Windows paths — 66 of the 360
+        before/after pairs in the current draft pool — and splitting those on ``/`` alone yields
+        the whole path, so ``D:\\lzy\\test\\agent-core\\test_workspace_header.py`` did not read
+        as a test. That undercounted the test files in the Python pool by 8 (27 against 35) and
+        let one through the extraction filter into the candidate set.
         """
-        name = path.rsplit("/", 1)[-1]
+        name = path.replace("\\", "/").rsplit("/", 1)[-1]
         if not path.endswith(self.source_suffixes):
             return False
         if self.test_file is not None:

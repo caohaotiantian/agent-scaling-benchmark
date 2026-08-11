@@ -153,10 +153,10 @@
 
     <rect x="0" y="196" width="720" height="54" rx="8" fill="#ffffff" stroke="#d6dee8"/>
     <text x="14" y="218" font-weight="700" fill="#18324d">为什么这个设计能自动验证</text>
-    <text x="14" y="238" font-size="12">测试若在 stub 上不失败，或在 gold 上不通过，用例直接被门禁拒绝——模型写歪了会被自动发现。</text>
+    <text x="14" y="238" font-size="12">测试若在 stub 上不失败，或在 gold 上不通过，用例直接被门禁拒绝。但 grep 源码文本的测试能绕开这一点。</text>
   </g>
 </svg>
-<figcaption>缺陷来自真人真错，模型只负责描述它。模型无法把任务改简单，只可能描述失败。</figcaption>
+<figcaption>缺陷来自真人真错，模型只负责描述它。模型不能把缺陷改简单——但它可以写出 grep 源码文本的测试，那样两道门禁按构造都会通过。当前集合 31 条里 12 条如此，已由 <code>test_reads_source_text</code> 门禁拒绝（参考资料 §3）。</figcaption>
 </figure>
 
 <p>重放采用<strong>严格顺序匹配</strong>：只在会话确实读取过的内容上应用编辑。宽松匹配（在任意历史快照里搜索）能得到更高的重建率，但一次匹配到错误版本，就会重建出一个从未存在过的中间状态，用例便成了「带着真实代码的虚构」。本项目选择前者。</p>
@@ -188,7 +188,7 @@
 
 <div class="step">
 <h3><span class="num">B</span>效度门禁 <code>validity.py</code></h3>
-<p>三道错误级门禁，任一不过则用例不可用：</p>
+<p>错误级门禁，任一不过则用例不可用（完整清单见参考手册 §14.2）：</p>
 <dl class="kv">
 <dt>stub_fail</dt><dd>测试必须在待修复版本上失败</dd>
 <dt>solvability</dt><dd>测试必须在参考解上通过</dd>
