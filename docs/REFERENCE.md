@@ -973,10 +973,52 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 |------|------|------------------|
 | `p_hat` | 全部尝试的通过率 | `> 0.9` 送分题；`< 0.05` 无人能过（多半是坏题） |
 | `spread` | 最强锚点通过率 − 最弱锚点通过率 | 越大越能分离配置 |
-| `point_biserial` | 该 case 结果与总体能力的相关 | `< 0.15` 判为噪声题 |
+| `point_biserial` | 该 case 结果与总体能力的相关，**已扣除本题对总分的贡献** | `< 0.15` 判为噪声题 |
+| `incomplete_panel` | 该 case 未被全部锚点测到 | **阻断 keep**，但与上面三条分列 —— 说的是测量不完整，对策是重跑 |
 | `flaky` | 同一锚点多次重复结果不一致 | 标记，供人工复核 |
 
 `anchor_fingerprint` 计入每个引用配置文件的**内容**而非路径：改了 `glm52.yaml` 里的 model 字段，路径全都没变但锚点含义已变，旧的 `p_hat` 必须整体失效，不能继续沿用。
+
+它**还计入 harness 源码摘要**（`agents/` + `grading.py` + `workspace.py` + `runner.py`，见
+`provenance.harness_digest`）。只哈希三个 YAML 时，那次让同模型通过率变动 58pp 的适配器修复
+前后指纹**完全相同**（都是 `5f5233c7214879f4`）—— 配置文件说的是「用哪个 agent 和模型」，
+不说「怎么驱动它」。指纹带 `v2:` 前缀，理由与 `case_fingerprint` 的 `FINGERPRINT_VERSION` 相同：
+**旧值与新值必须永远不可能相等**。代价是 14 份既有校准立刻不可复用，这是正确行为而非 bug。
+
+#### 两个估计量缺陷（2026-08-11 修复）
+
+**① `point_biserial` 曾把本题算进总分。** 纯噪声题的零分布因此不在 0，而在约 `1/√k`。
+蒙特卡洛实测（9 次 run）：
+
+| k | 旧式均值 | 修正后 |
+|---:|---:|---:|
+| 7 | **+0.377** | +0.011 |
+| 31 | **+0.172** | −0.004 |
+| 126 | +0.076 | −0.010 |
+
+**k=31 时 +0.172 已高于 0.15 的阈值** —— 一道纯噪声题过「无区分度」筛选的概率超过一半。
+修法是标准的 corrected item-total：先从总分里扣掉本题再算相关。
+
+**③ 总分曾是通过「计数」，被掉行机械通缩。** 参考校准里各 run 的通过计数是
+`[26,25,24, 7,5,6, 24,24,24]`，而各 run 实际产出的行数是 `[30,29,29, 9,9,9, 31,31,31]` ——
+中间那个锚点看起来比最弱的还弱四倍，而它的通过**率**是 0.78/0.56/0.67，与其余相当。
+「能力轴」大部分是「掉了多少行」轴。现在用**留一法通过率**（`item_rest_correlation`）：
+既扣掉本题，又按该 run 实测的题数归一。实例 `rev-f4f8a7a78fa184cd` 因此从 0.470 变成 **0.035**。
+
+> 留一必须在**同一量纲**里做。从一个比率里减去 0/1 的结果，会得到一个看似合理、
+> 实则量纲错乱的数，而签名上看不出来 —— 所以 `item_rest_correlation` 收的是计数，
+> 算术在函数内部完成。
+
+**② 缺失的 run 曾按 0 计入 item 向量**，而 `p_hat` 只对存在的行求均值 —— 两个量在讲不同的样本。
+缺失行同时压低 item 与该 run 的总分，制造出与「掉行」而非与能力的相关。
+实例 `rev-4646d93ae250add0`：attempts 6/9、全部通过、`p_hat` 1.00，`r_pb` 却是 **0.996**。
+
+对最近一次校准（`runs/calibration_20260809_231654`）从原始 `results.jsonl` 复算：
+**keep 从 13 降到 3，另有 21 条判为 `incomplete_panel`。**
+其中因估计量修正而改判的只有 1 条（面板完整的共 10 条）——
+覆盖门与纠偏是两件独立的事，坍塌主要来自前者。
+那 21 条不是坏题 —— 是面板没测完，对策是重跑。
+`scripts/instrument_check.py` 会把这个数字打印出来（不设阈值，坍塌是信息）。
 
 **锚点面板必须能施展被测层级的能力轴。** Agent 配置用 `capability_axes` 声明自己能施展哪些轴，
 `calibrate-cases` 在开跑前核对该集合出现的所有 tier，不匹配直接拒绝（`--allow-unfit-anchors` 可强制）。
@@ -1391,7 +1433,9 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 覆盖设计「通用结果总表」中本 harness 可采集的字段，包括：
 
-- 实验标识：`run_id`、`experiment_name`、`experiment_time`、`code_version`
+- 实验标识：`run_id`、`experiment_name`、`experiment_time`
+- **执行身份**（2026-08-11 新增，见下）：`code_version`、`harness_digest`、`dependency_digest`、
+  `python_executable`、`python_version`、`node_version`、`working_directory`、`gateway_base_url`
 - Benchmark 口径：`benchmark_name`、`case_set`、`case_count`、`effective_case_count`、`grouping`
 - 算法配置：预算轴/值、分支、attempts、steps、选择策略
 - Agent 与模型：名称版本、主模型、组合摘要、采样参数
@@ -1399,6 +1443,23 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 - 成本效率：总 Token、均值、估算 USD
 - 时间效率：总墙钟、吞吐、平均耗时
 - Agent 行为：总 steps、模型调用次数
+
+#### 执行身份字段
+
+`code_version` 此前是字面量 `aibench@0.1.0 / agent@1.0.0` —— 148 份 manifest 全都一样，
+那次让同模型通过率变动 58pp 的适配器修复在任何产物里都没有痕迹。
+
+| 字段 | 含义 |
+|------|------|
+| `code_version` | 运行时 `git rev-parse --short HEAD`，工作树脏时加 `-dirty`。仓库根与 `repo_root()` 不一致、或 git 不可用时为 `unknown-worktree`；无法判定干净与否时为 `<sha>-unknown-cleanliness` |
+| `harness_digest` | 决定「一次跑测意味着什么」的源码摘要：`agents/` + `grading.py` + `workspace.py` + `runner.py` + `languages.py` + `retry.py` + `models.py` + `env_config.py`。也并入 `anchor_fingerprint` |
+| `dependency_digest` | `uv.lock` 的哈希，依赖变动可见 |
+| `python_executable` / `python_version` / `node_version` | 实际解释器与运行时 |
+| `working_directory` | 进程 cwd |
+| `gateway_base_url` | 环境里解析到的网关地址。**API key 从不进入产物**，有测试锁住 |
+
+> `python_executable` 与 `working_directory` 含本机路径（可能带账号名）。`runs/` 已 gitignore
+> 且没有 manifest 入库，`export-bundle` 也不携带 manifest —— 但**手工分享整个 run 目录会带出去**。
 
 **无数据源的列**（Fusion 时间拆解、投机 Oracle 等）保持 `null`，不编造。
 
