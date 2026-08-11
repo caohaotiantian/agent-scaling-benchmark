@@ -1,6 +1,8 @@
 # 遗留任务清单
 
-> **展示版（推荐）**：[docs/html/remaining-work.html](html/remaining-work.html)
+> **⚠️ 本文件内容截至 2026-08-04，早于主线转向。** 通篇描述的是「分层生成」路线，而当前主线是**反向构造**；适配器清单里没有 `bare_model`。当前状态与下一步以 [`docs/HANDOFF.md`](HANDOFF.md) §0 为准。
+
+
 
 更新时间：2026-08-04（分层区分度用例流水线落地后）。
 

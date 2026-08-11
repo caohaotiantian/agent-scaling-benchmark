@@ -1,7 +1,8 @@
 # AI-Coding-Assist Benchmark — 项目参考手册（Reference）
 
-> **展示版（推荐）**：[docs/html/reference.html](html/reference.html)  
-> 文档站首页：[docs/html/index.html](html/index.html) · 项目介绍：[docs/html/project-overview.html](html/project-overview.html)
+> **注意**：[`docs/html/reference.html`](html/reference.html) 是**另一份文档**，不是本文的展示版。
+> 本文讲 CLI 与配置的参数级细节；那边讲设计论证、数据格式与门禁规则。  
+> 文档站首页：[docs/html/index.html](html/index.html) · 项目介绍：[项目介绍 overview.html](html/overview.html)
 
 | 项 | 值 |
 |----|-----|
@@ -9,12 +10,12 @@
 | 版本 | 与 `pyproject.toml` 中 `version` 一致（当前 **0.1.0**） |
 | 入口 | `uv run python -m aibench` · 安装后 `aibench` |
 | 读者 | 使用者、评测工程师、对接 Agentic Scaling 汇报的同学 |
-| 演示页 | [`docs/html/project-overview.html`](html/project-overview.html) |
-| 结果表设计源 | [`docs/html/agentic-scaling-benchmark.html`](html/agentic-scaling-benchmark.html)、[`docs/html/tables.html`](html/tables.html)（字段字典源 `_src/tables.md`） |
+| 演示页 | [`docs/html/overview.html`](html/overview.html) |
+| 结果表设计源 | [`docs/html/reference.html`](html/reference.html)、[`docs/html/reference.html`](html/reference.html)（字段字典源 `_src/tables.md`） |
 | 本文 HTML | [`docs/html/reference.html`](html/reference.html) |
 
 本文是 **可执行系统** 的权威参考：概念、架构、Case 协议、配置、CLI、脚本、产物、设计表映射、操作规程与故障排查。  
-快速上手见 [用户向导 HTML](html/user-guide.html)（源：`USER_GUIDE.md`）；设计决策见 `docs/design/*`。运行时以 `aibench <cmd> -h` 与仓库现行 `configs/` 为准。  
+快速上手见 [用户手册 HTML](html/manual.html)（由 `docs/html/_src/manual.html` 手写构建，与 `USER_GUIDE.md` 无关）；设计决策见 `docs/design/*`。运行时以 `aibench <cmd> -h` 与仓库现行 `configs/` 为准。  
 重建 HTML：`uv run python scripts/build_docs_html.py`
 
 ---
@@ -757,8 +758,8 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 | 字段 | 说明 |
 |------|------|
 | `mode` | `script` \| `gold` \| `llm_judge` \| `composite` |
-| `command` | script 模式命令（白名单：`pytest` / `python`） |
-| `gold_files` | gold 模式期望文件；对 T3+ 同时充当**参考解**（§14.3.3） |
+| `command` | script 模式命令，如 `python -m pytest -q` / `node --test`。**运行时不过滤**，见 §14 |
+| `gold_files` | gold 模式期望文件；对 T3+ 同时充当**参考解**（§14.3.2） |
 | `match` | `exact` \| `normalized` \| `contains_key_lines` |
 | `key_lines` | 关键行列表 |
 | `judge_rubric` / `judge_threshold` | llm_judge 用 |
@@ -850,7 +851,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 | `llm_judge` | 模型评分 ≥ `judge_threshold` |
 | `composite` | 优先 script，再回退 gold 等组合逻辑 |
 
-Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注入。  
+**没有** grader 命令白名单：`grading.py` 用 `subprocess.run(shell=True)` 在宿主机执行 `grader.command`，无沙箱、无网络限制。（`generate-cases` 侧对**生成出来的**命令有白名单 `_SAFE_GRADER_CMD`，那是另一回事。）Docker/gVisor 隔离未做，是目前最大的安全缺口。  
 主指标仅统计 **非 infra_error** 的 case。
 
 ### 13.1 隐藏测试与保护路径
@@ -891,7 +892,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | T1 | 直接修复 | ≤3 文件；允许题面/注释给出缺陷位置 | 地板锚（几乎全过） |
 | T2 | 定位修复 | 2–4 文件；题面**无**机制泄露；stub **无** BUG/FIXME 标记 | A1 定位诊断 |
 | T3 | 隐藏规格 | T2 + ≥2 个隐藏测试函数 + 参考解 + 保护可见测试 | A5 规格遵从、A6 抗过拟合 |
-| T4 | 跨文件检索 | T3 + ≥5 文件 + ≥1 干扰文件 + 参考解触及 ≥2 文件 + ≥3 隐藏测试 | A2 检索、A4 跨文件一致性 |
+| T4 | 上下文检索 | T3 + ≥5 文件 + ≥1 干扰文件 + ≥3 隐藏测试（参考解**仍只需 1 个文件**） | A1、A2 检索、A5、A6 |
 | T5 | 迭代自修复 | T4 + ≥4 个隐藏测试函数 | A3 迭代自修复 |
 
 能力轴：`A1` 定位诊断、`A2` 上下文检索、`A3` 迭代自修复、`A4` 跨文件一致性、
@@ -922,7 +923,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | 语言 | 测试文件 | 运行命令 | 通过率解析 |
 |------|----------|----------|------------|
 | python | `test_*.py` / `*_test.py` | `python -m pytest -q` | `N passed/failed/error` |
-| javascript / typescript | `*.test.mjs` / `*.spec.ts` 等 | `node --test`（内置，零依赖） | `ℹ pass N` / `# pass N` |
+| javascript / typescript | `*.test.{js,mjs,cjs,ts}` / `test.<ext>` / `test-*.<ext>`（**`*.spec.*` 不被 `node --test` 发现**） | `node --test`（内置，零依赖） | `ℹ pass N` / `# pass N` |
 
 隐藏测试文件名由 `hidden_test_name` 生成，**必须仍被运行器识别为测试**：`clamp.test.mjs` 拆出的隐藏半边是 `clamp_spec.test.mjs` 而不是 `clamp.test_spec.mjs` ——后者不匹配 node 的发现规则，会被静默跳过，用例就只靠冒烟测试通过了，正是隐藏测试要防的那件事。
 
@@ -1076,14 +1077,14 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | 门禁 | issue code | 级别 | 阻断 ok | 说明 |
 |------|------------|------|---------|------|
 | Stub 必须失败（下界） | `stub_fail_gate` | error | 是 | 见 §14.3.1 |
-| 参考解必须通过（上界） | `solvability_gate` | error | 是 | 见 §14.3.3 |
+| 参考解必须通过（上界） | `solvability_gate` | error | 是 | 见 §14.3.2 |
 | 分层不变量 | `tier_<violation>` | error | 是 | §13.5.2，逐条来自 `check_tier_invariants` |
 | 干扰文件自相矛盾 | `tier_distractor_in_solution` | error | 是 | 声明 `role=distractor` 却被参考解改动 |
 | 参考解无改动 | `tier_solution_file_unchanged` | error | 是 | 某个 gold file 与初始文件完全相同，是凑数项 |
 | 参考解疑似重写 | `tier_solution_rewrites_file` | warn | 否 | 改动行占比 > 60%，无法定位缺陷 |
 | 题面点名被修函数 | `tier_prompt_names_changed_function` | warn | 否 | §13.5.4；实测 +20pp p_hat，命中约半数用例故不阻断，改为触发题面改写 |
 | 工作区不可收集（stub） | `stub_fail_gate` + `checks.stub_fail.uncollectable` | error | 是 | §14.3.1；与「stub 如预期失败」分开计数 |
-| 工作区不可收集（参考解） | `solvability_gate` + `checks.reference_solution.uncollectable` | error | 是 | §14.3.3；与「参考解真正失败」分开计数 |
+| 工作区不可收集（参考解） | `solvability_gate` + `checks.reference_solution.uncollectable` | error | 是 | §14.3.2；与「参考解真正失败」分开计数 |
 | Gold 污染 | `contamination_gold_in_context` | error | 是 | gold 全文已在 context |
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | 测试抄写源码 | `test_reads_source_text` | error | 是 | §14.3.7；测试 grep 实现的源码文本而非运行它 |
@@ -1111,7 +1112,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 否则:
     tmp = 临时目录
     materialize_workspace(case)     # 仅初始现场，未经 Agent
-    grade = grade_case(case, ws)    # 跑白名单命令（pytest/python）
+    grade = grade_case(case, ws)    # subprocess.run(shell=True)，命令不过滤
     若 grade.infra_error:  失败（环境/命令问题）
     若 grade.passed:       失败 stub_passed_grader  # 初始已过测
     否则:                  通过 stub_failed_as_expected
@@ -1119,7 +1120,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 
 **意图**：Agent 必须做出有效修改才能得分。
 
-#### 14.3.3 Reference-solution（可解性上界）
+#### 14.3.2 Reference-solution（可解性上界）
 
 ```text
 若 grader.mode != "script":
@@ -1144,7 +1145,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 代价是 41 条实测可解的用例里有 11 条因缺参考解被一并拒掉；正确的修法在上游：
 让生成器始终产出参考解（T3 brief 已要求，59 条里 32 条做到了）。
 
-#### 14.3.2 Contamination（答案污染）
+#### 14.3.3 Contamination（答案污染）
 
 ```text
 blob = 拼接 context.files 的 path + content
@@ -1163,11 +1164,11 @@ blob = 拼接 context.files 的 path + content
     → warn prompt_contains_large_code_fence
 ```
 
-#### 14.3.3 Prompt 过短
+#### 14.3.4 Prompt 过短
 
 `len((prompt or "").strip()) < 20` → `error prompt_too_short`。
 
-#### 14.3.4 难度启发式（不 fail）
+#### 14.3.5 难度启发式（不 fail）
 
 ```text
 score = 文件数 + (路径含 test 的文件中 def test_ 个数) + (总行数 // 40)
@@ -1178,7 +1179,7 @@ else       → hard
 
 用于报告分层，不是严格能力标定。
 
-#### 14.3.5 指纹与集级去重
+#### 14.3.6 指纹与集级去重
 
 ```text
 case_fingerprint = "v3:" + sha256(json 规范化的 {
@@ -1218,21 +1219,10 @@ content_fingerprint(set) = sha256(sorted "case_id:fp" 行)[:16]
 也拿不到 case-set 目录）。这类用例由 `validity.external_workspace()` 标出，
 `plan_calibration` 对它们**一律不复用**，而不是信任一个证明不了内容未变的指纹。
 
-#### 14.3.6 `annotate` 写回字段
-
-| metadata 键 | 值 |
-|-------------|-----|
-| `difficulty` | easy/medium/hard |
-| `fingerprint` | `v3:` + 16 位 hex |
-| `validity_ok` | bool |
-| `validity_issues` | issue 对象列表 |
-| `uncollectable_stub` | bool，stub 工作区是否根本收集不起来 |
-| `uncollectable_reference` | bool，参考解工作区是否根本收集不起来 |
-
 #### 14.3.7 测试抄写源码（`test_reads_source_text`）
 
 反向构造的安全性论证（`reverse_case.py` 模块注释）是：模型写不出能区分 pre 与 post 的测试，
-用例就会被 §14.3.1 与 §14.3.3 拒掉，所以模型**没有能力**把题变简单。
+用例就会被 §14.3.1 与 §14.3.2 拒掉，所以模型**没有能力**把题变简单。
 
 这个论证有一个洞：**源码文本天然能区分两版**，因为修复改动的就是文本。
 一份 `assert.match(source, /async function prepareReview/)` 这样的测试，
@@ -1289,6 +1279,17 @@ JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走�
 > ⚠️ `unsatisfiable_imports` 的判定**依赖工作目录**：`find_spec` 会解析隐式命名空间包，
 > 仓库根在 `sys.path` 上时，`import src...` / `import tests...` 被本项目自己的目录满足。
 > 同一批草稿存活数 24 vs 21，取决于调用方式。详见 `docs/HANDOFF.md` §0.7。
+
+#### 14.3.8 `annotate` 写回字段
+
+| metadata 键 | 值 |
+|-------------|-----|
+| `difficulty` | easy/medium/hard |
+| `fingerprint` | `v3:` + 16 位 hex |
+| `validity_ok` | bool |
+| `validity_issues` | issue 对象列表 |
+| `uncollectable_stub` | bool，stub 工作区是否根本收集不起来 |
+| `uncollectable_reference` | bool，参考解工作区是否根本收集不起来 |
 
 ### 14.4 与 `promote` 发布门控的关系
 
@@ -1458,8 +1459,8 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 | 设计文件 | 角色 |
 |----------|------|
-| `docs/html/agentic-scaling-benchmark.html` | 结果表与评测协议的 **设计报告**（统一粒度、综述表、通用表、落盘建议、落地阶段） |
-| `docs/html/tables.html`（源 `_src/tables.md`） | **字段字典**（列名、含义、类型；HTML 优化表名/说明与多级表头） |
+| `docs/html/_src/agentic-scaling-benchmark.html` | 结果表与评测协议的**设计报告**。**孤儿文件** —— 页面已不再生成，内容未并入四页站 |
+| `docs/html/_src/tables.md` | **字段字典**（列名、含义、类型）。**孤儿文件** —— `write_tables_page` 已不再被调用 |
 
 本仓库是 **执行与填表实现**：
 
@@ -1497,8 +1498,8 @@ agent-scaling-benchmark/
 ├── docs/
 │   ├── html/                          # **统一 HTML 文档站**
 │   │   ├── index.html
-│   │   ├── project-overview.html
-│   │   ├── reference.html / tables.html
+│   │   ├── overview.html / manual.html
+│   │   ├── reference.html / index.html
 │   │   ├── _src/tables.md             # 字段字典 Markdown 源
 │   │   └── …
 │   ├── REFERENCE.md                   # 本文（Markdown 源）

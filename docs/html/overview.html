@@ -226,7 +226,7 @@
 <p><strong>⚠️ 本节所有难度数字正在重测（2026-08-09）。</strong></p>
 <p>模型消融过程中查出三个 agent 适配器缺陷，其中两个位于 <code>tool_loop</code> ——
 而它是<strong>所有校准面板的最强锚点</strong>：截断响应时把推理正文当答案、
-<code>json.loads</code> 直吃整个回复、固定 8192 输出预算。三者共同**系统性地惩罚重推理模型**。</p>
+<code>json.loads</code> 直吃整个回复、固定 8192 输出预算。三者共同<strong>系统性地惩罚重推理模型</strong>。</p>
 <p>影响量级：同一批用例、同一模型，<strong>仅修 harness 就使 GLM-5.2 的通过率从 25.8% 升到 83.9%</strong>，
 跨度 58 个百分点，期间未改动任何模型参数。</p>
 <p>因此下列数字<strong>暂不可作为结论使用</strong>：本节的难度分布、按能力档次的分类占比、
@@ -242,7 +242,7 @@
 <figure class="diagram">
 <svg viewBox="0 0 720 210" role="img" aria-label="reverse-v1 与 auto-v0 难度分布对比">
   <g font-size="12.5" fill="#18212f">
-    <text x="0" y="14" fill="#667085">auto-v0（模型编题，n=126）</text>
+    <text x="0" y="14" fill="#667085">auto-v0（模型编题，n=105，仅含有参考解的用例）</text>
     <rect x="0" y="24" width="541" height="30" fill="#f0b429" rx="3"/>
     <rect x="541" y="24" width="117" height="30" fill="#27628f" rx="3"/>
     <rect x="658" y="24" width="62" height="30" fill="#18324d" rx="3"/>
@@ -445,10 +445,10 @@
 <h2 id="limits">7. 已知边界</h2>
 
 <ul>
-<li><strong>样本量</strong>：当前 31 条。消融实验若要达到既定检验效能，需要 153 条。当前结论均附 95% 置信区间，应作为方向性结论使用。</li>
-<li><strong>语言覆盖</strong>：仅支持 Python 与 JavaScript / TypeScript。这是产量的首要上限，作为待决问题单列于<a href="#open-lang">第 8 节</a>。</li>
+<li><strong>样本量</strong>：当前 31 条，其中 12 条被 <code>test_reads_source_text</code> 门禁判为抄写题，<strong>实际可用 19 条</strong>（本节 §6 的全部统计仍建立在含这 12 条的 31 条上）。消融实验若要达到既定检验效能，需要 153 条。当前结论均附 95% 置信区间，应作为方向性结论使用。</li>
+<li><strong>语言覆盖</strong>：仅支持 Python 与 JavaScript / TypeScript。这是产量的首要上限，作为待决问题单列于<a href="#open-lang">第 9 节</a>。</li>
 <li><strong>难档</strong>：受最强锚点能力封顶。当模型能力提升时，需要相应调整任务形态，否则集合会饱和。</li>
-<li><strong>用例含生产代码</strong>：反向构造的用例按定义逐字包含真实仓库源码，实测逐字比例 13%–75.2%。对外分发受专门门禁约束，详见<a href="manual.html#export">用户手册</a>。</li>
+<li><strong>用例含生产代码</strong>：反向构造的用例按定义逐字包含真实仓库源码，实测逐字比例 0%–91.2%。对外分发受专门门禁约束，详见<a href="manual.html#export">用户手册</a>。</li>
 </ul>
 
 
@@ -567,7 +567,7 @@ GLM-5.1 77.4% / 64.5% / 77.4%（极差 12.9pp）—— <strong>模型自身的�
     <text x="0" y="188" font-size="12" fill="#667085">已验证：导入过滤对文件大小中性（丢弃/通过中位数比 1.0），因此扩容不会偏向某一难度档。</text>
   </g>
 </svg>
-<figcaption>存活的 194 个文件版本中，TypeScript 156、Python 115、JavaScript 45——TypeScript 反居首位，因 Node 24 原生支持类型擦除，无需额外构建即可运行测试。</figcaption>
+<figcaption>过 import 门的 192 个文件版本中，TypeScript 91、Python 55、JavaScript 46（按 <code>(pre, post)</code> 内容去重后为 95：TS 47、JS 25、Py 23）——TypeScript 居首，因 Node 24 原生支持类型擦除，无需额外构建即可运行测试。</figcaption>
 </figure>
 
 <h3>9.3 为什么不能直接登记新语言</h3>

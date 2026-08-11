@@ -23,12 +23,29 @@
 | **`_revmixed`** | `benchmarks/ai_coding/cases/_revmixed/` | 否 | **当前最优集合**：31 条，易档已按 `hide_count=2` 处理。**新门禁后 19/31**，被拒的 12 条是抄写题（§0.7），刻意保留作回归样本 |
 | `_revfinal2` | 同目录 | 否 | 同 31 条，测试全可见（未隐藏） |
 | `_rev_raw4` | 同目录 | 否 | 3,312 条草稿，重跑生成的输入 |
-| 校准数据 | `benchmarks/ai_coding/calibrations/` | **是** | 14 份纯数字，可独立复算 |
+| 校准数据 | `benchmarks/ai_coding/calibrations/` | **是** | 13 份 JSON + README；其中 10 份是校准、2 份消融、1 份 bare-model，可独立复算 |
 | HTML 文档 | `docs/html/index.html` | 是 | 三板块：项目介绍 / 用户手册 / 参考资料 |
 
-**用例不入库**（含 13%–75.2% 逐字生产代码），交付走 `export-bundle --allow-production-derived`。
+**用例不入库**（含 0%–91.2% 逐字生产代码），交付走 `export-bundle --allow-production-derived`。
+
+### 0.2b 两套命名的对应关系
+
+HTML 站与校准数据用 `reverse-v*`，case 目录用 `_rev*`，指的是同一批东西：
+
+| 校准数据 / HTML 站 | case 目录 | 说明 |
+|---|---|---|
+| `reverse-v1_3anchor_20260808.json` | `_revfinal2` | 31 条，测试全可见 |
+| `reverse-v1-keep3` / `-hidden1` / `-hide2` | `_revhidden3` / `_revhidden` / `_revhide2` | 隐藏测试剂量三档 |
+| `reverse-v2-mixed_3anchor_20260809.json` | **`_revmixed`** | 当前最优集合，仅易档隐藏 |
+
+§0.3 与 overview §6.4 的头条数字（16.1 / 77.4 / 6.5）来自 `reverse-v2-mixed_3anchor_20260809.json`。
 
 ### 0.3 必须先做的一件事：重新校准
+
+> **先跑一次 `uv run aibench audit-cases --case-set _revmixed --annotate`。**
+> `_revmixed` 磁盘上 31 条仍全部标着 `validity_ok: true` —— §0.7 的新门禁结论**没有写回文件**。
+> 不先标注就直接校准，会在 12 条抄写题上花掉整轮的钱；`export-bundle` 同样会放行它们
+> （实测 `--dry-run` 导出 31/31）。
 
 `_revmixed` 的分布（16.1 : 77.4 : 6.5）是在有缺陷的 harness 上测的，**不可信**。
 
@@ -37,7 +54,7 @@ uv run aibench calibrate-cases --case-set _revmixed --repeats 3 \
   --anchors configs/runs/anchor-panel.yaml --parallel 3 --workers 3
 ```
 
-**但先解决面板反转**：修复后实测 weak(GLM-5.1) 85.2% > strong(tool_loop) 78.0%，
+**但先解决面板反转**：修复后实测 weak(GLM-5.1) 85.2% > strong(tool_loop) 77.4%，
 「弱锚点」比「强锚点」还强，`spread` 会变成负数。面板的档次划分基于旧的有偏测量，
 需要重新指派。建议先单独实测三个锚点配置的真实强弱（成本远低于全量校准）。
 
@@ -89,7 +106,7 @@ p̂ 分别是 1.00(9/9) 与 0.00(0/9)，而那个「缺陷」是一次注释清�
 | `defect_is_not_semantic` 谓词 | `file_versions.py` | Python 池排除 4/91 仅注释改动（已扣除测试文件） |
 | 抽取端排除测试文件本身 | `reverse_case.py` | Python 池排除 **35/91**，JS/TS 池 88/269 |
 | `_PY_IMPORT` 修正相对导入 | `file_versions.py` | import 门存活 −1（绝对值见下方注意事项） |
-| 反向路径补 `protected_paths` | `reverse_case.py` | 此前 8 个反向集**全为 0**，反作弊因此整体关闭 |
+| 反向路径补 `protected_paths` | `reverse_case.py` | **仅对新生成的用例生效**。现存 8 个反向集（含 `_revmixed`）仍全为 0，反作弊在它们上面仍是关的，要到 T2 重建物料才兑现 |
 
 各集合受影响程度（「新增不合格」= 此前 `validity_ok≠false`、现被新门禁拒）：
 
