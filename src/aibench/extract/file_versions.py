@@ -18,6 +18,7 @@ that never existed, and a case built on it would be fiction with real code in it
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from dataclasses import dataclass, field
@@ -108,7 +109,12 @@ _NODE_BUILTINS = frozenset(
     ]
 )
 
-_PY_IMPORT = re.compile(r"^[ \t]*(?:from|import)[ \t]+([A-Za-z_][\w]*)", re.M)
+#: The leading-dot alternative comes first and is deliberate. Without it the pattern's
+#: ``[A-Za-z_]`` simply failed to match ``from .config import X``, so a relative import was not
+#: extracted at all and the file read as having no unsatisfiable imports — while the JavaScript
+#: side has always caught the same construct. The two channels were being held to different
+#: standards, and a flat one-file workspace can satisfy neither.
+_PY_IMPORT = re.compile(r"^[ \t]*(?:from|import)[ \t]+(\.+[\w.]*|[A-Za-z_][\w]*)", re.M)
 _JS_IMPORT = re.compile(r"""(?:from|import)\s+['"]([^'"]+)['"]""")
 _JS_REQUIRE = re.compile(r"""require\(\s*['"]([^'"]+)['"]""")
 
@@ -133,6 +139,12 @@ def unsatisfiable_imports(path: str, content: str) -> set[str]:
 
         out: set[str] = set()
         for mod in _PY_IMPORT.findall(content or ""):
+            if mod.startswith("."):
+                # A sibling module from the file's own package. There is no package at grading
+                # time, so this raises `attempted relative import with no known parent package`
+                # before a single test runs.
+                out.add(mod)
+                continue
             if mod in sys.stdlib_module_names:
                 continue
             try:
@@ -152,6 +164,172 @@ def unsatisfiable_imports(path: str, content: str) -> set[str]:
             s for s in specs if not s.startswith("node:") and s.split("/")[0] not in _NODE_BUILTINS
         }
     return set()
+
+
+def _strip_py_comments(source: str) -> str | None:
+    """Source with comments, docstrings and formatting normalised away, or None if unparseable.
+
+    ``ast.unparse`` drops comments and rewrites layout on its own; docstrings survive as bare
+    string expressions, so they are removed explicitly.
+    """
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list) or not body:
+            continue
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        first = body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+            and len(body) > 1
+        ):
+            del body[0]
+    try:
+        return ast.unparse(tree)
+    except (AttributeError, ValueError, RecursionError):
+        # A deeply nested expression blows the stack inside `unparse`, and this runs from
+        # `iter_file_versions`, which `cli.py` calls outside its per-draft try — so an escaping
+        # RecursionError takes the whole build down rather than skipping one draft.
+        return None
+
+
+#: Punctuation after which a ``/`` opens a regex literal rather than dividing.
+_REGEX_PRECEDERS = set("=(,:[!&|?{};+-*%<>~^")
+
+#: Keywords after which the same is true. Without these, ``return /^\//.test(p)`` parses as a
+#: division, its ``\/\/`` reads as a line comment, and the rest of the line disappears — from
+#: *both* versions, so an edit that changed only the surviving part is reported as
+#: comment-only. Measured: that turns a genuine ``&&`` → ``||`` fix into "not a defect".
+_REGEX_KEYWORDS = frozenset(
+    [
+        "return",
+        "typeof",
+        "instanceof",
+        "in",
+        "of",
+        "new",
+        "delete",
+        "void",
+        "throw",
+        "case",
+        "do",
+        "else",
+        "yield",
+        "await",
+    ]
+)
+
+_TRAILING_WORD = re.compile(r"([A-Za-z_$][\w$]*)$")
+
+#: Stands in for a template literal's body while whitespace is normalised around it. Template
+#: literals carry their whitespace as data — indentation inside a multi-line SQL or prompt
+#: string is part of the value — and collapsing it made "reindent this template" read as an
+#: edit that changed nothing. 73% of this corpus is TypeScript, much of it prompt templates.
+_TEMPLATE_SLOT = "\x00tpl{}\x00"
+
+
+def _strip_js_comments(source: str) -> tuple[str, list[str]] | None:
+    """Comments removed, template bodies parked aside. None when the scan cannot be trusted."""
+    out: list[str] = []
+    templates: list[str] = []
+    i, n = 0, len(source)
+    while i < n:
+        ch = source[i]
+        if ch in "\"'":
+            j = i + 1
+            while j < n and source[j] != ch:
+                j += 2 if source[j] == "\\" else 1
+            if j >= n:
+                return None  # unterminated string: the rest of the scan is guesswork
+            out.append(source[i : j + 1])
+            i = j + 1
+            continue
+        if ch == "`":
+            j, depth = i + 1, 0
+            while j < n and (depth or source[j] != "`"):
+                if source[j] == "\\":
+                    j += 2
+                    continue
+                if source[j : j + 2] == "${":
+                    depth += 1
+                    j += 2
+                    continue
+                if depth and source[j] == "}":
+                    depth -= 1
+                j += 1
+            if j >= n:
+                return None
+            templates.append(source[i : j + 1])
+            out.append(_TEMPLATE_SLOT.format(len(templates) - 1))
+            i = j + 1
+            continue
+        if ch == "/" and i + 1 < n:
+            nxt = source[i + 1]
+            if nxt == "/":
+                while i < n and source[i] != "\n":
+                    i += 1
+                continue
+            if nxt == "*":
+                end = source.find("*/", i + 2)
+                if end < 0:
+                    return None  # unterminated block comment would swallow the whole file
+                i = end + 2
+                continue
+            before = "".join(out).rstrip()
+            word = _TRAILING_WORD.search(before)
+            is_regex = (
+                not before
+                or before[-1] in _REGEX_PRECEDERS
+                or (word is not None and word.group(1) in _REGEX_KEYWORDS)
+            )
+            if is_regex:
+                j = i + 1
+                while j < n and source[j] not in "/\n":
+                    j += 2 if source[j] == "\\" else 1
+                if j < n and source[j] == "/":
+                    out.append(source[i : j + 1])
+                    i = j + 1
+                    continue
+        out.append(ch)
+        i += 1
+    return "".join(out), templates
+
+
+def _normalize_ws(text: str) -> str:
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+
+
+def defect_is_not_semantic(path: str, pre: str, post: str) -> bool:
+    """True when the edit changed only comments, docstrings or layout.
+
+    Such an edit is not a defect fix, but reverse construction happily builds a case from it and
+    both validity gates pass — a test that greps the source separates the two versions on the
+    comment alone. That is exactly how ``rev-9029660c5a575277`` and ``rev-ac427816b0ed447b`` came
+    to ship: byte-identical implementation and reference solution, p_hat 1.00 against 0.00, and
+    the "defect" was a tidied file header.
+
+    Conservative by construction: anything this cannot analyse (unparseable Python, an unknown
+    language) returns False. Failing to reject a comment-only edit costs one bad candidate that
+    later gates may still catch; rejecting a real defect loses material outright.
+    """
+    if pre == post:
+        return True
+    if path.endswith(".py"):
+        a, b = _strip_py_comments(pre), _strip_py_comments(post)
+        return a is not None and b is not None and a == b
+    if path.endswith((".js", ".mjs", ".cjs", ".ts", ".jsx", ".tsx", ".mts", ".cts")):
+        a, b = _strip_js_comments(pre), _strip_js_comments(post)
+        if a is None or b is None:
+            return False
+        # Template bodies are compared byte for byte; only the code around them is normalised.
+        return _normalize_ws(a[0]) == _normalize_ws(b[0]) and a[1] == b[1]
+    return False
 
 
 def _first(args: dict[str, Any], keys: tuple[str, ...]) -> str:

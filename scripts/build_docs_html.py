@@ -2,11 +2,11 @@
 """Build unified HTML documentation site under docs/html/.
 
 Sources:
-  - docs/REFERENCE.md, USER_GUIDE.md, REMAINING_WORK.md, HANDOFF.md
-  - configs/README.md
-  - docs/html/_src/tables.md (field dictionary; smart HTML table layout)
-  - docs/html/_src/project-overview.html (canonical overview body)
-  - docs/html/_src/agentic-scaling-benchmark.html (canonical design report)
+  - docs/html/_src/overview.html, manual.html, reference.html
+
+Those three fragments are the sources, and they are hand-written. `docs/*.md` used to feed this
+script and no longer does: editing `docs/REFERENCE.md` alone changes nothing the doc site shows,
+which is worth knowing before assuming a rebuild picked an edit up.
 
 Usage:
   uv run python scripts/build_docs_html.py
@@ -1035,7 +1035,7 @@ INDEX_BODY = """
      三次独立干预实验证明，无论输入什么，生成器都输出同一种难度。</p>
   <p>本项目改为<strong>反向构造</strong>：从真实会话中重放出文件被修改前与修改后的两个版本，
      以前者为待修复代码、后者为参考解，模型只负责编写能区分两版的测试。
-     缺陷来自真人真错，模型无法把任务改简单。</p>
+     缺陷来自真人真错。模型不能把缺陷改简单，但可以写出 grep 源码的测试绕开门禁——当前 31 条里 12 条如此，见参考资料 §3。</p>
   <div class="table-wrap"><table>
     <thead><tr><th>指标</th><th>模型编题 <code>auto-v0</code></th><th>反向构造 <code>reverse-v1</code></th></tr></thead>
     <tbody>

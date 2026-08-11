@@ -1086,6 +1086,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | 工作区不可收集（参考解） | `solvability_gate` + `checks.reference_solution.uncollectable` | error | 是 | §14.3.3；与「参考解真正失败」分开计数 |
 | Gold 污染 | `contamination_gold_in_context` | error | 是 | gold 全文已在 context |
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
+| 测试抄写源码 | `test_reads_source_text` | error | 是 | §14.3.7；测试 grep 实现的源码文本而非运行它 |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
 | 弱 grader 标记 | `weak_grader_flag` | warn | 否 | script 却标 weak_grader |
@@ -1093,6 +1094,11 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | 重复指纹 | `duplicate_fingerprint` | warn | 否 | 集内 fingerprint 冲突 |
 | 难度 | （写入 checks/metadata） | 注解 | — | easy/medium/hard（旧口径，保留兼容） |
 | 指纹 | fingerprint / content_fingerprint | 注解 | — | 去重与复现 |
+
+抽取端另有三条谓词，在**生成之前**拒绝素材，不产生 issue code（见 §14.3.7 末）：
+`defect_is_not_semantic`（只改注释的编辑不是缺陷）、测试文件本身不作为被测实现、
+`unsatisfiable_imports` 现在也能看见相对导入。反向构造路径同时会自动填 `grader.protected_paths`，
+从而启用 `detect_grading_interference`。
 
 ### 14.3 门禁逻辑详解
 
@@ -1222,6 +1228,67 @@ content_fingerprint(set) = sha256(sorted "case_id:fp" 行)[:16]
 | `validity_issues` | issue 对象列表 |
 | `uncollectable_stub` | bool，stub 工作区是否根本收集不起来 |
 | `uncollectable_reference` | bool，参考解工作区是否根本收集不起来 |
+
+#### 14.3.7 测试抄写源码（`test_reads_source_text`）
+
+反向构造的安全性论证（`reverse_case.py` 模块注释）是：模型写不出能区分 pre 与 post 的测试，
+用例就会被 §14.3.1 与 §14.3.3 拒掉，所以模型**没有能力**把题变简单。
+
+这个论证有一个洞：**源码文本天然能区分两版**，因为修复改动的就是文本。
+一份 `assert.match(source, /async function prepareReview/)` 这样的测试，
+在 stub 上必失败、在 gold 上必通过，**两道门禁按构造 100% 通过**，
+而它评的是抄写，不是行为。实测 `_revmixed` 31 条里 **12 条**如此，
+语种分布 **JavaScript 11/14、Python 1/17**。
+
+判据是三条规则的并集（在真实集合上校准）：
+
+| 规则 | 命中 | 独有命中 |
+|------|-----:|---------:|
+| 反射取源码（`inspect.getsource` / `getsourcelines`） | 1 | 1 |
+| 含读调用的**那一行**里出现 impl 文件名（排除写模式） | 4 | 1 |
+| 存在读调用**且**有字符串包含/正则断言（`.includes` / `.match` / `assertIn` / `in source`） | 10 | 7 |
+| **并集** | **12** | — |
+
+三条各自非冗余。第二条只看**含读调用的那一行**而非整个文件，是刻意的：
+JS 测试必然在 import 行写出 impl 文件名，按全文匹配会退化成「任何读操作都算」，
+同一集合上从 4 条涨到 11 条，把合法的数据 fixture 读取也抓进来。
+
+单条宽正则（「测试里出现 `readFileSync` 或 `open`」）会额外误伤 6 条：3 条用 `open(..., 'w')`
+写 fixture（靠 mode 实参排除），2 条用 `os.fdopen(fd, 'w')`、1 条调 `urlopen`
+（这三条压根不匹配 —— `fdopen`/`urlopen` 里的 `open` 前面没有词边界）。
+
+实参按**配对括号**取，不是 `[^)]*`：后者在第一个 `)` 就停，
+`open(os.path.join(d, "o.txt"), "w")` 会丢掉 mode 实参而被当成读，
+而 `os.path.join` 在测试里再普通不过。mode 也**逐个实参**匹配，不扫整个实参串 ——
+扫整串时 `readFileSync(p, 'utf8').includes('a')` 里的 `'a'` 会被当成 append 模式，
+于是整个读调用被跳过：把断言里的 `'foo'` 改成 `'a'` 就足以走过一道 error 级门禁。
+
+`grader.hidden_tests` 与可见测试一起扫描 —— 抄写可以藏在求解者看不到的那一半里。
+
+判据脚本 `scripts/t1_gate_report.py` 断言的是**命中集合**而非命中数：
+一个既误伤又漏抓、数量恰好相等的检测器，从退出码上看不出区别。
+
+**已知局限**：当被测行为**本身就是文件内容**时（文档生成器、配置写入工具），
+规则 3 会误伤一个做得对的测试。根治要把规则 3 绑定到读取目标（解析到 case 自带的 impl
+文件才触发），本轮未做。三个已发布集合 `auto-v0` / `disc-v0` / `retrieval-v0` 零命中，
+但那 181 条里总共只有 1 处读调用，所以这是弱证据。
+
+#### 抽取端的三条谓词（不产生 issue code）
+
+| 谓词 | 位置 | 拒绝什么 | 实测 |
+|------|------|----------|------|
+| `defect_is_not_semantic` | `file_versions.py` | 剥离注释/docstring 后 pre == post | Python 池 4/91 |
+| 测试文件排除 | `reverse_case.py` | `spec.is_test_path(path)` 为真 | Python 35/91、JS/TS 88/269 |
+| 相对导入 | `unsatisfiable_imports` | `from .x import y` 此前被判为「可满足」 | −1 |
+
+`defect_is_not_semantic` 的方向是**保守的**：不可解析的 Python、未知语言、未闭合的块注释、
+未闭合的字符串，一律返回 False（保留素材）。漏拒一个坏候选比误拒一个真缺陷便宜。
+JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走空白归一 ——
+多行模板里的缩进是数据不是排版，归一掉会让「重排模板」读成「什么都没改」。
+
+> ⚠️ `unsatisfiable_imports` 的判定**依赖工作目录**：`find_spec` 会解析隐式命名空间包，
+> 仓库根在 `sys.path` 上时，`import src...` / `import tests...` 被本项目自己的目录满足。
+> 同一批草稿存活数 24 vs 21，取决于调用方式。详见 `docs/HANDOFF.md` §0.7。
 
 ### 14.4 与 `promote` 发布门控的关系
 

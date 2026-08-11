@@ -23,7 +23,7 @@ from aibench.extract.sessions import (
     redact_source_path,
     task_fingerprint,
 )
-from aibench.extract.tier_shaping import split_tests_for_hiding
+from aibench.extract.tier_shaping import protect_visible_tests, split_tests_for_hiding
 from aibench.languages import spec_for_path
 
 #: Enough of each version for the model to see the change without paying for whole large files.
@@ -224,6 +224,12 @@ def reverse_case_from_versions(
     # insignificant.
     if hide_tests:
         split_tests_for_hiding(case, keep_visible=1)
+    # Without this the visible test file is the whole grading signal on the 24 of 31 cases that
+    # end up with nothing hidden, and it is writable: `detect_grading_interference` is only
+    # armed for cases that declare protected paths (`grading.py`), so dropping in a conftest or
+    # deleting the failing test both pass. Every reverse case built so far shipped with
+    # `protected_paths` empty, because this path never went through `settle_tier`.
+    protect_visible_tests(case)
     return case
 
 
@@ -302,6 +308,11 @@ def chat_json(settings: dict[str, Any], *, timeout_s: float = 300.0) -> Any:
     return _chat
 
 
+def _is_test_file(path: str) -> bool:
+    spec = spec_for_path(path)
+    return bool(spec and spec.is_test_path(path))
+
+
 def iter_file_versions(
     draft: dict[str, Any], *, require_imports_satisfiable: bool = True
 ) -> list[dict[str, Any]]:
@@ -311,13 +322,32 @@ def iter_file_versions(
     than after generation, because generation is the expensive step and the predicate is exact:
     of 22 cases built without it, all 16 with an unsatisfiable import failed the validity gate,
     and 5 of them had first passed it for the wrong reason.
+
+    Two more predicates join it for the same reason — they cost nothing and each rejects
+    material that would otherwise survive every downstream gate:
+
+    * A test file as the thing under test produces a case that asks for tests over tests. Three
+      of the eleven differentially-analysable Python candidates in ``_rev_raw4`` were test
+      files, one of them mutating a class whose own docstring says ``Mock ...``.
+    * An edit that changed only comments is not a defect fix, and
+      :func:`aibench.extract.file_versions.defect_is_not_semantic` is the only thing that can
+      say so — a suite that greps the source separates the two versions on the comment alone,
+      so both validity gates pass.
     """
-    from aibench.extract.file_versions import unsatisfiable_imports
+    from aibench.extract.file_versions import defect_is_not_semantic, unsatisfiable_imports
 
     fvs = [
         fv
         for fv in ((draft.get("metadata") or {}).get("file_versions") or [])
         if isinstance(fv, dict)
+    ]
+    fvs = [fv for fv in fvs if not _is_test_file(str(fv.get("path") or ""))]
+    fvs = [
+        fv
+        for fv in fvs
+        if not defect_is_not_semantic(
+            str(fv.get("path") or ""), str(fv.get("pre") or ""), str(fv.get("post") or "")
+        )
     ]
     if require_imports_satisfiable:
         fvs = [
