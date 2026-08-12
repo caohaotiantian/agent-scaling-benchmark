@@ -1,0 +1,27 @@
+# Production: a real coding agent (opencode), driven as a subprocess.
+#
+# Use this instead of tool_loop for anything that compares models under a scaffold. tool_loop
+# is this project's own; measured against the bare model it contributed nearly all the
+# variance (12.9pp run-to-run spread against 0.0, 32.3% of cases flipping between identical
+# repeats) and three defects inside it moved one model's pass rate by 58 points without
+# touching the model.
+#
+# Everything opencode is told is generated per run from configs/models/*.yaml and .env, so the
+# measurement does not depend on the operator's ~/.config/opencode.
+#
+# Requires the `opencode` binary on PATH (measured against 1.18.15) and OPENAI_API_KEY +
+# OPENAI_BASE_URL, or the equivalents named by the model config.
+name: opencode
+version: "1.0.0"
+adapter: opencode
+description: >
+  opencode driven headlessly in a mirrored workspace: reads, edits, and runs the tests on its
+  own, with tools and filesystem access confined by a generated permission set.
+# Multi-step with read/edit/bash and no files pasted into the prompt: it has to find the code
+# (A2) and can react to test output (A3), so it can exercise every axis.
+capability_axes: [A1, A2, A3, A4, A5, A6]
+options:
+  # Step budget comes from the run config's max_steps unless set here.
+  system_prompt: |
+    You are a coding agent working in the given directory. Fix the defect so the project's
+    tests pass. Edit files directly. Do not modify the tests.

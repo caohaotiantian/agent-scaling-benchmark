@@ -1,0 +1,18 @@
+# Anchor panel rung: opencode with a step budget of 40.
+#
+# The panel this replaces mixed adapters and models, and its "weak" member measured stronger
+# than its "strong" one because the single-turn adapter pastes every file -- including the
+# visible tests -- into the prompt, while the tool loop is told only the workspace root. A
+# ladder that varies nothing but the step budget cannot invert for that reason: what a rung
+# can do is a subset of what the rung above it can do.
+#
+# Construction guarantees the subset, not monotone pass rates. Whether the measured rates come
+# out ordered is the open question this ladder exists to answer.
+name: opencode-s40
+version: "1.0.0"
+adapter: opencode
+description: >
+  opencode capped at 40 step(s), for a calibration panel that varies only the step budget.
+capability_axes: [A1, A2, A3, A4, A5, A6]
+options:
+  max_steps: 40
