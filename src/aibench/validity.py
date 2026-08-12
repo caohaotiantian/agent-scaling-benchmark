@@ -304,6 +304,106 @@ def _reads(line: str) -> list[str]:
     return found
 
 
+#: `from parse_reports import create_shared_strings` / `import { build } from './impl.mjs'`.
+_FROM_IMPORT = re.compile(r"^\s*from\s+([\w.]+)\s+import\s+([^\n#]+)", re.M)
+_JS_NAMED_IMPORT = re.compile(r"import\s*\{([^}]*)\}\s*from\s*['\"]([^'\"]+)['\"]")
+
+
+#: A word boundary that also refuses a preceding dot, so `other.build` does not count as the
+#: visible surface defining `build`.
+def _defines(surface: str, name: str) -> bool:
+    return re.search(rf"(?<![.\w]){re.escape(name)}\b", surface) is not None
+
+
+#: Suffixes that follow a module name in prose and in paths, where `impl.py` is a filename
+#: rather than an attribute access. Without this the check reports that the test "needs py".
+_PATH_SUFFIXES = frozenset({"py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "txt", "md"})
+
+
+def _impl_modules(case: Case) -> set[str]:
+    """Module names a hidden test would import the implementation under."""
+    names: set[str] = set()
+    for fb in case.files:
+        if fb.role != "impl":
+            continue
+        base = fb.path.replace("\\", "/").rsplit("/", 1)[-1]
+        names.add(base.rsplit(".", 1)[0])
+    return names
+
+
+def required_hidden_symbols(case: Case) -> dict[str, list[str]]:
+    """Identifiers each hidden test demands from the implementation, by hidden-test path."""
+    modules = _impl_modules(case)
+    out: dict[str, list[str]] = {}
+    for fb in case.grader.hidden_tests:
+        content = fb.content or ""
+        wanted: list[str] = []
+        for module, names in _FROM_IMPORT.findall(content):
+            if module.rsplit(".", 1)[-1] not in modules:
+                continue
+            for raw in names.split(","):
+                name = raw.split(" as ")[0].strip().strip("()")
+                if name and name != "*":
+                    wanted.append(name)
+        for names, source in _JS_NAMED_IMPORT.findall(content):
+            stem = source.replace("\\", "/").rsplit("/", 1)[-1]
+            if stem not in modules and stem.rsplit(".", 1)[0] not in modules:
+                continue
+            for raw in names.split(","):
+                name = raw.split(" as ")[0].strip()
+                if name:
+                    wanted.append(name)
+        for module in modules:
+            for attr in re.findall(rf"(?<![.\w]){re.escape(module)}\.(\w+)", content):
+                # `impl.py` in a path or a message is not an attribute access, and `__file__`
+                # and friends exist on every module.
+                if attr in _PATH_SUFFIXES or attr.startswith("__"):
+                    continue
+                wanted.append(attr)
+        if wanted:
+            out[fb.path] = sorted(set(wanted))
+    return out
+
+
+def check_hidden_tests_are_inferable(case: Case) -> list[ValidityIssue]:
+    """Reject hidden tests that require a name the solver has no way to learn.
+
+    Hiding tests is the one intervention that has ever moved difficulty on this corpus, and
+    measured on ``_revclean`` at four hidden it took a real coding agent from 19 of 19 solved
+    to 11. But difficulty earned two different ways is not the same thing. Of the eight cases
+    that moved, seven failed on assertions — behaviour the visible suite did not pin down, which
+    is the point — and one failed with ``module 'parse_reports' has no attribute
+    'create_shared_strings'``: the hidden test calls a function whose name appears in neither
+    the implementation, nor the visible tests, nor the prompt.
+
+    That case is not hard, it is unanswerable. Every solver fails it for the same reason, so it
+    discriminates nothing while looking exactly like a difficult case in the pass rate — the
+    shape this project keeps having to dig back out of.
+
+    The rule is that the *interface* must be visible even when the *behaviour* is hidden. A
+    symbol counts as visible if it appears anywhere the solver can read: a shipped file, a
+    visible test, or the prompt.
+    """
+    # The reference solution is deliberately absent. It is the one place the missing name is
+    # certain to appear -- that is what makes the case pass its solvability gate -- and it is
+    # exactly what the solver cannot read. Counting it as visible is what made a first version
+    # of this check report the contaminated case as clean.
+    surface = "\n".join([fb.content or "" for fb in case.files] + [case.prompt or ""])
+    issues: list[ValidityIssue] = []
+    for path, names in required_hidden_symbols(case).items():
+        missing = [n for n in names if not _defines(surface, n)]
+        if missing:
+            issues.append(
+                ValidityIssue(
+                    "hidden_test_requires_unknowable_symbol",
+                    "error",
+                    f"hidden test {path} needs {', '.join(missing)}, "
+                    "which appears in no visible file, test, or prompt",
+                )
+            )
+    return issues
+
+
 def _test_blob(case: Case) -> str:
     """Everything the solver is graded by: visible tests plus the hidden ones."""
     return "\n".join(
@@ -501,6 +601,7 @@ def audit_case(
 
     issues.extend(check_contamination(case))
     issues.extend(check_test_reads_source(case))
+    issues.extend(check_hidden_tests_are_inferable(case))
 
     # The reference solution runs first: whether it makes the workspace collectable is what
     # tells an incomplete stub apart from a broken one.
