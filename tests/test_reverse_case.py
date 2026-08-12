@@ -387,17 +387,39 @@ class TestTestsAreCheckedBeforeTheCaseIsAccepted:
         "def test_x():\n"
         "    assert 'max(lo' in src\n"
     )
-    BEHAVIOUR = "import clamp\n\n\ndef test_low():\n    assert clamp.clamp(-5, 0, 10) == 0\n"
+    # Four tests, because a one-test suite passes the hidden-symbol gate for the wrong reason:
+    # `split_tests_for_hiding` has nothing to hide, so the case ships with its whole grading
+    # signal visible — the ceiling hiding exists to break. A fixture like that would have the
+    # suite endorsing the degenerate answer.
+    BEHAVIOUR = (
+        "import clamp\n\n\n"
+        "def test_low():\n    assert clamp.clamp(-5, 0, 10) == 0\n\n\n"
+        "def test_high():\n    assert clamp.clamp(99, 0, 10) == 10\n\n\n"
+        "def test_inside():\n    assert clamp.clamp(4, 0, 10) == 4\n\n\n"
+        "def test_edge():\n    assert clamp.clamp(0, 0, 10) == 0\n"
+    )
 
     def test_a_transcription_suite_is_sent_back_before_the_case_is_built(self):
         chat, seen = self._serving(self._answer(self.TRANSCRIPTION), self._answer(self.BEHAVIOUR))
         case = reverse_case_from_versions(FV, draft=_draft(), chat=chat)
         assert len(seen) == 2, "the model must be asked again, not the case discarded"
         assert "clamp.py" not in case["context"]["files"][1]["content"]
-        retry = "\n".join(m["content"] for m in seen[1])
-        assert "transcription" in retry or "source text" in retry, (
-            "the retry must say what was wrong; asking again unchanged only repeats the bill"
+        # Asserted against the rewrite message alone. The whole conversation also contains the
+        # original system prompt, so searching it would let the *first* instructions satisfy a
+        # claim about the second — the rewrite could say nothing and still pass.
+        rewrite = seen[1][-1]["content"]
+        assert "reads the implementation by name" in rewrite, (
+            "the gate's own complaint is what makes a second call worth paying for; boilerplate "
+            "advice alone is the same request twice"
         )
+        assert "at least 4 tests" in rewrite and "BEFORE" in rewrite, (
+            "taking source reading away without restating the invariants trades a free "
+            "rejection for one that costs a workspace to find"
+        )
+        convo = "\n".join(m["content"] for m in seen[1])
+        assert "--- BEFORE ---" in convo, "the rewrite still needs the source it is testing"
+        # The rejected file is echoed back as JSON, so its newlines arrive escaped.
+        assert "read_text()" in convo, "the model cannot revise a file it can no longer see"
 
     def test_a_suite_that_passes_costs_exactly_one_call(self):
         chat, seen = self._serving(self._answer(self.BEHAVIOUR))
@@ -406,8 +428,9 @@ class TestTestsAreCheckedBeforeTheCaseIsAccepted:
 
     def test_a_model_that_will_not_comply_yields_no_case(self):
         chat, seen = self._serving(self._answer(self.TRANSCRIPTION))
-        with pytest.raises(ValueError, match="static test gates"):
+        with pytest.raises(ValueError, match="reads the implementation by name") as e:
             reverse_case_from_versions(FV, draft=_draft(), chat=chat)
+        assert "static test gates" in str(e.value)
         assert len(seen) == 2, "one retry, then give up rather than spend without bound"
 
     def test_a_hidden_test_naming_an_unknowable_symbol_is_sent_back(self):
@@ -420,5 +443,15 @@ class TestTestsAreCheckedBeforeTheCaseIsAccepted:
             "def test_d():\n    assert clamp.clamp(2, 0, 10) == 2\n"
         )
         chat, seen = self._serving(self._answer(unknowable), self._answer(self.BEHAVIOUR))
-        reverse_case_from_versions(FV, draft=_draft(), chat=chat, hide_tests=True)
+        case = reverse_case_from_versions(FV, draft=_draft(), chat=chat, hide_tests=True)
         assert len(seen) == 2
+        assert case["grader"]["hidden_tests"], (
+            "a suite short enough to hide nothing satisfies this gate vacuously"
+        )
+
+    def test_a_rewrite_that_cannot_be_read_still_names_the_gate_that_rejected(self):
+        """Otherwise the log shows only the retry's own failure and the recovery rate is
+        unmeasurable — which is the number this whole change exists to move."""
+        chat, _ = self._serving(self._answer(self.TRANSCRIPTION), "not json at all")
+        with pytest.raises(ValueError, match="reads the implementation by name"):
+            reverse_case_from_versions(FV, draft=_draft(), chat=chat)

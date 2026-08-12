@@ -25,10 +25,14 @@ from aibench.extract.sessions import (
     task_fingerprint,
 )
 from aibench.extract.tier_shaping import protect_visible_tests, split_tests_for_hiding
-from aibench.languages import spec_for_path
+from aibench.languages import LanguageSpec, spec_for_path
 
 #: Enough of each version for the model to see the change without paying for whole large files.
 _MAX_FILE_CHARS = 6000
+
+#: Rewrites bought when the model's tests fail a static gate. One, because the second request
+#: carries new information — the gate's own complaint — and a third would carry none.
+_MAX_TEST_REWRITES = 1
 
 
 def _unified_ish_diff(pre: str, post: str, limit: int = 60) -> str:
@@ -134,18 +138,31 @@ def _test_gate_failures(case: dict[str, Any]) -> list[str]:
 
 
 def _rewrite_request(problems: list[str]) -> str:
-    """What to send back. Naming the fault is the only reason a second call is worth paying for."""
+    """What to send back. Naming the fault is the only reason a second call is worth paying for.
+
+    The original instructions are restated rather than assumed. Rule 1 takes away the easiest
+    way to separate the two versions — reading the source — so a rewrite told only that will
+    reach for a suite that passes on both, trading a free static rejection for one that costs a
+    workspace to find. And a shorter suite satisfies the hidden-symbol rule trivially, because
+    a single test leaves nothing to hide.
+    """
     return (
         "Your test file was rejected:\n"
         + "\n".join(f"- {p}" for p in problems)
-        + "\n\nWrite it again, same JSON keys. Two rules decide it:\n"
+        + "\n\nWrite it again, same JSON keys, keeping everything the first instructions asked "
+        "for: at least 4 tests, failing on the BEFORE version and passing on the AFTER one, "
+        "importing the module from the same flat directory.\n"
+        "Two further rules decide it:\n"
         "- Never read the implementation's source text — no readFileSync, no read_text, no "
         "inspect.getsource, no asserting on substrings of the file. Import the module and call "
         "it, and assert on what it returns or raises. Source text always separates the two "
         "versions, so such a suite grades transcription rather than behaviour.\n"
-        "- Every symbol your tests call must already appear in the implementation you were "
-        "shown. Do not invent a helper the solver has no way to learn about: a test for a name "
-        "that exists nowhere is unanswerable, not difficult."
+        "- Every symbol your tests call must appear in the BEFORE version, or in your own "
+        "prompt. The solver is given BEFORE, not AFTER, so a test for a name that only the "
+        "fix introduces is unanswerable rather than difficult — if the fix adds a name, say "
+        "what it should be called in the prompt.\n"
+        "Note the suite is split before grading: the first test stays visible to the solver and "
+        "the rest are hidden, so put a test that exercises each name you rely on first."
     )
 
 
@@ -181,7 +198,7 @@ def reverse_case_from_versions(
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     data = _extract_json_object(chat(messages))
 
-    for attempt in range(2):
+    for attempt in range(_MAX_TEST_REWRITES + 1):
         case = _assemble_case(
             data,
             spec=spec,
@@ -195,8 +212,8 @@ def reverse_case_from_versions(
         problems = _test_gate_failures(case)
         if not problems:
             return case
-        if attempt:
-            # The second answer failed too. Asking a third time buys nothing new to tell it.
+        if attempt == _MAX_TEST_REWRITES:
+            # The rewrite failed too. Asking again buys nothing new to tell the model.
             break
         # One rewrite, and only because the request changes: it now names what was wrong.
         # Asking again unchanged would just repeat the bill — the lesson `chat_json` already
@@ -206,7 +223,15 @@ def reverse_case_from_versions(
             {"role": "assistant", "content": json.dumps(data, ensure_ascii=False)},
             {"role": "user", "content": _rewrite_request(problems)},
         ]
-        data = _extract_json_object(chat(messages))
+        try:
+            data = _extract_json_object(chat(messages))
+        except Exception as e:
+            # Without this the rewrite's own failure is all the caller sees, and the static
+            # gate that actually rejected the material never appears in the log — which is
+            # exactly the number this change exists to move.
+            raise ValueError(
+                f"rewrite after static test gates failed ({'; '.join(problems)}): {e}"
+            ) from e
     raise ValueError(
         "suite still fails the static test gates after a rewrite: " + "; ".join(problems)
     )
@@ -215,7 +240,7 @@ def reverse_case_from_versions(
 def _assemble_case(
     data: dict[str, Any],
     *,
-    spec: Any,
+    spec: LanguageSpec,
     fv: dict[str, Any],
     draft: dict[str, Any],
     module: str,
