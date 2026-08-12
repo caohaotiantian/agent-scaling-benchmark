@@ -377,13 +377,23 @@ def extract_case_drafts_from_db(
     since: str | None = None,
     until: str | None = None,
     require_edits: bool = False,
+    require_usable_pair: bool = False,
     on_draft: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Build drafts from the trace store.
 
     ``on_draft`` is called with each draft the moment it is built. Without it a run that dies
     part-way leaves nothing behind, however long it ran.
+
+    ``require_usable_pair`` spends the ``max_cases`` budget only on traces reverse construction
+    can actually build from — the same predicate ``generate-cases --reverse`` applies, so no new
+    judgement is introduced, only an earlier one. Measured on the 3,312-draft ``_rev_raw4`` pool,
+    153 qualify: 2,977 carry no before/after pair and 182 carry only pairs the free gates reject.
+    It is off by default because this command also feeds the forward generator, which needs no
+    pairs at all and would silently come away empty.
     """
+    from aibench.extract.reverse_case import iter_file_versions
+
     records = fetch_chat_records(
         db_url,
         limit=limit,
@@ -401,6 +411,8 @@ def extract_case_drafts_from_db(
         if not draft:
             continue
         if require_gold and not draft["metadata"].get("has_gold_code"):
+            continue
+        if require_usable_pair and not iter_file_versions(draft):
             continue
         fp = draft["metadata"]["fingerprint"]
         if fp in seen:
