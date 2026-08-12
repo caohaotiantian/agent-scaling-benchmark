@@ -19,7 +19,7 @@ import json
 from aibench.extract.file_versions import defect_is_not_semantic, unsatisfiable_imports
 from aibench.extract.reverse_case import iter_file_versions, reverse_case_from_versions
 from aibench.models import Case
-from aibench.validity import check_test_reads_source
+from aibench.validity import check_hidden_tests_are_inferable, check_test_reads_source
 
 
 def _case(*, tests, impls=(("impl.py", "def f():\n    return 1\n"),), hidden=(), language="python"):
@@ -347,3 +347,87 @@ class TestIterFileVersionsPredicates:
             ]
         )
         assert [fv["path"] for fv in iter_file_versions(draft)] == ["m.py"]
+
+
+def _hidden_case(hidden_body: str, *, prompt: str = "Fix the export.") -> Case:
+    return Case.from_dict(
+        {
+            "case_id": "h1",
+            "schema_version": "0.1",
+            "task_type": "bugfix",
+            "language": "python",
+            "prompt": prompt,
+            "context": {
+                "files": [
+                    {
+                        "path": "report.py",
+                        "content": "def build_rows(data):\n    return list(data)\n",
+                        "role": "impl",
+                    },
+                    {
+                        "path": "test_report.py",
+                        "content": "import report\n\n\ndef test_rows():\n    assert report.build_rows([]) == []\n",
+                        "role": "test",
+                    },
+                ]
+            },
+            "grader": {
+                "mode": "script",
+                "command": "python -m pytest -q",
+                "gold_files": [
+                    {
+                        "path": "report.py",
+                        "content": "def build_rows(data):\n    return list(data)\n\n\ndef build_styles():\n    return {}\n",
+                    }
+                ],
+                "hidden_tests": [{"path": "test_report_spec.py", "content": hidden_body}],
+            },
+            "metadata": {},
+        }
+    )
+
+
+def test_a_hidden_test_may_pin_behaviour_of_a_visible_function():
+    """Hiding behaviour is the point: the solver can see `build_rows` and has to get it right."""
+    case = _hidden_case(
+        "import report\n\n\ndef test_sorted():\n    assert report.build_rows([2, 1]) == [1, 2]\n"
+    )
+    assert check_hidden_tests_are_inferable(case) == []
+
+
+def test_a_hidden_test_may_not_require_a_name_nothing_visible_mentions():
+    """Measured on a real case: the hidden test called `create_shared_strings`, a name in
+    neither the implementation, the visible tests, nor the prompt. Every solver fails it for
+    the same reason, so it reads as a hard case while discriminating nothing."""
+    case = _hidden_case(
+        "import report\n\n\ndef test_styles():\n    assert report.build_styles() == {}\n"
+    )
+    issues = check_hidden_tests_are_inferable(case)
+    assert [i.code for i in issues] == ["hidden_test_requires_unknowable_symbol"]
+    assert "build_styles" in issues[0].message
+
+
+def test_the_reference_solution_does_not_count_as_visible():
+    """It is the one place the missing name is certain to appear -- that is what makes the case
+    pass its solvability gate -- and it is exactly what the solver cannot read."""
+    case = _hidden_case(
+        "import report\n\n\ndef test_styles():\n    assert report.build_styles() == {}\n"
+    )
+    assert "build_styles" in (case.grader.gold_files[0].content or "")
+    assert check_hidden_tests_are_inferable(case) != []
+
+
+def test_a_name_the_prompt_introduces_is_inferable():
+    case = _hidden_case(
+        "import report\n\n\ndef test_styles():\n    assert report.build_styles() == {}\n",
+        prompt="Add a build_styles() helper that returns the sheet styles.",
+    )
+    assert check_hidden_tests_are_inferable(case) == []
+
+
+def test_a_filename_is_not_an_attribute_access():
+    """`report.py` in a path or an error message reported that the test 'needs py'."""
+    case = _hidden_case(
+        "import report\n\n\ndef test_path():\n    assert 'report.py' in report.__file__\n"
+    )
+    assert check_hidden_tests_are_inferable(case) == []
