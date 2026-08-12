@@ -484,6 +484,46 @@ def check_test_reads_source(case: Case) -> list[ValidityIssue]:
     ]
 
 
+def check_tool_output_footer(case: Case) -> list[ValidityIssue]:
+    """Reject a case whose graded artefact carries a read tool's description of its own output.
+
+    Reverse construction rebuilds files from what a trace read, and the read tool appends a line
+    saying what it returned. Kept as content it is not merely cosmetic: `rev-d098848d56868e13`
+    shipped a stub ending `(End of file - total 152 lines)`, which `node --check` rejects with
+    `SyntaxError: Unexpected token 'of'` — so its stub gate passed because the file would not
+    load, not because of any defect. `rev-461e8d91390e3915` shipped a stub footed
+    `(Showing lines 1-40 of 190. …)`: the first 40 lines of a 190-line file, cut mid-expression,
+    against a complete reference solution.
+
+    Scoped to the artefact under test — the reference solution's files, the context entries that
+    share a path with one, and the hidden tests. Of the 39 cases carrying such a line across
+    five sets, only 11 are of that kind; the other 28 have it in a context or distractor file,
+    where a line of noise changes nothing the case measures. Rejecting those would invalidate
+    published cases for a defect that does not touch them, which is the failure §14.3.7 already
+    records for rule 3 of the transcription gate.
+    """
+    from aibench.extract.history_parse import READ_COMPLETE, split_read_footer
+
+    g = case.grader
+    graded = {gf.path for gf in g.gold_files if gf.path}
+    suspect = [(fb.path, fb.content or "") for fb in g.gold_files + g.hidden_tests]
+    suspect += [(fb.path, fb.content or "") for fb in case.files if fb.path in graded]
+
+    hits = [
+        path for path, content in suspect if split_read_footer(content) != (content, READ_COMPLETE)
+    ]
+    if not hits:
+        return []
+    return [
+        ValidityIssue(
+            "case_contains_tool_output_footer",
+            "error",
+            "graded file carries a read tool's own output footer, so the stub may fail for "
+            f"loading rather than for the defect: {', '.join(dict.fromkeys(hits))}",
+        )
+    ]
+
+
 #: Detail prefixes the audit keys off. Defined once so the reported reason and the boolean
 #: derived from it cannot drift apart.
 STUB_UNCOLLECTABLE = "stub_uncollectable"
@@ -602,6 +642,7 @@ def audit_case(
     issues.extend(check_contamination(case))
     issues.extend(check_test_reads_source(case))
     issues.extend(check_hidden_tests_are_inferable(case))
+    issues.extend(check_tool_output_footer(case))
 
     # The reference solution runs first: whether it makes the workspace collectable is what
     # tells an incomplete stub apart from a broken one.

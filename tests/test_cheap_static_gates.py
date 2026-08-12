@@ -19,7 +19,11 @@ import json
 from aibench.extract.file_versions import defect_is_not_semantic, unsatisfiable_imports
 from aibench.extract.reverse_case import iter_file_versions, reverse_case_from_versions
 from aibench.models import Case
-from aibench.validity import check_hidden_tests_are_inferable, check_test_reads_source
+from aibench.validity import (
+    check_hidden_tests_are_inferable,
+    check_test_reads_source,
+    check_tool_output_footer,
+)
 
 
 def _case(*, tests, impls=(("impl.py", "def f():\n    return 1\n"),), hidden=(), language="python"):
@@ -169,6 +173,60 @@ class TestReadsSourceText:
         )
         case = _case(tests=[("t.js", body)], impls=(("impl.js", "x\n"),), language="javascript")
         assert check_test_reads_source(case) == []
+
+
+class TestToolOutputFooter:
+    """A read tool's trailing self-description, shipped inside a case's own files.
+
+    39 cases across five sets carry one. It is only a defect where it lands on the artefact
+    being graded: `rev-d098848d56868e13` shipped a stub that `node --check` rejects with
+    `SyntaxError: Unexpected token 'of'`, so its stub gate passed because the file would not
+    load. In `auto-v0` and `retrieval-v0` every hit is in a context or distractor file, where a
+    line of noise changes nothing — and rejecting those would invalidate 28 published cases for
+    a defect that does not touch what they measure. `docs/REFERENCE.md` §14.3.7 records this
+    same distinction for rule 3 of the transcription gate.
+    """
+
+    def _case_with(self, *, impl_body=None, distractor_body=None):
+        files = [{"path": "impl.py", "content": impl_body or "def f():\n    return 1\n"}]
+        if distractor_body is not None:
+            files.append(
+                {"path": "notes.md", "content": distractor_body, "role": "distractor"},
+            )
+        return Case.from_dict(
+            {
+                "case_id": "c1",
+                "schema_version": "0.1",
+                "task_type": "bugfix",
+                "language": "python",
+                "prompt": "something is wrong",
+                "context": {"files": files},
+                "grader": {
+                    "mode": "script",
+                    "command": "python -m pytest -q",
+                    "gold_files": [{"path": "impl.py", "content": "def f():\n    return 2\n"}],
+                },
+            }
+        )
+
+    def test_a_footer_on_the_graded_file_is_an_error(self):
+        case = self._case_with(impl_body="def f():\n    return 1\n\n(End of file - total 2 lines)")
+        assert [i.code for i in check_tool_output_footer(case)] == [
+            "case_contains_tool_output_footer"
+        ]
+
+    def test_a_footer_in_a_distractor_is_not(self):
+        case = self._case_with(distractor_body="notes\n\n(End of file - total 1 lines)")
+        assert check_tool_output_footer(case) == []
+
+    def test_a_window_footer_on_the_graded_file_is_an_error(self):
+        body = "def f():\n    return 1\n\n(Showing lines 1-2 of 190. Use offset=3 to continue.)"
+        assert check_tool_output_footer(self._case_with(impl_body=body))
+
+    def test_source_that_merely_builds_such_a_line_is_not_a_hit(self):
+        """`filesystem.py` in the corpus is a read-tool implementation; its source says this."""
+        body = 'def show(n):\n    return f"(End of file - total {n} lines)"\n'
+        assert check_tool_output_footer(self._case_with(impl_body=body)) == []
 
 
 class TestDefectIsNotSemantic:

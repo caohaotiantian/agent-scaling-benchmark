@@ -329,6 +329,33 @@ p̂ 分别是 1.00(9/9) 与 0.00(0/9)，而那个「缺陷」是一次注释清�
 | ├ 用 `str_replace` 家族 | **0** |
 | └ 只用 `write` / `file_write` | **4,004** |
 
+> ### ⚠️ 本节的结论在 2026-08-12 被实测推翻，两处都错
+>
+> **错误一：「`replay_file_versions` 从不为 `write` 产出 FileVersion」——不成立。**
+> `file_versions.py` 的 `pre=original.get(k, base)` 会回落到 `base`（即 `seen[k]`，
+> 可能由 `write` 写入）。实测两个最小 trace：
+>
+> ```
+> write a.py("x = 1\ny = 2") → edit(x = 1 → x = 99)
+>   ⇒ FileVersion(pre='x = 1\ny = 2\n', ...)        ← pre 出自 write 参数
+> read a.py("old = 1") → write(整文件重写) → edit(...)
+>   ⇒ FileVersion(pre='old = 1\n', post=重写+编辑后) ← 整次重写被并进「缺陷」
+> ```
+>
+> 现有池的 737 个 pair 里，**278 个的 `pre` 完全没有 read 页脚**，其中 182 个的文件
+> 在该草稿的 `context.files` 里从未出现过 —— 那些「缺陷」是模型自己写的代码里的问题。
+>
+> **错误二：「+73% 的语料」是行数，不是素材。** 按该改法实现一版实测：
+> `write ∧ ¬edit` 片（3,961 行）跨全期取 800 行出 **3 对**可用，全语料外推约 **15 对**，
+> 对现有约 92 对的可用池是 **+16%**。机制是工程师用整文件 `write` 写
+> `.md` / `.json` / `.xml` / `.cj`，用 `edit` 改代码。
+> 更宽的分层样本（2 天分桶跨 40 天）在两个片上都得 0 可用，
+> 但那是 0/6 个过语言门的 Python 对，在 §0.7 实测 74% 的 import 门淘汰率下
+> P(0 of 6) ≈ 0.16 —— **「零」同样没有被证明**。结论是「小、未证实、被语言门主导」。
+>
+> **真正挡路的是别的东西**：read 工具的页脚被当成文件内容保存了下来。
+> 详见 `docs/REFERENCE.md` §14.3.9 与 `.agent/trace-yield-expansion/plan.md`。
+
 **放宽 SQL 谓词单独做，收益为零。** `replay_file_versions` 对 `_WRITE_TOOLS` 只更新上下文
 （`seen[k] = body` 后 `continue`），从不产出 FileVersion。真正的杠杆是让「read 之后整文件 write」
 也算一对 pre/post —— `original[k]` 是 pre、写入的 body 是 post，现在被直接丢掉。

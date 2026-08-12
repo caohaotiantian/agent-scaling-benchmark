@@ -465,6 +465,8 @@ runs:
 | `--max-messages` | int | `60` | 同上上限，过滤超长轨迹 |
 | `--all-agents` | flag | 关 | 默认 `only_opencode=true`（User-Agent 含 opencode）；打开则不限 |
 | `--require-gold` | flag | 关 | 只保留能从 assistant 抽出代码块的草稿 |
+| `--require-edits` | flag | 关 | 只取真正编辑过代码的会话（SQL 谓词 `full_history LIKE '%"name": "edit"%'`）。反向构造需要编辑前后两个版本，按时间抽样几乎取不到 |
+| `--require-usable-pair` | flag | 关 | 只写出反向构造真能建题的草稿，判据就是 `generate-cases --reverse` 用的那条 `iter_file_versions`。**实测 `_rev_raw4` 3,312 条里只有 153 条合格**（2,977 条根本没有 pre/post 对），所以 `--max-cases` 有 95.4% 花在永远出不了用例的草稿上。<br>⚠️ 默认关：本命令同时喂正向生成器，那条路线不需要 `file_versions`，默认开会把它**静默清空** |
 | `--since` | str | 无 | `start_time >=`，`YYYY-MM-DD` |
 | `--until` | str | 无 | `start_time <`，`YYYY-MM-DD` |
 | `--export-raw` | Path | 无 | 额外写 meta 清单（id、预览、是否有 gold 等） |
@@ -1203,6 +1205,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | 测试抄写源码 | `test_reads_source_text` | error | 是 | §14.3.7；测试 grep 实现的源码文本而非运行它 |
 | 隐藏测试索要不可知符号 | `hidden_test_requires_unknowable_symbol` | error | 是 | §14.3.8；隐藏了行为可以，隐藏了接口不行 |
+| 判分文件带工具页脚 | `case_contains_tool_output_footer` | error | 是 | §14.3.9；stub 可能因加载不了而「失败」，不是因为缺陷 |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
 | 弱 grader 标记 | `weak_grader_flag` | warn | 否 | script 却标 weak_grader |
@@ -1432,7 +1435,41 @@ JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走�
 > 各自对自己也会翻转的用例 —— 实测区分度为零。**这道门禁提高的是难度的成色，不是区分度。**
 > 详见 `docs/HANDOFF.md` §0.0b。
 
-#### 14.3.9 `annotate` 写回字段
+#### 14.3.9 判分文件带工具页脚（`case_contains_tool_output_footer`）
+
+规则一句话：**被判分的文件里不能有 read 工具对它自己输出的描述。**
+
+反向构造用 trace 读到的内容重建文件，而 read 工具会在内容末尾追加一行自述。
+把那行当成文件内容留下来，代价不是「多一行噪声」：
+
+- `rev-d098848d56868e13` 发出去的 stub 末尾是 `(End of file - total 152 lines)`，
+  `node --check` 报 `SyntaxError: Unexpected token 'of'` —— **它根本不是合法 JavaScript**。
+  于是 `check_stub_fails` 是因为**文件加载不了**而通过的，不是因为有缺陷。
+  删掉那一行后重跑该用例自己的 grader：5 个测试 1 过 4 挂，挂的是真的 `ERR_ASSERTION`。
+- `rev-461e8d91390e3915` 的 stub 末尾是 `(Showing lines 1-40 of 190. Use offset=41 to continue.)`,
+  它是一个 190 行文件的**前 40 行**，断在 `success: false,` 中间，而参考解是完整文件。
+  这道题实际在问「把片段补成整文件」。
+
+**范围限定在判分标的**：`grader.gold_files`、`grader.hidden_tests`、
+以及与某个 gold 文件同路径的 `context.files` 条目。
+
+限定是必需的，不是保守。五个集合共 39 条用例带这行，**只有 11 条落在判分标的上**；
+另外 28 条在上下文或干扰文件里（`auto-v0` 全在 Markdown PRD 与 `.rs` 快照，
+`retrieval-v0` 全在 `role: distractor` 的文件），那里多一行噪声不改变用例测的东西。
+不限定就等于为一个碰不到判分的缺陷作废 28 条已发布用例 ——
+与 §14.3.7 记的「规则 3 该绑定到读取目标」是同一件事。
+
+实测命中：`_revclean` **2** / `_revmixed` **9** / `_rev6` 61；
+`auto-v0`、`disc-v0`、`retrieval-v0`、`_scaleprobe` 均为 **0**。
+
+匹配**行锚定** `^\(…\)$`：语料里有一个 `filesystem.py` 是 read 工具自身的实现，
+源码里就含 `result += f"\n\n(Showing lines {offset}-…)"`，子串匹配会误伤它。
+
+> **它什么时候才生效**：`calibrate.py` 不读 `validity_ok`，
+> `export_bundle` 与 `compose` 读的是**落盘的旧值**，只有 `promote` 会重跑 `audit_case`。
+> 所以这条门禁要到重跑一次 `audit-cases --annotate` 之后才对既有集合起作用。
+
+#### 14.3.10 `annotate` 写回字段
 
 | metadata 键 | 值 |
 |-------------|-----|

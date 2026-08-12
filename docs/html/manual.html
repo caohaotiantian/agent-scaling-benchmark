@@ -88,7 +88,7 @@ uv run pytest tests/ -q     # 应全部通过
 <pre><code>uv run aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/_drafts \
   --limit 30000 --max-cases 12000 \
-  --require-edits --all-agents \
+  --require-edits --require-usable-pair --all-agents \
   --min-messages 3 --max-messages 400</code></pre>
 <p><strong>不消耗模型额度</strong>，只读数据库。草稿逐条落盘，中途中断已产出部分仍保留。</p>
 <dl class="kv">
@@ -96,6 +96,7 @@ uv run pytest tests/ -q     # 应全部通过
 <dt>--max-messages</dt><dd><strong>影响最大的参数。</strong> 默认 60 会丢弃 69% 的含编辑会话，且丢弃的正是编辑最多的长会话。放宽到 400 后语料从 1,229 条增至 4,687 条。</dd>
 <dt>--all-agents</dt><dd>不限定来源客户端。不加此参数会额外过滤掉约 15% 的记录。</dd>
 <dt>--limit</dt><dd>数据库扫描行数上限。</dd>
+<dt>--require-usable-pair</dt><dd>只写出反向构造真能建题的草稿，判据与 <code>generate-cases --reverse</code> 用的是同一条。实测 3,312 条草稿里只有 <strong>153 条</strong>合格 —— 2,977 条根本没有编辑前后对，所以 <code>--max-cases</code> 有 95.4% 花在永远出不了用例的草稿上。<strong>默认关</strong>：本命令同时喂正向生成器，那条路线不需要这些对，默认打开会把它静默清空。</dd>
 <dt>--max-cases</dt><dd>写出草稿数上限。</dd>
 </dl>
 </div>
