@@ -246,3 +246,59 @@ def test_a_derived_distractor_survives_the_invariant_check():
     # T4 needs more than this draft can offer, but whatever tier it lands on must be consistent.
     check = check_tier_invariants(Case.from_dict(d))
     assert not any(v.code == "distractor_in_solution" for v in check.violations)
+
+
+def test_tests_nested_in_a_describe_block_are_left_alone():
+    """The splitter works on whole lines, so cutting between tests nested inside a JavaScript
+    `describe(...)` leaves both halves with an unclosed delimiter. Measured: the visible file
+    failed with `SyntaxError: Unexpected end of input` and the case read as one nobody can
+    solve rather than as a broken transform."""
+    case = {
+        "language": "javascript",
+        "context": {
+            "files": [
+                {
+                    "path": "x.test.mjs",
+                    "role": "test",
+                    "content": (
+                        "import { test, describe } from 'node:test';\n"
+                        "import assert from 'node:assert';\n\n"
+                        "describe('suite', () => {\n"
+                        "  test('a', () => { assert.ok(1); });\n"
+                        "  test('b', () => { assert.ok(2); });\n"
+                        "  test('c', () => { assert.ok(3); });\n"
+                        "});\n"
+                    ),
+                }
+            ]
+        },
+        "grader": {},
+    }
+    before = case["context"]["files"][0]["content"]
+    assert split_tests_for_hiding(case, hide_count=2) == 0
+    assert case["context"]["files"][0]["content"] == before
+    assert not case["grader"].get("hidden_tests")
+
+
+def test_top_level_tests_still_split():
+    case = {
+        "language": "python",
+        "context": {
+            "files": [
+                {
+                    "path": "test_x.py",
+                    "role": "test",
+                    "content": (
+                        "import pytest\n\n\n"
+                        "def test_a():\n    assert 1\n\n\n"
+                        "def test_b():\n    assert 2\n\n\n"
+                        "def test_c():\n    assert 3\n"
+                    ),
+                }
+            ]
+        },
+        "grader": {},
+    }
+    assert split_tests_for_hiding(case, hide_count=2) == 2
+    assert "test_a" in case["context"]["files"][0]["content"]
+    assert "test_c" not in case["context"]["files"][0]["content"]
