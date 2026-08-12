@@ -8,7 +8,11 @@ produce a case that is fiction wearing real code.
 
 import json
 
-from aibench.extract.file_versions import replay_file_versions
+from aibench.extract.file_versions import (
+    PRE_FROM_READ,
+    PRE_FROM_TOOL_WRITE,
+    replay_file_versions,
+)
 
 
 def _read(path, body):
@@ -16,6 +20,26 @@ def _read(path, body):
         "role": "tool",
         "content": f"<path>{path}</path>\n<type>file</type>\n<content>{body}</content>",
         "tool_calls": None,
+    }
+
+
+def _window(path, body, *, shown="1-2", total=190):
+    """A read that returned only part of the file, as the tool reports it."""
+    return _read(path, f"{body}\n(Showing lines {shown} of {total}. Use offset=3 to continue.)")
+
+
+def _write(path, body):
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "function": {
+                    "name": "write",
+                    "arguments": json.dumps({"filePath": path, "content": body}),
+                }
+            }
+        ],
     }
 
 
@@ -75,24 +99,27 @@ class TestReplay:
     def test_a_write_replaces_the_working_copy(self):
         msgs = [
             _read("a.py", "old = 1\n"),
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "function": {
-                            "name": "write",
-                            "arguments": json.dumps(
-                                {"filePath": "a.py", "content": "fresh = 1\nkeep = 2\n"}
-                            ),
-                        }
-                    }
-                ],
-            },
+            _write("a.py", "fresh = 1\nkeep = 2\n"),
             _edit("a.py", "fresh = 1", "fresh = 99"),
         ]
         fvs, _ = replay_file_versions(msgs)
         assert fvs[0].post == "fresh = 99\nkeep = 2\n"
+        # The rewrite is folded into the "defect": `pre` is what the trace read, `post` is what
+        # the write left plus the edit. That is not a fix an engineer made to that file.
+        assert fvs[0].pre == "old = 1\n"
+        assert fvs[0].pre_origin == PRE_FROM_READ
+
+    def test_a_pre_the_trace_never_read_is_labelled_as_the_tool_s_own_writing(self):
+        """`pre=original.get(k, base)` falls back to whatever last set `seen[k]`.
+
+        With no read anywhere, that is the model's own first draft — so the "defect" would be a
+        typo in code the model just wrote, not an engineer's bug. 182 of the 737 pairs in the
+        current draft pool name a file that appears in no read at all.
+        """
+        msgs = [_write("a.py", "x = 1\ny = 2\n"), _edit("a.py", "x = 1", "x = 99")]
+        fvs, _ = replay_file_versions(msgs)
+        assert fvs[0].pre == "x = 1\ny = 2\n"
+        assert fvs[0].pre_origin == PRE_FROM_TOOL_WRITE
 
     def test_a_file_edited_back_to_its_original_is_not_a_case(self):
         msgs = [
@@ -136,7 +163,38 @@ class TestFiltering:
         assert len(fvs) == 1
 
 
+class TestPartialReads:
+    """A window of a file is not the file.
+
+    `rev-461e8d91390e3915` shipped in the 19-case clean set with a stub that is the first 40
+    lines of a 190-line file, cut mid-expression, against a complete reference solution. It
+    passed every validity gate: the task it actually poses is "grow this fragment into the whole
+    file", which is not the defect the engineer fixed.
+    """
+
+    def test_an_edit_located_only_in_a_window_is_refused(self):
+        msgs = [_window("a.py", "x = 1\ny = 2"), _edit("a.py", "x = 1", "x = 99")]
+        fvs, st = replay_file_versions(msgs)
+        assert fvs == []
+        assert st.unlocatable == 1, "honestly unmatched beats matched against a fragment"
+        assert st.dropped_partial_read == 1
+
+    def test_a_later_complete_read_rescues_the_file(self):
+        msgs = [
+            _window("a.py", "x = 1\ny = 2"),
+            _read("a.py", "x = 1\ny = 2\nz = 3\n"),
+            _edit("a.py", "x = 1", "x = 99"),
+        ]
+        fvs, _ = replay_file_versions(msgs)
+        assert [f.pre for f in fvs] == ["x = 1\ny = 2\nz = 3\n"]
+        assert fvs[0].pre_origin == PRE_FROM_READ
+
+
 class TestStats:
+    def test_partial_reads_are_reported(self):
+        _, st = replay_file_versions([_window("a.py", "x = 1\ny = 2")])
+        assert st.to_dict()["dropped_partial_read"] == 1
+
     def test_yield_is_reported_rather_than_guessed(self):
         msgs = [
             _read("a.py", BEFORE),

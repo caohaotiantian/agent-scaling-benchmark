@@ -24,12 +24,25 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from aibench.extract.history_parse import extract_files_from_tool_text, parse_jsonish
+from aibench.extract.history_parse import (
+    READ_PARTIAL,
+    extract_files_from_tool_text,
+    parse_jsonish,
+)
 from aibench.languages import registered_spec, spec_for_path
 
 _EDIT_TOOLS = {"edit", "str_replace", "str_replace_editor"}
 _WRITE_TOOLS = {"write", "file_write"}
 _PATH_KEYS = ("filePath", "file_path", "path", "target_file")
+
+
+#: `pre` is the file as a read showed it in full — the only provenance the reverse-construction
+#: argument actually covers.
+PRE_FROM_READ = "read_complete"
+#: `pre` is what a `write` call put there, because no read of the file ever happened. The
+#: "defect" is then a flaw in code the model itself authored moments earlier. 182 of the 737
+#: pairs in the current draft pool are this, and nothing recorded it.
+PRE_FROM_TOOL_WRITE = "tool_write"
 
 
 @dataclass
@@ -40,9 +53,16 @@ class FileVersion:
     pre: str
     post: str
     edits: int = 0
+    pre_origin: str = PRE_FROM_READ
 
     def to_dict(self) -> dict[str, Any]:
-        return {"path": self.path, "pre": self.pre, "post": self.post, "edits": self.edits}
+        return {
+            "path": self.path,
+            "pre": self.pre,
+            "post": self.post,
+            "edits": self.edits,
+            "pre_origin": self.pre_origin,
+        }
 
 
 @dataclass
@@ -54,6 +74,10 @@ class ReplayStats:
     unlocatable: int = 0
     dropped_unregistered: int = 0
     dropped_unparseable: int = 0
+    #: Reads that returned a window of a file rather than the file, and were therefore not
+    #: admitted as its content. Expect `unlocatable` to rise with this: an edit that used to be
+    #: matched against a fragment is now reported as unmatched, which is the honest answer.
+    dropped_partial_read: int = 0
     reasons: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +87,7 @@ class ReplayStats:
             "unlocatable": self.unlocatable,
             "dropped_unregistered": self.dropped_unregistered,
             "dropped_unparseable": self.dropped_unparseable,
+            "dropped_partial_read": self.dropped_partial_read,
         }
 
 
@@ -383,6 +408,13 @@ def replay_file_versions(
     for msg in messages:
         if msg.get("role") == "tool":
             for f in extract_files_from_tool_text(str(msg.get("content") or "")):
+                if f.get("origin") == READ_PARTIAL:
+                    # A window is content the trace saw *part* of. Matching an edit against it
+                    # can only reconstruct a "before" that is a fragment wearing a whole file's
+                    # name — the fiction this module exists to refuse. `rev-461e8d91390e3915`
+                    # shipped exactly that: 40 lines of a 190-line file, cut mid-expression.
+                    stats.dropped_partial_read += 1
+                    continue
                 k = _key(f["path"])
                 seen.setdefault(k, f["content"])
                 original.setdefault(k, f["content"])
@@ -418,7 +450,13 @@ def replay_file_versions(
             fv = current.get(k)
             if fv is None:
                 current[k] = FileVersion(
-                    path=path, pre=original.get(k, base), post=seen[k], edits=1
+                    path=path,
+                    pre=original.get(k, base),
+                    post=seen[k],
+                    edits=1,
+                    # `original` only ever holds a complete read. Anything else reaching `pre`
+                    # came through the `base` fallback, i.e. from a `write` call's arguments.
+                    pre_origin=PRE_FROM_READ if k in original else PRE_FROM_TOOL_WRITE,
                 )
             else:
                 fv.post = seen[k]

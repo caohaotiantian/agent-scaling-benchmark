@@ -1,4 +1,6 @@
 from aibench.extract.history_parse import (
+    READ_COMPLETE,
+    READ_PARTIAL,
     extract_files_from_tool_text,
     is_coding_record,
     normalize_messages,
@@ -26,6 +28,60 @@ def test_path_content_extract():
     assert len(files) == 1
     assert files[0]["path"].endswith("stats.py")
     assert "def average" in files[0]["content"]
+
+
+def _tool_text(path, body):
+    return f"<path>{path}</path>\n<type>file</type>\n<content>{body}</content>"
+
+
+class TestReadFooter:
+    """The read tool appends a line describing its own output. It is not part of the file.
+
+    Measured over the 23,868 files reconstructed for the `_rev_raw4` draft pool: 98.0% end in
+    one of five such lines, and none of the five ever appears anywhere but the last line. Kept
+    as content they made 94.6% of Python files unparseable, so the material was discarded before
+    it could become a case.
+    """
+
+    def test_a_complete_read_loses_its_footer_and_parses(self):
+        body = "def total(items):\n    return sum(items)\n\n(End of file - total 2 lines)"
+        (f,) = extract_files_from_tool_text(_tool_text("calc.py", body))
+        assert f["content"] == "def total(items):\n    return sum(items)\n"
+        assert f["origin"] == READ_COMPLETE
+
+    def test_every_footer_the_corpus_uses_is_recognised(self):
+        partial = [
+            "(Showing lines 1-2 of 190. Use offset=3 to continue.)",
+            "(File has more lines. Use 'offset' parameter to read beyond line 2000)",
+            "(Output capped at 50 KB. Showing lines 1-2. Use offset=3 to continue.)",
+            "(Output truncated at 51200 bytes. Use 'offset' parameter to read beyond line 2)",
+        ]
+        for footer in partial:
+            (f,) = extract_files_from_tool_text(_tool_text("a.py", f"x = 1\ny = 2\n\n{footer}"))
+            assert f["origin"] == READ_PARTIAL, footer
+            assert footer not in f["content"], footer
+
+    def test_a_complete_read_footer_that_disagrees_with_the_body_is_partial(self):
+        """A read issued with an offset can reach EOF, so the footer says "end of file" about a
+        tail. 1,076 of the corpus's 17,010 such footers (6.3%) declare more lines than they
+        carry; trusting the wording alone readmits the fragment this predicate exists to reject.
+        """
+        body = "    return sum(items)\n\n(End of file - total 593 lines)"
+        (f,) = extract_files_from_tool_text(_tool_text("calc.py", body))
+        assert f["origin"] == READ_PARTIAL
+
+    def test_a_file_without_a_footer_is_left_alone(self):
+        (f,) = extract_files_from_tool_text(_tool_text("a.py", "x = 1\n"))
+        assert f["content"] == "x = 1\n"
+        assert f["origin"] == READ_COMPLETE
+
+    def test_only_the_last_line_is_a_footer(self):
+        """`filesystem.py` in this very corpus is a read-tool implementation whose source
+        contains these strings. Matching anywhere would eat a line of real code.
+        """
+        body = 'msg = "(End of file - total 3 lines)"\nprint(msg)\n'
+        (f,) = extract_files_from_tool_text(_tool_text("filesystem.py", body))
+        assert f["content"] == body
 
 
 def test_coding_record_opencode():

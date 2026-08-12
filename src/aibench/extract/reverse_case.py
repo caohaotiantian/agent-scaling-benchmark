@@ -313,8 +313,34 @@ def _is_test_file(path: str) -> bool:
     return bool(spec and spec.is_test_path(path))
 
 
+def _with_vouched_pre(fv: dict[str, Any]) -> dict[str, Any] | None:
+    """``fv`` with a ``pre`` the trace demonstrably read in full, or None if it has none.
+
+    Drafts written before provenance was recorded carry no ``pre_origin``. They are not exempt —
+    an unvouched-for ``pre`` is exactly what this refuses — but they do not need to be, because
+    the read tool's footer is still in the stored text and says which of the three cases it is.
+    """
+    from aibench.extract.file_versions import PRE_FROM_READ
+    from aibench.extract.history_parse import READ_COMPLETE, split_read_footer
+
+    pre = str(fv.get("pre") or "")
+    origin = fv.get("pre_origin")
+    if origin is not None:
+        return fv if origin == PRE_FROM_READ else None
+    body, how = split_read_footer(pre)
+    if how != READ_COMPLETE or body == pre:
+        # No footer at all means the text never came from a read: 182 of the 278 such pairs in
+        # the pool name a file that appears in no read anywhere, and the rest cannot be told
+        # apart from those. Refusing what cannot be vouched for is the whole point.
+        return None
+    return {**fv, "pre": body}
+
+
 def iter_file_versions(
-    draft: dict[str, Any], *, require_imports_satisfiable: bool = True
+    draft: dict[str, Any],
+    *,
+    require_imports_satisfiable: bool = True,
+    require_read_pre: bool = True,
 ) -> list[dict[str, Any]]:
     """The before/after pairs a draft carries, largest change first.
 
@@ -341,6 +367,8 @@ def iter_file_versions(
         for fv in ((draft.get("metadata") or {}).get("file_versions") or [])
         if isinstance(fv, dict)
     ]
+    if require_read_pre:
+        fvs = [g for fv in fvs if (g := _with_vouched_pre(fv)) is not None]
     fvs = [fv for fv in fvs if not _is_test_file(str(fv.get("path") or ""))]
     fvs = [
         fv

@@ -16,6 +16,24 @@ _FILE_HEADER = re.compile(
     re.I,
 )
 
+#: How a file's content reached us. A file the trace read in full is material a case can be
+#: built on; a window of one is not, and the two arrive looking identical.
+READ_COMPLETE = "read_complete"
+READ_PARTIAL = "read_partial"
+
+#: The read tool appends a line describing its own output inside `<content>`. Enumerated over
+#: every line of the 23,868 files reconstructed for `_rev_raw4`: these five shapes are the only
+#: ones present, 98.0% of files carry one, and not one ever occurs anywhere but the last line —
+#: hence the line anchor. It matters: `filesystem.py` in that same corpus is a read-tool
+#: implementation whose source builds these strings, and a substring match would eat real code.
+_FOOTER_COMPLETE = re.compile(r"^\(End of file - total (?P<n>\d+) lines\)$")
+_FOOTER_PARTIAL = re.compile(
+    r"^\((?:Showing lines [\d-]+ of \d+\..*"
+    r"|File has more lines\..*"
+    r"|Output capped at .*"
+    r"|Output truncated at .*)\)$"
+)
+
 CODING_TOOLS = {
     "bash",
     "read",
@@ -133,6 +151,34 @@ def tool_names(tools: Any) -> list[str]:
     return names
 
 
+def split_read_footer(content: str) -> tuple[str, str]:
+    """Content without the read tool's trailing self-description, and how the file was read.
+
+    The declared line count is checked rather than trusted. A read issued with an ``offset`` can
+    reach the end of the file, and it is then footed "End of file" while carrying only the tail:
+    1,076 of the corpus's 17,010 such footers (6.3%, and 8.0% of the Python ones) declare more
+    lines than they hold. Reading the wording alone lets exactly the fragment this predicate
+    exists to reject back in through the other branch.
+
+    A tolerance of one line covers the blank line the tool leaves before the footer, which is
+    what 15,834 of those 17,010 exhibit.
+    """
+    lines = content.splitlines()
+    last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    if last is None:
+        return content, READ_COMPLETE
+    stripped = lines[last].strip()
+    if _FOOTER_PARTIAL.match(stripped):
+        return "\n".join(lines[:last]).rstrip() + "\n", READ_PARTIAL
+    m = _FOOTER_COMPLETE.match(stripped)
+    if m is None:
+        return content, READ_COMPLETE
+    body = "\n".join(lines[:last]).rstrip() + "\n"
+    declared = int(m.group("n"))
+    actual = len(body.splitlines())
+    return body, (READ_COMPLETE if abs(declared - actual) <= 1 else READ_PARTIAL)
+
+
 def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
     files: list[dict[str, str]] = []
     for m in _PATH_CONTENT.finditer(text or ""):
@@ -152,8 +198,9 @@ def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
             else:
                 cleaned_lines.append(line)
         content = "\n".join(cleaned_lines).strip() + "\n"
+        content, origin = split_read_footer(content)
         if path and content.strip():
-            files.append({"path": path, "content": content[:200_000]})
+            files.append({"path": path, "content": content[:200_000], "origin": origin})
     return files
 
 

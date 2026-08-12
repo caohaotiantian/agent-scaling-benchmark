@@ -318,7 +318,11 @@ class TestVisibleTestsAreProtected:
 
 class TestIterFileVersionsPredicates:
     def _draft(self, versions):
-        return {"metadata": {"file_versions": versions}}
+        # Every pair claims a `pre` the trace read in full, so these tests exercise the
+        # predicate under study rather than the provenance check that runs ahead of it.
+        return {
+            "metadata": {"file_versions": [{"pre_origin": "read_complete", **v} for v in versions]}
+        }
 
     def test_test_files_are_dropped(self):
         draft = self._draft(

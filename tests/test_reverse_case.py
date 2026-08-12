@@ -103,6 +103,8 @@ def test_reasoning_is_still_accepted_when_the_model_actually_finished(monkeypatc
 PRE = "def clamp(v, lo, hi):\n    return min(v, hi)\n"
 POST = "def clamp(v, lo, hi):\n    return max(lo, min(v, hi))\n"
 FV = {"path": "pkg/clamp.py", "pre": PRE, "post": POST, "edits": 1}
+#: Material only counts when the trace read the file in full — see `_with_vouched_pre`.
+READ = {"pre_origin": "read_complete"}
 
 
 def _draft(**over):
@@ -167,8 +169,13 @@ def test_versions_are_offered_largest_change_first():
     draft = _draft(
         metadata={
             "file_versions": [
-                {"path": "small.py", "pre": "a = 1\n", "post": "a = 2\n"},
-                {"path": "big.py", "pre": "a = 1\n", "post": "a = 1\n" + "b = 2\n" * 40},
+                {"path": "small.py", "pre": "a = 1\n", "post": "a = 2\n", **READ},
+                {
+                    "path": "big.py",
+                    "pre": "a = 1\n",
+                    "post": "a = 1\n" + "b = 2\n" * 40,
+                    **READ,
+                },
             ]
         }
     )
@@ -188,13 +195,66 @@ def test_a_pair_needing_absent_packages_is_dropped_before_generation():
                     "path": "a.py",
                     "pre": "import obstacle_avoidance\nx=1\n",
                     "post": "import obstacle_avoidance\nx=2\n",
+                    **READ,
                 },
-                {"path": "b.py", "pre": "import json\nx=1\n", "post": "import json\nx=2\n"},
+                {
+                    "path": "b.py",
+                    "pre": "import json\nx=1\n",
+                    "post": "import json\nx=2\n",
+                    **READ,
+                },
             ]
         }
     )
     assert [fv["path"] for fv in iter_file_versions(draft)] == ["b.py"]
     assert len(iter_file_versions(draft, require_imports_satisfiable=False)) == 2
+
+
+def test_a_pre_the_tool_wrote_is_not_material_for_a_case():
+    """The stub is meant to be the file as the trace found it.
+
+    When no read ever happened, `pre` is what the model's own `write` put there, so the "defect"
+    is a flaw in code it authored moments earlier. 41 of the 92 usable pairs in the current pool
+    are this shape, and nothing distinguished them.
+    """
+    draft = {
+        "metadata": {
+            "file_versions": [
+                {"path": "m.py", "pre": "v = 1\n", "post": "v = 2\n", "pre_origin": "tool_write"},
+                {
+                    "path": "n.py",
+                    "pre": "v = 1\n",
+                    "post": "v = 2\n",
+                    "pre_origin": "read_complete",
+                },
+            ]
+        }
+    }
+    assert [fv["path"] for fv in iter_file_versions(draft)] == ["n.py"]
+    assert len(iter_file_versions(draft, require_read_pre=False)) == 2
+
+
+def test_a_draft_predating_provenance_is_judged_by_the_footer_it_still_carries():
+    """All 3,312 drafts on disk were built before `pre_origin` existed.
+
+    They are not exempt: an unvouched-for `pre` is the thing this predicate refuses. They do not
+    need to be, either — the read tool's footer is still sitting in the stored text, which is
+    how the pool was classified in the first place (346 complete / 113 window / 278 no footer).
+    """
+    fvs = [
+        {"path": "ok.py", "pre": "v = 1\n\n(End of file - total 1 lines)", "post": "v = 2\n"},
+        {
+            "path": "frag.py",
+            "pre": "v = 1\n\n(Showing lines 1-1 of 90. Use offset=2 to continue.)",
+            "post": "v = 2\n",
+        },
+        {"path": "unknown.py", "pre": "v = 1\n", "post": "v = 2\n"},
+    ]
+    draft = {"metadata": {"file_versions": fvs}}
+    kept = iter_file_versions(draft)
+    assert [fv["path"] for fv in kept] == ["ok.py"]
+    assert kept[0]["pre"] == "v = 1\n", "the footer is not part of the file"
+    assert len(iter_file_versions(draft, require_read_pre=False)) == 3
 
 
 def test_a_sibling_import_counts_as_unsatisfiable_for_js():
