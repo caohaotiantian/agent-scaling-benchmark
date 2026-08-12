@@ -495,12 +495,17 @@ def check_tool_output_footer(case: Case) -> list[ValidityIssue]:
     `(Showing lines 1-40 of 190. …)`: the first 40 lines of a 190-line file, cut mid-expression,
     against a complete reference solution.
 
-    Scoped to the artefact under test — the reference solution's files, the context entries that
-    share a path with one, and the hidden tests. Of the 39 cases carrying such a line across
-    five sets, only 11 are of that kind; the other 28 have it in a context or distractor file,
-    where a line of noise changes nothing the case measures. Rejecting those would invalidate
-    published cases for a defect that does not touch them, which is the failure §14.3.7 already
+    Scoped to what the case declares as the thing under test: ``role: impl``, the reference
+    solution, the hidden tests, and anything protected. Distractor and spec files stay out —
+    noise inside the haystack a retrieval case exists to contain changes nothing it measures,
+    and all six `retrieval-v0` hits are distractors. That is the same distinction §14.3.7
     records for rule 3 of the transcription gate.
+
+    Keying on gold paths alone was the first attempt and was blind twice over: 22 published
+    cases carry no reference solution, and a `mode: gold` case ships a synthetic `solution.py`
+    while the implementation keeps its real name, so the two sets never intersect. Newly failed,
+    counting only cases not already invalid: `_revclean` 2, `_revmixed` 2, `auto-v0` 2,
+    `disc-v0` 0, `retrieval-v0` 0, `_rev6` 12, `_scaleprobe` 5.
     """
     from aibench.extract.history_parse import split_read_footer
     from aibench.workspace import safe_relpath

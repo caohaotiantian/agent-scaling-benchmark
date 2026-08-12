@@ -102,13 +102,24 @@ class TestReadFooter:
         )
         assert f["origin"] == READ_PARTIAL
 
-    def test_only_the_last_line_is_a_footer(self):
-        """`filesystem.py` in this very corpus is a read-tool implementation whose source
-        contains these strings. Matching anywhere would eat a line of real code.
+    def test_a_footer_above_the_last_line_is_not_one(self):
+        """`filesystem.py` in this corpus is a read-tool implementation that builds one of these
+        strings on its line 199 of 833. Inspecting only the last non-blank line is what puts it
+        out of reach.
         """
         body = 'msg = "(End of file - total 3 lines)"\nprint(msg)\n'
         (f,) = extract_files_from_tool_text(_tool_text("filesystem.py", body))
         assert f["content"] == body
+
+    def test_a_last_line_that_only_starts_with_a_footer_is_not_one(self):
+        """What the trailing `$` is for. `re.match` already anchors the start, so a fixture
+        whose footer sits mid-line proves nothing — it fails to match either way. The line has
+        to *begin* with the footer and carry something after it for the anchor to be load-bearing.
+        """
+        body = "x = 1\n(End of file - total 3 lines) and more\n"
+        (f,) = extract_files_from_tool_text(_tool_text("a.py", body))
+        assert f["content"] == body
+        assert f["origin"] == READ_UNKNOWN
 
 
 def test_coding_record_opencode():

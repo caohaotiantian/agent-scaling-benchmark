@@ -1480,6 +1480,12 @@ JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走�
 > **它什么时候才生效**：`calibrate.py` 不读 `validity_ok`，
 > `export_bundle` 与 `compose` 读的是**落盘的旧值**，只有 `promote` 会重跑 `audit_case`。
 > 所以这条门禁要到重跑一次 `audit-cases --annotate` 之后才对既有集合起作用。
+>
+> ⚠️ **而 `scripts/e2e_pipeline.sh:165` 会自动跑 `audit-cases --case-set auto-v0 --annotate`。**
+> `annotate` 原地改 case 文件，而所有 case 集合都在 `.gitignore` 里、git 从未跟踪过 ——
+> 旧判定无法从版本库恢复。**跑它之前先 `cp -a` 一份集合目录。**
+> 下游 `compose.load_verified_cases` 会**静默**丢掉判负的用例（不打任何诊断），
+> `export-bundle` 则会把理由记进 manifest。
 
 #### 14.3.10 `annotate` 写回字段
 

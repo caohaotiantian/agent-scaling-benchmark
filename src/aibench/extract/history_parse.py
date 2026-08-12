@@ -27,9 +27,14 @@ READ_UNKNOWN = "read_unknown"
 
 #: The read tool appends a line describing its own output inside `<content>`. Enumerated over
 #: every line of the 23,868 files reconstructed for `_rev_raw4`: these five shapes are the only
-#: ones present, 98.0% of files carry one, and not one ever occurs anywhere but the last line —
-#: hence the line anchor. It matters: `filesystem.py` in that same corpus is a read-tool
-#: implementation whose source builds these strings, and a substring match would eat real code.
+#: ones present and 98.0% of files carry one.
+#:
+#: What keeps a line of real source safe is `split_read_footer` inspecting only the last
+#: non-blank line — `filesystem.py` in that same corpus is a read-tool implementation that
+#: builds one of these strings on its line 199 of 833, and it is out of reach for that reason,
+#: not because of the anchors. The anchors are the narrower second guard: they are what stops a
+#: last line that merely *contains* a footer, such as `log("(End of file - total 3 lines)")`,
+#: from being mistaken for one.
 _FOOTER_COMPLETE = re.compile(r"^\(End of file - total (?P<n>\d+) lines\)$")
 _FOOTER_PARTIAL = re.compile(
     r"^\((?:Showing lines [\d-]+ of \d+\..*"

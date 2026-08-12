@@ -106,7 +106,10 @@ def main(argv: list[str] | None = None) -> int:
         "`generate-cases --reverse` applies. Of the 3,312 drafts in the current pool, 50 "
         "qualify (1.5%%) — 2,977 carry no before/after pair at all and the rest cannot show "
         "their `pre` came from a complete read. Off by default: this command also feeds the "
-        "forward generator, which needs no pairs and would be cut to 1.5%% of its input.",
+        "forward generator, which needs no pairs and would be cut to 1.5%% of its input. "
+        "Note the predicate consults configs/grading-env.yaml: 63 further drafts are dropped "
+        "on the strength of that manifest, and with the flag off a package added later recovers "
+        "them for free — with it on they were never written.",
     )
     p_db.add_argument("--since", type=str, default=None)
     p_db.add_argument("--until", type=str, default=None)
