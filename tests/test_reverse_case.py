@@ -353,3 +353,72 @@ def test_redaction_never_hands_back_source_that_stopped_parsing():
 
     already_broken = 'x = "/home/tc/a\n'
     assert "/home/tc" not in redact_paths(already_broken, path="m.py")
+
+
+class TestTestsAreCheckedBeforeTheCaseIsAccepted:
+    """Two of the validity gates judge only the test file the model wrote.
+
+    Both are static — no workspace, no runner — yet they ran after generation had been paid
+    for. Of the 64 cases that failed audit in the `_rev2026` build, 30 failed on nothing else:
+    19 on a hidden test naming a symbol the solver cannot learn, 11 on a suite that greps the
+    implementation's source instead of running it. Each cost a model call and was discarded.
+    """
+
+    def _serving(self, *replies):
+        """A chat that returns each reply in turn, recording what it was asked."""
+        seen = []
+
+        def _chat(messages):
+            seen.append(messages)
+            return json.dumps(replies[min(len(seen) - 1, len(replies) - 1)])
+
+        return _chat, seen
+
+    def _answer(self, test_content):
+        return {
+            "prompt": "Values below the lower bound are returned unchanged.",
+            "test_path": "test_clamp.py",
+            "test_content": test_content,
+        }
+
+    TRANSCRIPTION = (
+        "from pathlib import Path\n"
+        "src = Path('clamp.py').read_text()\n"
+        "def test_x():\n"
+        "    assert 'max(lo' in src\n"
+    )
+    BEHAVIOUR = "import clamp\n\n\ndef test_low():\n    assert clamp.clamp(-5, 0, 10) == 0\n"
+
+    def test_a_transcription_suite_is_sent_back_before_the_case_is_built(self):
+        chat, seen = self._serving(self._answer(self.TRANSCRIPTION), self._answer(self.BEHAVIOUR))
+        case = reverse_case_from_versions(FV, draft=_draft(), chat=chat)
+        assert len(seen) == 2, "the model must be asked again, not the case discarded"
+        assert "clamp.py" not in case["context"]["files"][1]["content"]
+        retry = "\n".join(m["content"] for m in seen[1])
+        assert "transcription" in retry or "source text" in retry, (
+            "the retry must say what was wrong; asking again unchanged only repeats the bill"
+        )
+
+    def test_a_suite_that_passes_costs_exactly_one_call(self):
+        chat, seen = self._serving(self._answer(self.BEHAVIOUR))
+        reverse_case_from_versions(FV, draft=_draft(), chat=chat)
+        assert len(seen) == 1
+
+    def test_a_model_that_will_not_comply_yields_no_case(self):
+        chat, seen = self._serving(self._answer(self.TRANSCRIPTION))
+        with pytest.raises(ValueError, match="static test gates"):
+            reverse_case_from_versions(FV, draft=_draft(), chat=chat)
+        assert len(seen) == 2, "one retry, then give up rather than spend without bound"
+
+    def test_a_hidden_test_naming_an_unknowable_symbol_is_sent_back(self):
+        """The half that gets hidden is where this hides, so the check must run after the split."""
+        unknowable = (
+            "import clamp\n\n\n"
+            "def test_a():\n    assert clamp.clamp(5, 0, 10) == 5\n\n\n"
+            "def test_b():\n    assert clamp.rescale_to_bounds(5) == 5\n\n\n"
+            "def test_c():\n    assert clamp.clamp(1, 0, 10) == 1\n\n\n"
+            "def test_d():\n    assert clamp.clamp(2, 0, 10) == 2\n"
+        )
+        chat, seen = self._serving(self._answer(unknowable), self._answer(self.BEHAVIOUR))
+        reverse_case_from_versions(FV, draft=_draft(), chat=chat, hide_tests=True)
+        assert len(seen) == 2

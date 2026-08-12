@@ -14,6 +14,7 @@ existing gates reject. The model cannot make the task easier, only fail to descr
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -111,6 +112,43 @@ def build_prompt(
     return system, user
 
 
+def _test_gate_failures(case: dict[str, Any]) -> list[str]:
+    """The static gates that judge only the test file the model wrote.
+
+    Both need no workspace and no runner, yet they ran after generation had been paid for. Of
+    the 64 cases that failed audit in the 133-case build, 30 failed on nothing else — 19 on a
+    hidden test naming a symbol the solver cannot learn, 11 on a suite that greps the
+    implementation instead of running it. Each of those cost a model call and was discarded.
+
+    The case handed here is the finished one, split and protected, so what passes in the loop
+    is byte-for-byte what `audit-cases` will judge afterwards.
+    """
+    from aibench.models import Case
+    from aibench.validity import check_hidden_tests_are_inferable, check_test_reads_source
+
+    parsed = Case.from_dict(case)
+    return [
+        i.message
+        for i in (*check_test_reads_source(parsed), *check_hidden_tests_are_inferable(parsed))
+    ]
+
+
+def _rewrite_request(problems: list[str]) -> str:
+    """What to send back. Naming the fault is the only reason a second call is worth paying for."""
+    return (
+        "Your test file was rejected:\n"
+        + "\n".join(f"- {p}" for p in problems)
+        + "\n\nWrite it again, same JSON keys. Two rules decide it:\n"
+        "- Never read the implementation's source text — no readFileSync, no read_text, no "
+        "inspect.getsource, no asserting on substrings of the file. Import the module and call "
+        "it, and assert on what it returns or raises. Source text always separates the two "
+        "versions, so such a suite grades transcription rather than behaviour.\n"
+        "- Every symbol your tests call must already appear in the implementation you were "
+        "shown. Do not invent a helper the solver has no way to learn about: a test for a name "
+        "that exists nowhere is unanswerable, not difficult."
+    )
+
+
 def reverse_case_from_versions(
     fv: dict[str, Any],
     *,
@@ -140,15 +178,54 @@ def reverse_case_from_versions(
     system, user = build_prompt(
         fv, str(draft.get("prompt") or ""), language=spec.name, test_name=prescribed_test
     )
-    data = _extract_json_object(
-        chat(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    data = _extract_json_object(chat(messages))
+
+    for attempt in range(2):
+        case = _assemble_case(
+            data,
+            spec=spec,
+            fv=fv,
+            draft=draft,
+            module=module,
+            prescribed_test=prescribed_test,
+            tier=tier,
+            hide_tests=hide_tests,
         )
+        problems = _test_gate_failures(case)
+        if not problems:
+            return case
+        if attempt:
+            # The second answer failed too. Asking a third time buys nothing new to tell it.
+            break
+        # One rewrite, and only because the request changes: it now names what was wrong.
+        # Asking again unchanged would just repeat the bill — the lesson `chat_json` already
+        # records for truncation.
+        messages = [
+            *messages,
+            {"role": "assistant", "content": json.dumps(data, ensure_ascii=False)},
+            {"role": "user", "content": _rewrite_request(problems)},
+        ]
+        data = _extract_json_object(chat(messages))
+    raise ValueError(
+        "suite still fails the static test gates after a rewrite: " + "; ".join(problems)
     )
 
+
+def _assemble_case(
+    data: dict[str, Any],
+    *,
+    spec: Any,
+    fv: dict[str, Any],
+    draft: dict[str, Any],
+    module: str,
+    prescribed_test: str,
+    tier: str,
+    hide_tests: bool,
+) -> dict[str, Any]:
+    """Turn one model answer into a case, or raise if the answer is unusable."""
+    path = str(fv.get("path") or "")
+    pre, post = str(fv.get("pre") or ""), str(fv.get("post") or "")
     test_content = str(data.get("test_content") or "")
     if not test_content.strip():
         raise ValueError("model returned no test_content")
