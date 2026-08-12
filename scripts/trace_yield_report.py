@@ -7,8 +7,12 @@ three ways at once — it made Python unparseable so the material was discarded,
 of a file pass as the whole file, and it shipped a stub that would not even load.
 
 ``--self-test`` asserts the predicate itself against inline fixtures, so it runs anywhere and
-fails on a tree where the fix is absent. The pool and A/B modes need data that is gitignored or
-behind ``AIBENCH_DB_URL``; both report that they were skipped rather than passing silently.
+fails on a tree where the fix is absent. ``--pool`` describes a draft directory; those are
+gitignored, so a missing one is reported as skipped rather than passed silently.
+
+There is deliberately no A/B mode. Comparing yield before and after needs the *old* extractor,
+which is a git revision rather than a flag — ``git worktree add <baseSha>`` and run this
+script's ``--pool`` on each side. Both reviewers of this change measured it exactly that way.
 """
 
 from __future__ import annotations

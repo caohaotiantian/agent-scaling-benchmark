@@ -187,12 +187,23 @@ class TestToolOutputFooter:
     same distinction for rule 3 of the transcription gate.
     """
 
-    def _case_with(self, *, impl_body=None, distractor_body=None):
-        files = [{"path": "impl.py", "content": impl_body or "def f():\n    return 1\n"}]
+    def _case_with(self, *, impl_body=None, distractor_body=None, gold=True, protected=()):
+        files = [
+            {"path": "impl.py", "content": impl_body or "def f():\n    return 1\n", "role": "impl"}
+        ]
         if distractor_body is not None:
             files.append(
                 {"path": "notes.md", "content": distractor_body, "role": "distractor"},
             )
+        for path, body in protected:
+            files.append({"path": path, "content": body, "role": "test"})
+        grader = {
+            "mode": "script",
+            "command": "python -m pytest -q",
+            "protected_paths": [p for p, _ in protected],
+        }
+        if gold:
+            grader["gold_files"] = [{"path": "impl.py", "content": "def f():\n    return 2\n"}]
         return Case.from_dict(
             {
                 "case_id": "c1",
@@ -201,11 +212,7 @@ class TestToolOutputFooter:
                 "language": "python",
                 "prompt": "something is wrong",
                 "context": {"files": files},
-                "grader": {
-                    "mode": "script",
-                    "command": "python -m pytest -q",
-                    "gold_files": [{"path": "impl.py", "content": "def f():\n    return 2\n"}],
-                },
+                "grader": grader,
             }
         )
 
@@ -227,6 +234,28 @@ class TestToolOutputFooter:
         """`filesystem.py` in the corpus is a read-tool implementation; its source says this."""
         body = 'def show(n):\n    return f"(End of file - total {n} lines)"\n'
         assert check_tool_output_footer(self._case_with(impl_body=body)) == []
+
+    def test_a_case_with_no_reference_solution_is_still_checked(self):
+        """Matching gold paths alone was a proxy, and 22 published cases have no gold file.
+
+        One of them ships three `role: impl` Python files that do not parse because of a footer,
+        while the case itself is marked valid.
+        """
+        case = self._case_with(
+            impl_body="def f():\n    return 1\n\n(End of file - total 2 lines)", gold=False
+        )
+        assert check_tool_output_footer(case)
+
+    def test_a_protected_file_is_graded_and_therefore_checked(self):
+        """A footer in the visible test makes the suite uncollectable, so the stub "fails" by
+        not loading — `auto-v0/db-0cf7e420-…` ships exactly that and passes today.
+        """
+        case = self._case_with(
+            protected=(
+                ("test_impl.py", "def test_a():\n    assert 1\n\n(End of file - total 2 lines)"),
+            )
+        )
+        assert check_tool_output_footer(case)
 
 
 class TestDefectIsNotSemantic:

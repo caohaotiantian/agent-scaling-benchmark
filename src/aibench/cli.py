@@ -103,10 +103,10 @@ def main(argv: list[str] | None = None) -> int:
         "--require-usable-pair",
         action="store_true",
         help="Only write drafts reverse construction can build from, by the same predicate "
-        "`generate-cases --reverse` applies. Of the 3,312 drafts in the current pool, 153 "
-        "qualify — 2,977 carry no before/after pair at all — so --max-cases otherwise buys "
-        "material that can never become a case. Off by default because this command also feeds "
-        "the forward generator, which needs no pairs.",
+        "`generate-cases --reverse` applies. Of the 3,312 drafts in the current pool, 50 "
+        "qualify (1.5%%) — 2,977 carry no before/after pair at all and the rest cannot show "
+        "their `pre` came from a complete read. Off by default: this command also feeds the "
+        "forward generator, which needs no pairs and would be cut to 1.5%% of its input.",
     )
     p_db.add_argument("--since", type=str, default=None)
     p_db.add_argument("--until", type=str, default=None)

@@ -1,9 +1,9 @@
 """What the trace store hands over, and what the draft budget is spent on.
 
 `--max-cases` is a write budget: the loop stops once that many drafts have been appended. Of the
-3,312 drafts in the `_rev_raw4` pool, 2,977 carry no before/after pair at all and another 182
-carry only pairs every free gate rejects — so 95.4% of that budget bought material that cannot
-become a reverse-constructed case. `generate-cases --reverse` already refuses to pay a model
+3,312 drafts in the `_rev_raw4` pool, 2,977 carry no before/after pair at all and the rest mostly
+cannot show their `pre` came from a complete read — 50 survive, so 98.5% of that budget bought
+material that cannot become a reverse-constructed case. `generate-cases --reverse` already refuses to pay a model
 for them, but the drafts are written, kept and shipped around regardless.
 """
 

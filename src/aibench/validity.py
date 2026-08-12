@@ -503,11 +503,33 @@ def check_tool_output_footer(case: Case) -> list[ValidityIssue]:
     records for rule 3 of the transcription gate.
     """
     from aibench.extract.history_parse import split_read_footer
+    from aibench.workspace import safe_relpath
+
+    def _norm(p: str) -> str:
+        try:
+            return safe_relpath(p)
+        except Exception:
+            # Not a usable workspace path at all; compare it as written rather than crash.
+            return p
 
     g = case.grader
-    graded = {gf.path for gf in g.gold_files if gf.path}
+    # Paths are compared as the workspace will lay them out. `./impl.py` and `impl.py` are one
+    # file everywhere else in the pipeline, and string equality alone would call them two.
+    graded = {_norm(gf.path) for gf in g.gold_files if gf.path}
+    protected = {_norm(p) for p in g.protected_paths or []}
     suspect = [(fb.path, fb.content or "") for fb in g.gold_files + g.hidden_tests]
-    suspect += [(fb.path, fb.content or "") for fb in case.files if fb.path in graded]
+    for fb in case.files:
+        here = _norm(fb.path)
+        # `role: impl` is the artefact under test by declaration, which is what this gate is
+        # about; matching gold paths alone was a proxy that failed wherever a case has no
+        # reference solution — 22 published cases — and `auto-v0/db-0cf7e420-…` ships three
+        # `role: impl` Python files that do not parse because of a footer while the case is
+        # marked valid. Protected files are graded too: a footer there makes the suite
+        # uncollectable, so the stub "fails" by not loading rather than for the defect.
+        # Distractors and spec files are deliberately out: noise in the haystack a retrieval
+        # case exists to contain changes nothing it measures.
+        if fb.role == "impl" or here in graded or here in protected:
+            suspect.append((fb.path, fb.content or ""))
 
     # A footer was found exactly when stripping changed the text. Asking instead whether the
     # verdict is "complete" would condemn every ordinary file, because a file with no footer

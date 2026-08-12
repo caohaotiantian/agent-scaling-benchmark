@@ -388,9 +388,9 @@ def extract_case_drafts_from_db(
     ``require_usable_pair`` spends the ``max_cases`` budget only on traces reverse construction
     can actually build from — the same predicate ``generate-cases --reverse`` applies, so no new
     judgement is introduced, only an earlier one. Measured on the 3,312-draft ``_rev_raw4`` pool,
-    153 qualify: 2,977 carry no before/after pair and 182 carry only pairs the free gates reject.
-    It is off by default because this command also feeds the forward generator, which needs no
-    pairs at all and would silently come away empty.
+    50 qualify (1.5%): 2,977 carry no before/after pair at all, and of the rest only those whose
+    ``pre`` a complete read vouched for survive. It is off by default because this command also
+    feeds the forward generator, which needs no pairs and would be cut to 1.5% of its input.
     """
     from aibench.extract.reverse_case import iter_file_versions
 

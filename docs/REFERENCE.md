@@ -1450,17 +1450,29 @@ JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走�
   它是一个 190 行文件的**前 40 行**，断在 `success: false,` 中间，而参考解是完整文件。
   这道题实际在问「把片段补成整文件」。
 
-**范围限定在判分标的**：`grader.gold_files`、`grader.hidden_tests`、
-以及与某个 gold 文件同路径的 `context.files` 条目。
+**范围绑定判分标的**：`role: impl` 的 `context.files`、`grader.gold_files`、
+`grader.hidden_tests`、`grader.protected_paths`，路径按 `safe_relpath` 归一后比较。
+**`role: distractor` 与 `role: spec` 不在范围内** —— 干扰文件本来就是噪声，
+多一行不改变用例测的东西。这与 §14.3.7 记的「规则 3 该绑定到读取目标」是同一件事。
 
-限定是必需的，不是保守。五个集合共 39 条用例带这行，**只有 11 条落在判分标的上**；
-另外 28 条在上下文或干扰文件里（`auto-v0` 全在 Markdown PRD 与 `.rs` 快照，
-`retrieval-v0` 全在 `role: distractor` 的文件），那里多一行噪声不改变用例测的东西。
-不限定就等于为一个碰不到判分的缺陷作废 28 条已发布用例 ——
-与 §14.3.7 记的「规则 3 该绑定到读取目标」是同一件事。
+早先一版用「与某个 gold 文件同路径」做代理，有两个洞：
+**22 条已发布用例根本没有 gold 文件**（`solvability_gate` 已判它们不合格），代理对它们完全失效；
+而 `auto-v0/db-0cf7e420-…` 的 `protected_paths` 里那个可见测试带页脚，
+它的三个 `role: impl` Python 文件**都不能 `ast.parse`**，该用例却标着 `validity_ok: true`。
 
-实测命中：`_revclean` **2** / `_revmixed` **9** / `_rev6` 61；
-`auto-v0`、`disc-v0`、`retrieval-v0`、`_scaleprobe` 均为 **0**。
+实测命中 / 其中「此前未被判负」：
+
+| 集合 | 命中 | 新增判负 |
+|---|---:|---:|
+| `_revclean` | 2 | 2 |
+| `_revmixed` | 9 | 2 |
+| `_rev6` | 61 | 12 |
+| `auto-v0`（已发布） | 12 | **2** |
+| `disc-v0`（已发布） | 1 | 0 |
+| `retrieval-v0`（已发布） | **0** | 0 |
+| `_scaleprobe` | 14 | 5 |
+
+`retrieval-v0` 那 6 条命中页脚的文件全是 `role: distractor`，因此正确地不判负。
 
 匹配**行锚定** `^\(…\)$`：语料里有一个 `filesystem.py` 是 read 工具自身的实现，
 源码里就含 `result += f"\n\n(Showing lines {offset}-…)"`，子串匹配会误伤它。
