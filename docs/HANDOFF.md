@@ -1,5 +1,81 @@
 # 交接文档：分层区分度 Benchmark
 
+> **2026-08-12：抽取器修好后全量重建，`_clean2026` 29 条取代 `_revclean` 19 条。** 见 §0.-1。
+
+---
+
+## 0.-1 全量重建（2026-08-12）
+
+### 起因：read 工具的页脚被当成了文件内容
+
+`extract_files_from_tool_text` 把 `<content>` 里的一切当文件，**连工具自己那行页脚一起**。
+穷举整池 23,868 个重建文件的每一行，页脚只有五种形状，**98.0% 的文件带一个**：
+
+```
+17010  (End of file - total N lines)
+ 5954  (Showing lines N-N of N. Use offset=N to continue.)
+  231  (File has more lines. Use 'offset' parameter to read beyond line N)
+  202  (Output capped at N KB. Showing lines N-N. Use offset=N to continue.)
+    1  (Output truncated at N bytes. Use 'offset' parameter to read beyond line N)
+```
+
+两重后果：页脚让 Python 必然 `ast.parse` 失败，素材在进池前被 `require_parse` 删掉；
+且 `pre` 的三种来源（完整读 / 窗口读 / 从未读过）不被区分，
+**「stub 是 trace 找到时的文件」这条立论对旧素材只有 35% 成立**。
+
+`_revclean` 19 条里 2 条由此而来：`rev-461e8d91390e3915` 的 stub 是 190 行文件的前 40 行、
+断在 `success: false,` 中间；`rev-d098848d56868e13` 的 stub 用 `node --check` 报
+`SyntaxError: Unexpected token 'of'` —— **它的 stub 门禁是靠文件加载不了通过的**。
+**所以那 19 条实为 17 条。**
+
+### 结果
+
+| | `_revclean`（旧） | **`_clean2026`（新）** |
+|---|---:|---:|
+| 生成用例 | 31 | **133** |
+| 审计通过 | 19 → 实为 **17** | **69** |
+| **按源文件去重** | 19 | **29** |
+| 语言（去重后） | py 16 / js 3 | **py 23 / js 6** |
+| `pre` 来源可背书 | 未知 | **全部** |
+| 页脚污染 | 2 条 | **0** |
+
+`audit-cases --case-set _clean2026` → **29/29 通过**，指纹 `7d04f497a4e8b6fb`。
+历史 36 个集合归档在 `benchmarks/ai_coding/cases_archive/2026-08-12/`（已 gitignore）。
+
+### 产量漏斗（实测）
+
+```
+18,548 库行 → 3,312 草稿 → 137 条带可用 pair（79 个去重 pair）
+  → 137 次生成尝试 → 133 条用例（含 --resume 补回 35 条）
+  → 审计通过 69 → 按源文件去重 29
+```
+
+**重复因子 133/32 ≈ 4.2×**：同一个文件被不同 trace 反复编辑（`settings.py` 一个文件出 10 条）。
+`§6.0` 记过「按源文件去重，直接相加会虚报」——这次它是主要约束。
+
+### 三条被推翻的结论
+
+1. **`replay_file_versions` 对 `write` 「从不产出 FileVersion」——错。**
+   `pre=original.get(k, base)` 会回落到 `base`，旧池 737 个 pair 里 **278 个的 `pre` 出自
+   `write` 参数**（其中 182 个的文件从未被读过）。§0.9 的这句话已作废。
+2. **§0.9 的「write 杠杆 +73%」——不成立，实测约 +15 对（+16%）。**
+   但「收益为零」也没被证明：跨全期分层样本里 49 对有 6 对过了语言门。见 `.agent/trace-yield-expansion/plan.md` F4。
+3. **修复后的产量预测 153 对 / 269 草稿——高估约 2 倍，实测 79 / 137。**
+   那是评审全量普查的外推，标注过「未独立复算」；这次复算了。**这是本项目第六次产量高估，形状不变。**
+
+### 已知未决
+
+- **去重后 29 条仍不足 §0.0c 要求的 53 条。** 重复因子是硬约束，靠这套语料补不上。
+- **所有用例仍是单文件。** 来源可背书的 254 个 pair 里 **199 个（78%）死在 import 门**，
+  其中 157 个只缺同仓库兄弟文件。三处构造强制了这一点（工作区写死两文件 / import 门 / T5 恒为 0）。
+  兄弟闭包重测：157 → 一层闭包 36 → 二层闭包 19 → 够 T4（≥5 文件）**仅 2 条**。
+  §0.10 的方向判断仍成立；有规模的多文件用例只剩 git 工作区路线（用户已搁置）。
+- **`secrets_scan` 报 70 处、`clean=False`，抽查全部是误报**
+  （`apiKey: process.env.X`、`password: newPassword`、`` Bearer ${token}` ``）。
+  它会挡住 `export-bundle`，交付前需显式豁免或收紧规则。
+
+---
+
 分支 `feat/tiered-discrimination-benchmark`。当前测试数与门禁命令见 [`docs/SESSION-2026-08-11.md`](SESSION-2026-08-11.md) §3。
 
 > **2026-08-11 晚：换掉 `tool_loop`，改用真实编码 agent（opencode）。噪声问题解决了，
