@@ -128,7 +128,9 @@ class TestSelectCasesReporting:
         }
         rep = select_cases(
             cal,
-            source_set="auto-v0",
+            # Any existing set will do — `dry_run` writes nothing and the report is computed
+            # from `cal`. It must not be a generated one: those are gitignored.
+            source_set="seed-v0",
             dest_set="_quota_test",
             max_cases=4,
             difficulty_quota={"easy": 0.25, "mid": 0.75},

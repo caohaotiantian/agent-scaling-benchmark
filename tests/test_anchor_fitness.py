@@ -55,9 +55,12 @@ def test_an_undeclared_agent_is_treated_as_unknown_not_unfit():
 
 
 def test_calibrating_with_an_unfit_panel_is_refused(tmp_path):
+    # `_t4fixture` is a synthetic retrieval-tier case set under tests/fixtures. The generated
+    # sets are gitignored, so pointing this at one made the test depend on whether the machine
+    # happened to have built it.
     panel, _ = load_anchor_panel(repo_root() / "configs/runs/anchor-panel.yaml")
     with pytest.raises(ValueError, match="cannot measure the tiers"):
-        calibrate_case_set("retrieval-v0", panel, repeats=1, output_root=tmp_path)
+        calibrate_case_set("_t4fixture", panel, repeats=1, output_root=tmp_path)
 
 
 def test_every_tier_axis_is_a_known_axis():

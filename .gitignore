@@ -44,3 +44,6 @@ benchmarks/ai_coding/cases/_ocsmoke*/
 benchmarks/ai_coding/cases/_revp*/
 benchmarks/ai_coding/cases/_compose*/
 benchmarks/ai_coding/cases/retrieval-v0/
+
+# Archived case sets: generated material, same reason as the sets above.
+benchmarks/ai_coding/cases_archive/

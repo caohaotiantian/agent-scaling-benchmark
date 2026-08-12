@@ -1,0 +1,68 @@
+{
+  "case_id": "t4fixture-retrieval-clamp",
+  "schema_version": "0.1",
+  "task_type": "bugfix",
+  "language": "python",
+  "prompt": "Values below the configured lower bound come back unchanged instead of being raised to it.",
+  "context": {
+    "files": [
+      {
+        "path": "clamp.py",
+        "content": "from limits import LOWER, UPPER\n\n\ndef clamp(v):\n    return min(v, UPPER)\n",
+        "role": "impl"
+      },
+      {
+        "path": "test_clamp.py",
+        "content": "from clamp import clamp\n\n\ndef test_upper():\n    assert clamp(99) == 10\n",
+        "role": "test"
+      },
+      {
+        "path": "limits.py",
+        "content": "LOWER = 0\nUPPER = 10\n",
+        "role": "spec"
+      },
+      {
+        "path": "scale.py",
+        "content": "def scale(v, factor):\n    return v * factor\n",
+        "role": "distractor"
+      },
+      {
+        "path": "wrap.py",
+        "content": "def wrap(v, period):\n    return v % period\n",
+        "role": "distractor"
+      },
+      {
+        "path": "README.md",
+        "content": "Numeric helpers.\n",
+        "role": "spec"
+      }
+    ],
+    "notes": "Synthetic T4 fixture. Carries no production source: this exists so tests that need a retrieval-tier case set do not depend on a generated one, which is gitignored and therefore absent on a clean checkout."
+  },
+  "grader": {
+    "mode": "script",
+    "command": "python -m pytest -q",
+    "gold_files": [
+      {
+        "path": "clamp.py",
+        "content": "from limits import LOWER, UPPER\n\n\ndef clamp(v):\n    return max(LOWER, min(v, UPPER))\n"
+      }
+    ],
+    "hidden_tests": [
+      {
+        "path": "test_clamp_spec.py",
+        "content": "from clamp import clamp\n\n\ndef test_lower():\n    assert clamp(-5) == 0\n\n\ndef test_inside():\n    assert clamp(4) == 4\n"
+      }
+    ],
+    "protected_paths": ["test_clamp.py"]
+  },
+  "metadata": {
+    "source": "fixture",
+    "difficulty": "medium",
+    "split": "dev",
+    "review_status": "fixture",
+    "tier": "T4",
+    "tier_requested": "T4",
+    "capability_axes": ["A1", "A2", "A5", "A6"]
+  }
+}
