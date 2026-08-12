@@ -1,7 +1,8 @@
 # AI-Coding-Assist Benchmark — 项目参考手册（Reference）
 
-> **展示版（推荐）**：[docs/html/reference.html](html/reference.html)  
-> 文档站首页：[docs/html/index.html](html/index.html) · 项目介绍：[docs/html/project-overview.html](html/project-overview.html)
+> **注意**：[`docs/html/reference.html`](html/reference.html) 是**另一份文档**，不是本文的展示版。
+> 本文讲 CLI 与配置的参数级细节；那边讲设计论证、数据格式与门禁规则。  
+> 文档站首页：[docs/html/index.html](html/index.html) · 项目介绍：[项目介绍 overview.html](html/overview.html)
 
 | 项 | 值 |
 |----|-----|
@@ -9,12 +10,12 @@
 | 版本 | 与 `pyproject.toml` 中 `version` 一致（当前 **0.1.0**） |
 | 入口 | `uv run python -m aibench` · 安装后 `aibench` |
 | 读者 | 使用者、评测工程师、对接 Agentic Scaling 汇报的同学 |
-| 演示页 | [`docs/html/project-overview.html`](html/project-overview.html) |
-| 结果表设计源 | [`docs/html/agentic-scaling-benchmark.html`](html/agentic-scaling-benchmark.html)、[`docs/html/tables.html`](html/tables.html)（字段字典源 `_src/tables.md`） |
+| 演示页 | [`docs/html/overview.html`](html/overview.html) |
+| 结果表设计源 | [`docs/html/reference.html`](html/reference.html)、[`docs/html/reference.html`](html/reference.html)（字段字典源 `_src/tables.md`） |
 | 本文 HTML | [`docs/html/reference.html`](html/reference.html) |
 
 本文是 **可执行系统** 的权威参考：概念、架构、Case 协议、配置、CLI、脚本、产物、设计表映射、操作规程与故障排查。  
-快速上手见 [用户向导 HTML](html/user-guide.html)（源：`USER_GUIDE.md`）；设计决策见 `docs/design/*`。运行时以 `aibench <cmd> -h` 与仓库现行 `configs/` 为准。  
+快速上手见 [用户手册 HTML](html/manual.html)（由 `docs/html/_src/manual.html` 手写构建，与 `USER_GUIDE.md` 无关）；设计决策见 `docs/design/*`。运行时以 `aibench <cmd> -h` 与仓库现行 `configs/` 为准。  
 重建 HTML：`uv run python scripts/build_docs_html.py`
 
 ---
@@ -757,8 +758,8 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 | 字段 | 说明 |
 |------|------|
 | `mode` | `script` \| `gold` \| `llm_judge` \| `composite` |
-| `command` | script 模式命令（白名单：`pytest` / `python`） |
-| `gold_files` | gold 模式期望文件；对 T3+ 同时充当**参考解**（§14.3.3） |
+| `command` | script 模式命令，如 `python -m pytest -q` / `node --test`。**运行时不过滤**，见 §14 |
+| `gold_files` | gold 模式期望文件；对 T3+ 同时充当**参考解**（§14.3.2） |
 | `match` | `exact` \| `normalized` \| `contains_key_lines` |
 | `key_lines` | 关键行列表 |
 | `judge_rubric` / `judge_threshold` | llm_judge 用 |
@@ -809,10 +810,15 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 | adapter | 配置文件 | 行为摘要 |
 |---------|----------|----------|
+| `bare_model` | `configs/agents/bare_model.yaml` | 单次调用，返回整份修好的文件；测「模型本身有多强」 |
 | `openai_compat` | `configs/agents/openai_compat.yaml` | 单轮 Chat；要求返回 `{"files":[...],"message":"..."}` 并写入 workspace |
-| `tool_loop` | `configs/agents/tool_loop.yaml` | 多步工具：`list` / `read` / `write` / `bash` / `submit` |
-| `shell` | `configs/agents/shell.yaml` | 外部 CLI；占位符 `{workspace}` `{prompt_file}` `{case_id}` `{max_steps}` |
+| `opencode` | `configs/agents/opencode.yaml`、`opencode-s{1,3,10,40}.yaml` | 真实编码 agent（opencode CLI）作为子进程驱动；见 §12.4 |
+| `tool_loop` | `configs/agents/tool_loop.yaml` | 自研多步工具：`list` / `read` / `write` / `bash` / `submit`。**已知会主导测量**，见 §12.4 开头 |
+| `shell` | `configs/agents/shell.yaml` | 外部 CLI；占位符 `{workspace}` `{prompt_file}` `{case_id}` `{max_steps}`。不记 token，`empty_patch` 恒 false |
 | `mock` | **仅** `tests/fixtures/configs/agents/mock.yaml` | 单测 / dry-run |
+
+三种口径不要混用：`bare_model` 答「模型多强」，`opencode` 答「模型在真实 agent 里多强」，
+`openai_compat` / `tool_loop` 答「模型在本项目自研脚手架里多强」。
 
 ### 12.1 `openai_compat` options
 
@@ -839,6 +845,73 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 退出码 0 视为 agent 完成；修改须落在 `{workspace}` 下。
 
+**不要用它接 opencode**，尽管 `shell.yaml` 的注释里有这么一行示例。它 `usage` 恒为 0
+（成本轴的 `token_amplification` 因此无意义）、把工作区里**每个**文件都算作 written
+（`empty_patch` 因此恒 false）、且 `(proc.stdout or "")[-2000]` 是单字符索引而非切片
+（与 §12.4 开头那个让 agent 轴多年未被测量的缺陷同款）。用 `opencode` 适配器。
+
+### 12.4 `opencode` options
+
+把 opencode CLI 作为子进程驱动。存在的理由：`tool_loop` 是本项目自研的脚手架，
+与无脚手架口径对比时它**主导了测量而不是测量了对象**——同一批用例三次重复翻转 32.3%、
+轮间极差 12.9pp（无脚手架 0.0pp），且修它内部三个缺陷让同一模型通过率移动 58 个百分点。
+`opencode` 回答的是另一个问题：模型在人们真正使用的编码 agent 里表现如何。
+
+| 选项 | 默认 | 说明 |
+|------|------|------|
+| `binary` | `opencode` | 可执行文件路径（实测版本 1.18.15） |
+| `max_steps` | 取 run-config 的 `max_steps` | 钉死步数上限；阶梯锚点用它 |
+| `system_prompt` | 见 `DEFAULT_SYSTEM` | 写进生成配置的 `agent.aibench.prompt` |
+| `allowed_commands` | 同 `tool_loop` 的白名单 | bash 允许的程序名 |
+
+**运行身份可复算**：provider、网关、模型、步数、工具集、权限全部由 `configs/models/*.yaml`
+与 `.env` 在每次运行时生成到临时 `opencode.json`，经 `OPENCODE_CONFIG` 注入；
+不读操作者的 `~/.config/opencode`。`--pure` 是必需的（否则加载插件时挂死，实测 150s 无事件）。
+
+**边界由 `sandbox-exec` 承担，不是由 opencode 的权限配置承担。**
+`external_directory: deny` **不是文件系统边界**：它只对硬编码的一小撮命令名做路径检查。
+实测让 agent 读本仓库的一个文件——`cat` 被拒，而 `grep` / `head` / `sed` / `find`
+**全部成功返回了文件内容**。（本项目早先版本声称该规则拦得住，依据是一个只用了
+`cat` 与 `python3 -c` 的探针，而这两个恰好在被检查的集合里。这是 §5.9 的同型错误。）
+
+现在的边界是 seatbelt 配置：`deny file-read-data file-write*` 覆盖仓库子树，
+`allow file-read-data` 放行 `.venv`（grader 命令是 `python -m pytest -q`，
+不放行 agent 就跑不了被评分的测试）。**只拒内容不拒元数据**——连 `file-read-metadata`
+一起拒会让 opencode 在 `lstat` 上以 EPERM 退出，而 gold 解是文件里的字节，不是 stat。
+同一个探针在加沙箱前泄漏、加沙箱后不泄漏，这是能区分改前改后的对照。
+`artifacts.sandboxed` 如实记录本次是否真的施加了边界；无 `sandbox-exec` 的平台记 `false`，
+不继承一个没得到的保证。opencode 的权限块保留为便宜的第二层。
+
+**工作区镜像到仓库外**：opencode 向上走到 **git 根**来确定「项目目录」，
+工作区留在 `runs/.../workspace` 时整个仓库都算「项目内」。镜像目标用
+`tempfile.mkdtemp()` 并 `.resolve()`（macOS 上 `/var` 与 `/private/var` 不是一回事）。
+跑完按内容双向镜像回原路径（含删除与符号链接），因为 grader 拿到的是原路径。
+
+**权限里不要加 `read`/`edit` 路径规则。** `bash` 按原始命令串匹配，绝对路径模式有效；
+`read`/`edit` 匹配不上绝对路径，于是 `{"*": "deny"}` 兜底会把 agent 锁在自己的工作区外——
+实测每次 read 与 edit 全被拒、连两行缺陷都改不了，而**状态码仍是 `completed`、
+单测全绿、数字上看不出任何异常**。
+
+**子进程环境是重建的，不是继承的**：`OPENCODE_CONFIG` 是**追加**一份配置而非替换，
+全局 `~/.config/opencode` 仍会被合并，故 `XDG_CONFIG_HOME` 一并指向 staging；
+继承来的 `OPENCODE_*` 全部剔除（`OPENCODE_PERMISSION` 能整块覆盖权限）；
+`PWD`/`OLDPWD` 也剔除（它们仍指向仓库，opencode 启动时会 stat 它）；
+`OPENCODE_DB` 与 `XDG_DATA/CACHE/STATE_HOME` 每次运行独占——
+共用单个 SQLite 并发跑会 `database is locked` 并让整行变成 `infra_error`。
+`PATH` 故意保留，理由同上（`.venv/bin` 决定 agent 能否跑测试）。
+子进程 `stdin=DEVNULL`（opencode 会把非 TTY 的 stdin 读到 EOF 并**追加进题面**）、
+`cwd` 设为工作区、独立进程组（超时按组终止，否则它派生的 pytest/node 会在 staging
+被删除时仍在写）。
+
+**状态映射**（决定一行算模型的还是算基础设施的）：opencode 遇到网关错误会打一条
+`{"type":"error"}` 并非零退出——只要出现该事件且退出码非零即 `infra_error`；
+超时且零模型调用也是 `infra_error`（网关不通时的挂起与「预算耗尽」形状相同，
+误判会把一次故障写成模型的失败并留在分母里且不重试）。
+
+**残留风险**：seatbelt 是 macOS 专有且 Apple 已弃用；`artifacts.out_of_workspace_attempts`
+记录越界尝试（含模型把路径写错这类假阳性，**不要读作作弊**）。
+容器隔离仍是更彻底且可移植的答案，且能一并覆盖 grader 侧（§13 开头记的最大安全缺口）。
+
 ---
 
 ## 13. 判分（Grading）
@@ -850,7 +923,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 | `llm_judge` | 模型评分 ≥ `judge_threshold` |
 | `composite` | 优先 script，再回退 gold 等组合逻辑 |
 
-Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注入。  
+**没有** grader 命令白名单：`grading.py` 用 `subprocess.run(shell=True)` 在宿主机执行 `grader.command`，无沙箱、无网络限制。（`generate-cases` 侧对**生成出来的**命令有白名单 `_SAFE_GRADER_CMD`，那是另一回事。）Docker/gVisor 隔离未做，是目前最大的安全缺口。  
 主指标仅统计 **非 infra_error** 的 case。
 
 ### 13.1 隐藏测试与保护路径
@@ -891,7 +964,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | T1 | 直接修复 | ≤3 文件；允许题面/注释给出缺陷位置 | 地板锚（几乎全过） |
 | T2 | 定位修复 | 2–4 文件；题面**无**机制泄露；stub **无** BUG/FIXME 标记 | A1 定位诊断 |
 | T3 | 隐藏规格 | T2 + ≥2 个隐藏测试函数 + 参考解 + 保护可见测试 | A5 规格遵从、A6 抗过拟合 |
-| T4 | 跨文件检索 | T3 + ≥5 文件 + ≥1 干扰文件 + 参考解触及 ≥2 文件 + ≥3 隐藏测试 | A2 检索、A4 跨文件一致性 |
+| T4 | 上下文检索 | T3 + ≥5 文件 + ≥1 干扰文件 + ≥3 隐藏测试（参考解**仍只需 1 个文件**） | A1、A2 检索、A5、A6 |
 | T5 | 迭代自修复 | T4 + ≥4 个隐藏测试函数 | A3 迭代自修复 |
 
 能力轴：`A1` 定位诊断、`A2` 上下文检索、`A3` 迭代自修复、`A4` 跨文件一致性、
@@ -922,7 +995,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | 语言 | 测试文件 | 运行命令 | 通过率解析 |
 |------|----------|----------|------------|
 | python | `test_*.py` / `*_test.py` | `python -m pytest -q` | `N passed/failed/error` |
-| javascript / typescript | `*.test.mjs` / `*.spec.ts` 等 | `node --test`（内置，零依赖） | `ℹ pass N` / `# pass N` |
+| javascript / typescript | `*.test.{js,mjs,cjs,ts}` / `test.<ext>` / `test-*.<ext>`（**`*.spec.*` 不被 `node --test` 发现**） | `node --test`（内置，零依赖） | `ℹ pass N` / `# pass N` |
 
 隐藏测试文件名由 `hidden_test_name` 生成，**必须仍被运行器识别为测试**：`clamp.test.mjs` 拆出的隐藏半边是 `clamp_spec.test.mjs` 而不是 `clamp.test_spec.mjs` ——后者不匹配 node 的发现规则，会被静默跳过，用例就只靠冒烟测试通过了，正是隐藏测试要防的那件事。
 
@@ -972,10 +1045,52 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 |------|------|------------------|
 | `p_hat` | 全部尝试的通过率 | `> 0.9` 送分题；`< 0.05` 无人能过（多半是坏题） |
 | `spread` | 最强锚点通过率 − 最弱锚点通过率 | 越大越能分离配置 |
-| `point_biserial` | 该 case 结果与总体能力的相关 | `< 0.15` 判为噪声题 |
+| `point_biserial` | 该 case 结果与总体能力的相关，**已扣除本题对总分的贡献** | `< 0.15` 判为噪声题 |
+| `incomplete_panel` | 该 case 未被全部锚点测到 | **阻断 keep**，但与上面三条分列 —— 说的是测量不完整，对策是重跑 |
 | `flaky` | 同一锚点多次重复结果不一致 | 标记，供人工复核 |
 
 `anchor_fingerprint` 计入每个引用配置文件的**内容**而非路径：改了 `glm52.yaml` 里的 model 字段，路径全都没变但锚点含义已变，旧的 `p_hat` 必须整体失效，不能继续沿用。
+
+它**还计入 harness 源码摘要**（`agents/` + `grading.py` + `workspace.py` + `runner.py`，见
+`provenance.harness_digest`）。只哈希三个 YAML 时，那次让同模型通过率变动 58pp 的适配器修复
+前后指纹**完全相同**（都是 `5f5233c7214879f4`）—— 配置文件说的是「用哪个 agent 和模型」，
+不说「怎么驱动它」。指纹带 `v2:` 前缀，理由与 `case_fingerprint` 的 `FINGERPRINT_VERSION` 相同：
+**旧值与新值必须永远不可能相等**。代价是 14 份既有校准立刻不可复用，这是正确行为而非 bug。
+
+#### 两个估计量缺陷（2026-08-11 修复）
+
+**① `point_biserial` 曾把本题算进总分。** 纯噪声题的零分布因此不在 0，而在约 `1/√k`。
+蒙特卡洛实测（9 次 run）：
+
+| k | 旧式均值 | 修正后 |
+|---:|---:|---:|
+| 7 | **+0.377** | +0.011 |
+| 31 | **+0.172** | −0.004 |
+| 126 | +0.076 | −0.010 |
+
+**k=31 时 +0.172 已高于 0.15 的阈值** —— 一道纯噪声题过「无区分度」筛选的概率超过一半。
+修法是标准的 corrected item-total：先从总分里扣掉本题再算相关。
+
+**③ 总分曾是通过「计数」，被掉行机械通缩。** 参考校准里各 run 的通过计数是
+`[26,25,24, 7,5,6, 24,24,24]`，而各 run 实际产出的行数是 `[30,29,29, 9,9,9, 31,31,31]` ——
+中间那个锚点看起来比最弱的还弱四倍，而它的通过**率**是 0.78/0.56/0.67，与其余相当。
+「能力轴」大部分是「掉了多少行」轴。现在用**留一法通过率**（`item_rest_correlation`）：
+既扣掉本题，又按该 run 实测的题数归一。实例 `rev-f4f8a7a78fa184cd` 因此从 0.470 变成 **0.035**。
+
+> 留一必须在**同一量纲**里做。从一个比率里减去 0/1 的结果，会得到一个看似合理、
+> 实则量纲错乱的数，而签名上看不出来 —— 所以 `item_rest_correlation` 收的是计数，
+> 算术在函数内部完成。
+
+**② 缺失的 run 曾按 0 计入 item 向量**，而 `p_hat` 只对存在的行求均值 —— 两个量在讲不同的样本。
+缺失行同时压低 item 与该 run 的总分，制造出与「掉行」而非与能力的相关。
+实例 `rev-4646d93ae250add0`：attempts 6/9、全部通过、`p_hat` 1.00，`r_pb` 却是 **0.996**。
+
+对最近一次校准（`runs/calibration_20260809_231654`）从原始 `results.jsonl` 复算：
+**keep 从 13 降到 3，另有 21 条判为 `incomplete_panel`。**
+其中因估计量修正而改判的只有 1 条（面板完整的共 10 条）——
+覆盖门与纠偏是两件独立的事，坍塌主要来自前者。
+那 21 条不是坏题 —— 是面板没测完，对策是重跑。
+`scripts/instrument_check.py` 会把这个数字打印出来（不设阈值，坍塌是信息）。
 
 **锚点面板必须能施展被测层级的能力轴。** Agent 配置用 `capability_axes` 声明自己能施展哪些轴，
 `calibrate-cases` 在开跑前核对该集合出现的所有 tier，不匹配直接拒绝（`--allow-unfit-anchors` 可强制）。
@@ -1076,16 +1191,18 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | 门禁 | issue code | 级别 | 阻断 ok | 说明 |
 |------|------------|------|---------|------|
 | Stub 必须失败（下界） | `stub_fail_gate` | error | 是 | 见 §14.3.1 |
-| 参考解必须通过（上界） | `solvability_gate` | error | 是 | 见 §14.3.3 |
+| 参考解必须通过（上界） | `solvability_gate` | error | 是 | 见 §14.3.2 |
 | 分层不变量 | `tier_<violation>` | error | 是 | §13.5.2，逐条来自 `check_tier_invariants` |
 | 干扰文件自相矛盾 | `tier_distractor_in_solution` | error | 是 | 声明 `role=distractor` 却被参考解改动 |
 | 参考解无改动 | `tier_solution_file_unchanged` | error | 是 | 某个 gold file 与初始文件完全相同，是凑数项 |
 | 参考解疑似重写 | `tier_solution_rewrites_file` | warn | 否 | 改动行占比 > 60%，无法定位缺陷 |
 | 题面点名被修函数 | `tier_prompt_names_changed_function` | warn | 否 | §13.5.4；实测 +20pp p_hat，命中约半数用例故不阻断，改为触发题面改写 |
 | 工作区不可收集（stub） | `stub_fail_gate` + `checks.stub_fail.uncollectable` | error | 是 | §14.3.1；与「stub 如预期失败」分开计数 |
-| 工作区不可收集（参考解） | `solvability_gate` + `checks.reference_solution.uncollectable` | error | 是 | §14.3.3；与「参考解真正失败」分开计数 |
+| 工作区不可收集（参考解） | `solvability_gate` + `checks.reference_solution.uncollectable` | error | 是 | §14.3.2；与「参考解真正失败」分开计数 |
 | Gold 污染 | `contamination_gold_in_context` | error | 是 | gold 全文已在 context |
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
+| 测试抄写源码 | `test_reads_source_text` | error | 是 | §14.3.7；测试 grep 实现的源码文本而非运行它 |
+| 隐藏测试索要不可知符号 | `hidden_test_requires_unknowable_symbol` | error | 是 | §14.3.8；隐藏了行为可以，隐藏了接口不行 |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
 | 弱 grader 标记 | `weak_grader_flag` | warn | 否 | script 却标 weak_grader |
@@ -1093,6 +1210,11 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 | 重复指纹 | `duplicate_fingerprint` | warn | 否 | 集内 fingerprint 冲突 |
 | 难度 | （写入 checks/metadata） | 注解 | — | easy/medium/hard（旧口径，保留兼容） |
 | 指纹 | fingerprint / content_fingerprint | 注解 | — | 去重与复现 |
+
+抽取端另有三条谓词，在**生成之前**拒绝素材，不产生 issue code（见 §14.3.7 末）：
+`defect_is_not_semantic`（只改注释的编辑不是缺陷）、测试文件本身不作为被测实现、
+`unsatisfiable_imports` 现在也能看见相对导入。反向构造路径同时会自动填 `grader.protected_paths`，
+从而启用 `detect_grading_interference`。
 
 ### 14.3 门禁逻辑详解
 
@@ -1105,7 +1227,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 否则:
     tmp = 临时目录
     materialize_workspace(case)     # 仅初始现场，未经 Agent
-    grade = grade_case(case, ws)    # 跑白名单命令（pytest/python）
+    grade = grade_case(case, ws)    # subprocess.run(shell=True)，命令不过滤
     若 grade.infra_error:  失败（环境/命令问题）
     若 grade.passed:       失败 stub_passed_grader  # 初始已过测
     否则:                  通过 stub_failed_as_expected
@@ -1113,7 +1235,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 
 **意图**：Agent 必须做出有效修改才能得分。
 
-#### 14.3.3 Reference-solution（可解性上界）
+#### 14.3.2 Reference-solution（可解性上界）
 
 ```text
 若 grader.mode != "script":
@@ -1138,7 +1260,7 @@ Script 命令白名单限制（`pytest` / `python`），防止任意 shell 注�
 代价是 41 条实测可解的用例里有 11 条因缺参考解被一并拒掉；正确的修法在上游：
 让生成器始终产出参考解（T3 brief 已要求，59 条里 32 条做到了）。
 
-#### 14.3.2 Contamination（答案污染）
+#### 14.3.3 Contamination（答案污染）
 
 ```text
 blob = 拼接 context.files 的 path + content
@@ -1157,11 +1279,11 @@ blob = 拼接 context.files 的 path + content
     → warn prompt_contains_large_code_fence
 ```
 
-#### 14.3.3 Prompt 过短
+#### 14.3.4 Prompt 过短
 
 `len((prompt or "").strip()) < 20` → `error prompt_too_short`。
 
-#### 14.3.4 难度启发式（不 fail）
+#### 14.3.5 难度启发式（不 fail）
 
 ```text
 score = 文件数 + (路径含 test 的文件中 def test_ 个数) + (总行数 // 40)
@@ -1172,7 +1294,7 @@ else       → hard
 
 用于报告分层，不是严格能力标定。
 
-#### 14.3.5 指纹与集级去重
+#### 14.3.6 指纹与集级去重
 
 ```text
 case_fingerprint = "v3:" + sha256(json 规范化的 {
@@ -1212,7 +1334,105 @@ content_fingerprint(set) = sha256(sorted "case_id:fp" 行)[:16]
 也拿不到 case-set 目录）。这类用例由 `validity.external_workspace()` 标出，
 `plan_calibration` 对它们**一律不复用**，而不是信任一个证明不了内容未变的指纹。
 
-#### 14.3.6 `annotate` 写回字段
+#### 14.3.7 测试抄写源码（`test_reads_source_text`）
+
+反向构造的安全性论证（`reverse_case.py` 模块注释）是：模型写不出能区分 pre 与 post 的测试，
+用例就会被 §14.3.1 与 §14.3.2 拒掉，所以模型**没有能力**把题变简单。
+
+这个论证有一个洞：**源码文本天然能区分两版**，因为修复改动的就是文本。
+一份 `assert.match(source, /async function prepareReview/)` 这样的测试，
+在 stub 上必失败、在 gold 上必通过，**两道门禁按构造 100% 通过**，
+而它评的是抄写，不是行为。实测 `_revmixed` 31 条里 **12 条**如此，
+语种分布 **JavaScript 11/14、Python 1/17**。
+
+判据是三条规则的并集（在真实集合上校准）：
+
+| 规则 | 命中 | 独有命中 |
+|------|-----:|---------:|
+| 反射取源码（`inspect.getsource` / `getsourcelines`） | 1 | 1 |
+| 含读调用的**那一行**里出现 impl 文件名（排除写模式） | 4 | 1 |
+| 存在读调用**且**有字符串包含/正则断言（`.includes` / `.match` / `assertIn` / `in source`） | 10 | 7 |
+| **并集** | **12** | — |
+
+三条各自非冗余。第二条只看**含读调用的那一行**而非整个文件，是刻意的：
+JS 测试必然在 import 行写出 impl 文件名，按全文匹配会退化成「任何读操作都算」，
+同一集合上从 4 条涨到 11 条，把合法的数据 fixture 读取也抓进来。
+
+单条宽正则（「测试里出现 `readFileSync` 或 `open`」）会额外误伤 6 条：3 条用 `open(..., 'w')`
+写 fixture（靠 mode 实参排除），2 条用 `os.fdopen(fd, 'w')`、1 条调 `urlopen`
+（这三条压根不匹配 —— `fdopen`/`urlopen` 里的 `open` 前面没有词边界）。
+
+实参按**配对括号**取，不是 `[^)]*`：后者在第一个 `)` 就停，
+`open(os.path.join(d, "o.txt"), "w")` 会丢掉 mode 实参而被当成读，
+而 `os.path.join` 在测试里再普通不过。mode 也**逐个实参**匹配，不扫整个实参串 ——
+扫整串时 `readFileSync(p, 'utf8').includes('a')` 里的 `'a'` 会被当成 append 模式，
+于是整个读调用被跳过：把断言里的 `'foo'` 改成 `'a'` 就足以走过一道 error 级门禁。
+
+`grader.hidden_tests` 与可见测试一起扫描 —— 抄写可以藏在求解者看不到的那一半里。
+
+判据脚本 `scripts/t1_gate_report.py` 断言的是**命中集合**而非命中数：
+一个既误伤又漏抓、数量恰好相等的检测器，从退出码上看不出区别。
+
+**已知局限**：当被测行为**本身就是文件内容**时（文档生成器、配置写入工具），
+规则 3 会误伤一个做得对的测试。根治要把规则 3 绑定到读取目标（解析到 case 自带的 impl
+文件才触发），本轮未做。三个已发布集合 `auto-v0` / `disc-v0` / `retrieval-v0` 零命中，
+但那 181 条里总共只有 1 处读调用，所以这是弱证据。
+
+#### 抽取端的三条谓词（不产生 issue code）
+
+| 谓词 | 位置 | 拒绝什么 | 实测 |
+|------|------|----------|------|
+| `defect_is_not_semantic` | `file_versions.py` | 剥离注释/docstring 后 pre == post | Python 池 4/91 |
+| 测试文件排除 | `reverse_case.py` | `spec.is_test_path(path)` 为真 | Python 35/91、JS/TS 88/269 |
+| 相对导入 | `unsatisfiable_imports` | `from .x import y` 此前被判为「可满足」 | −1 |
+
+`defect_is_not_semantic` 的方向是**保守的**：不可解析的 Python、未知语言、未闭合的块注释、
+未闭合的字符串，一律返回 False（保留素材）。漏拒一个坏候选比误拒一个真缺陷便宜。
+JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走空白归一 ——
+多行模板里的缩进是数据不是排版，归一掉会让「重排模板」读成「什么都没改」。
+
+> ⚠️ `unsatisfiable_imports` 的判定**依赖工作目录**：`find_spec` 会解析隐式命名空间包，
+> 仓库根在 `sys.path` 上时，`import src...` / `import tests...` 被本项目自己的目录满足。
+> 同一批草稿存活数 24 vs 21，取决于调用方式。详见 `docs/HANDOFF.md` §0.7。
+
+#### 14.3.8 隐藏测试索要不可知符号（`hidden_test_requires_unknowable_symbol`）
+
+规则一句话：**隐藏行为可以，隐藏接口不行。** 隐藏测试向实现索要的符号，
+若在解题者能读到的任何地方（shipped 文件、可见测试、题面）都不出现，判 error。
+
+为什么需要它：隐藏测试是本项目**唯一**动过难度的杠杆，实测把真实编码 agent 从 19/19 压到 11/19。
+但同样是「变难」，来源有两种。8 条变难的用例里 7 条挂在断言上 ——
+考的是可见测试没钉住的行为，这正是目的；另有 2 条挂在
+`module 'parse_reports' has no attribute 'create_shared_strings'` 这类错误上 ——
+隐藏测试调用的函数名在实现、可见测试、题面里**都不存在**。
+
+后者不是难题，是无解题：所有解题者以同一原因失败，因此**区分不了任何东西，
+却在通过率上长得和难题一模一样** —— 本项目反复要从中挖出来的正是这个形状。
+
+实现两处易错，都是第一版写错后由实测纠正的：
+
+1. **参考解不计入「可见面」。** 缺失的符号**必然**出现在参考解里（那正是它能过可解性门禁的原因），
+   而参考解恰恰是解题者读不到的。算进去会让真正的污染用例判为干净。
+2. **文件名不是属性访问。** `postcss.config.js` 里的 `js`、`..._parallel.py` 里的 `py`、
+   以及 `__file__`，第一版把它们当成被索要的符号，**报 4 个假阳性同时漏掉真阳性**。
+
+误伤情况：
+
+| case set | 用例 | 有隐藏测试 | 被检查符号 | 命中 |
+|---|---:|---:|---:|---:|
+| `auto-v0` | 126 | 92 | 102 | **0** |
+| `disc-v0` | 28 | 25 | 26 | **0** |
+| `retrieval-v0` | 27 | 26 | 27 | **0** |
+
+三个已发布集合合计 155 个符号零命中。与 §14.3.7 那次「零误伤」不同，这里暴露面足够大，
+证据是有分量的。
+
+> **注意它挡不住的**：难度与区分度是两件事。同一批用例在 hidden=4 上，
+> 两个模型一起从 100% 掉到 ~65%，而配对不一致只有 1/19，且那一条正是两个模型
+> 各自对自己也会翻转的用例 —— 实测区分度为零。**这道门禁提高的是难度的成色，不是区分度。**
+> 详见 `docs/HANDOFF.md` §0.0b。
+
+#### 14.3.9 `annotate` 写回字段
 
 | metadata 键 | 值 |
 |-------------|-----|
@@ -1323,7 +1543,9 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 覆盖设计「通用结果总表」中本 harness 可采集的字段，包括：
 
-- 实验标识：`run_id`、`experiment_name`、`experiment_time`、`code_version`
+- 实验标识：`run_id`、`experiment_name`、`experiment_time`
+- **执行身份**（2026-08-11 新增，见下）：`code_version`、`harness_digest`、`dependency_digest`、
+  `python_executable`、`python_version`、`node_version`、`working_directory`、`gateway_base_url`
 - Benchmark 口径：`benchmark_name`、`case_set`、`case_count`、`effective_case_count`、`grouping`
 - 算法配置：预算轴/值、分支、attempts、steps、选择策略
 - Agent 与模型：名称版本、主模型、组合摘要、采样参数
@@ -1331,6 +1553,23 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 - 成本效率：总 Token、均值、估算 USD
 - 时间效率：总墙钟、吞吐、平均耗时
 - Agent 行为：总 steps、模型调用次数
+
+#### 执行身份字段
+
+`code_version` 此前是字面量 `aibench@0.1.0 / agent@1.0.0` —— 148 份 manifest 全都一样，
+那次让同模型通过率变动 58pp 的适配器修复在任何产物里都没有痕迹。
+
+| 字段 | 含义 |
+|------|------|
+| `code_version` | 运行时 `git rev-parse --short HEAD`，工作树脏时加 `-dirty`。仓库根与 `repo_root()` 不一致、或 git 不可用时为 `unknown-worktree`；无法判定干净与否时为 `<sha>-unknown-cleanliness` |
+| `harness_digest` | 决定「一次跑测意味着什么」的源码摘要：`agents/` + `grading.py` + `workspace.py` + `runner.py` + `languages.py` + `retry.py` + `models.py` + `env_config.py`。也并入 `anchor_fingerprint` |
+| `dependency_digest` | `uv.lock` 的哈希，依赖变动可见 |
+| `python_executable` / `python_version` / `node_version` | 实际解释器与运行时 |
+| `working_directory` | 进程 cwd |
+| `gateway_base_url` | 环境里解析到的网关地址。**API key 从不进入产物**，有测试锁住 |
+
+> `python_executable` 与 `working_directory` 含本机路径（可能带账号名）。`runs/` 已 gitignore
+> 且没有 manifest 入库，`export-bundle` 也不携带 manifest —— 但**手工分享整个 run 目录会带出去**。
 
 **无数据源的列**（Fusion 时间拆解、投机 Oracle 等）保持 `null`，不编造。
 
@@ -1391,8 +1630,8 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 | 设计文件 | 角色 |
 |----------|------|
-| `docs/html/agentic-scaling-benchmark.html` | 结果表与评测协议的 **设计报告**（统一粒度、综述表、通用表、落盘建议、落地阶段） |
-| `docs/html/tables.html`（源 `_src/tables.md`） | **字段字典**（列名、含义、类型；HTML 优化表名/说明与多级表头） |
+| `docs/html/_src/agentic-scaling-benchmark.html` | 结果表与评测协议的**设计报告**。**孤儿文件** —— 页面已不再生成，内容未并入四页站 |
+| `docs/html/_src/tables.md` | **字段字典**（列名、含义、类型）。**孤儿文件** —— `write_tables_page` 已不再被调用 |
 
 本仓库是 **执行与填表实现**：
 
@@ -1430,8 +1669,8 @@ agent-scaling-benchmark/
 ├── docs/
 │   ├── html/                          # **统一 HTML 文档站**
 │   │   ├── index.html
-│   │   ├── project-overview.html
-│   │   ├── reference.html / tables.html
+│   │   ├── overview.html / manual.html
+│   │   ├── reference.html / index.html
 │   │   ├── _src/tables.md             # 字段字典 Markdown 源
 │   │   └── …
 │   ├── REFERENCE.md                   # 本文（Markdown 源）

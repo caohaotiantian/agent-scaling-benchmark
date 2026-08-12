@@ -4,27 +4,41 @@
 
 ---
 
-## 文档入口（HTML 统一展示）
+> ## 接手须知
+>
+> **先读 [`docs/SESSION-2026-08-11.md`](docs/SESSION-2026-08-11.md)**（最近一次会话的状态与未决问题），
+> 再读 [`docs/HANDOFF.md`](docs/HANDOFF.md) 的 §0。 那里有三条限定条件，不看会得出错误结论：
+>
+> - **当前所有难度数字都需要重测。** 适配器有三处缺陷、系统性惩罚推理模型；同一模型在修复前后的四轮消融里通过率跨度 58pp（25.8% → 83.9%）。注意这个跨度**同时含协议变更**（前三轮是 `openai_compat`，第四轮才是 `tool_loop`）——`runs/` 下没有修复前的 `tool_loop` 测量，无法把它单独归给某一个锚点。
+> - **锚点面板强弱反转**（weak 85.2% > strong 77.4%），重新指派之前不能做校准。
+> - **`_revmixed` 31 条里 12 条是抄写题**，`test_reads_source_text` 门禁上线后剩 19 条有效。
+>
+> 一句话状态：**harness 本身可用且经过硬化，但目前没有一个可用于下结论的用例集。**
 
-**推荐打开文档站：** [`docs/html/index.html`](docs/html/index.html)
+## 文档入口
 
 | 页面 | 说明 |
 |------|------|
-| **[交接文档](docs/html/handoff.html)** | **接手工作请先读这一页**：成果、实测数据、经验教训、后续计划 |
-| **[文档站首页](docs/html/index.html)** | 全部 HTML 页面索引与导航 |
-| **[项目介绍演示](docs/html/project-overview.html)** | 目标、架构、命令、科学效度、产物、设计表关系 |
-| **[参考手册](docs/html/reference.html)** | 参数级权威参考（CLI / 配置 / Schema / 映射） |
-| [用户向导](docs/html/user-guide.html) | 操作步骤与速查 |
-| [结果表设计报告](docs/html/agentic-scaling-benchmark.html) | 协议与表结构源头 |
-| [结果表字段字典](docs/html/tables.html) | 综述表 / 通用总表列定义 |
-| [生产配置](docs/html/configs.html) | `configs/` 生产配置（无 mock） |
-| [未尽事项](docs/html/remaining-work.html) | 已知缺口与后续 |
+| **[会话交接 `docs/SESSION-2026-08-11.md`](docs/SESSION-2026-08-11.md)** | **接手请先读这一份**：最新状态、未决问题（不含推荐方案）、已知缺陷 |
+| [项目交接 `docs/HANDOFF.md`](docs/HANDOFF.md) | 更早的状态、限定条件与经验教训 |
+| [文档站首页](docs/html/index.html) | 四页 HTML 站的导航 |
+| [项目介绍](docs/html/overview.html) | 背景、流水线架构、反向构造原理、实测分布 |
+| [用户手册](docs/html/manual.html) | 环境准备、端到端流程、参数含义、故障排查 |
+| [参考资料](docs/html/reference.html) | 设计依据、数据格式、门禁规则、已发布校准数据 |
+| [参考手册 `docs/REFERENCE.md`](docs/REFERENCE.md) | **CLI 与配置的参数级权威参考**（HTML 站不含这部分） |
+| [未尽事项](docs/REMAINING_WORK.md) | 已知缺口（注意：内容截至 2026-08-04，早于主线转向） |
 
-Markdown 源保留于 `docs/*.md`、`configs/README.md`、`docs/html/_src/`（供编辑与 diff）；**展示以 `docs/html/*.html` 为准**。字段字典源为 `docs/html/_src/tables.md`（构建时会把伪表头行渲染成标题/说明）。  
+> **`docs/REFERENCE.md` 与 `docs/html/reference.html` 是两份不同的文档，不是同一份的两种形态。**
+> 前者 1600 行，覆盖 CLI 全参数、配置字段、Schema、产物映射、FAQ；
+> 后者 300 行，覆盖设计论证、数据格式、门禁规则、已发布校准数据清单。
+> 查参数去 `.md`，查「为什么这么设计」去 `.html`。
+> 文档站只从 `docs/html/_src/*.html` 三个手写片段构建，**改 `docs/*.md` 不会改变站点内容**。
+
 重建 HTML：
 
 ```bash
-uv run python scripts/build_docs_html.py
+uv run python scripts/build_docs_html.py    # 只重建 index / overview / manual / reference 四页
+uv run python scripts/check_doc_links.py    # 断链检查
 ```
 
 ---
@@ -101,21 +115,32 @@ uv run python -m aibench select-cases \
 
 ## 项目在做什么
 
+**当前主线是「反向构造」：缺陷不由模型发明，而是回放 trace 里工程师真的改过的那次编辑。**
+
 ```text
-MySQL 生产 trace ──► 草稿（含过程信号 → 建议层级 T1–T5）
+MySQL 生产 trace ──► 草稿 + 回放 edit 得到 (pre, post) 真实前后版本
                        ↓
-                    规则/LLM 筛选
+                    规则筛选 + 抽取端谓词
+                       （import 可满足 / 非测试文件 / 编辑不只是注释）
                        ↓
-     分层生成 ──► 消毒定级（去缺陷标记 / 去题面泄露 / 拆隐藏测试）
+     反向构造：stub = pre，参考解 = post，LLM 只写测试与现象态题面
                        ↓
-     效度门禁：stub 必 fail（下界）+ 参考解必 pass（上界）+ 分层不变量
+     效度门禁：stub 必 fail（下界）+ 参考解必 pass（上界）
+               + 测试不得 grep 源码文本（否则两道门禁按构造都会过）
                        ↓
      经验校准（锚点面板 × 重复）──► 按区分度选题 ──► 可用 case 集
                        ↓
               Agent/模型配置（可替换）→ 判分
                        ↓
-   summary / tables / ablation_report（分层成功率 + McNemar 配对检验）
+   summary / tables / ablation_report（成功率 + McNemar 配对检验）
 ```
+
+> **正向生成（让模型编题）已被三次干预实验判定失效**，代码仍在（`generate-cases` 不带
+> `--reverse`），但不再是主线：输入怎么变，输出难度不动 —— case 体积相关 +0.07，
+> 源 trace 复杂度 |r| < 0.225 且符号相反，抑制题面泄露完全无效。详见 `docs/HANDOFF.md`。
+>
+> **T1–T5 分层机制存在于 `tiers.py` 且有完整不变量检查，但当前主线产出的用例 `tier` 全为空** ——
+> 反向构造路径绕过了 `settle_tier`。分层成功率报表因此只有一列 `unknown`。
 
 | 要点 | 说明 |
 |------|------|

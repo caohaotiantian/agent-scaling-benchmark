@@ -68,11 +68,49 @@ def paired_outcomes(
     return both, only_a, only_b, neither
 
 
+def item_rest_correlation(
+    item: list[float],
+    run_passes: list[float],
+    run_measured: list[int],
+) -> float | None:
+    """Correlate one case's per-run outcome with each run's ability *measured on the others*.
+
+    Two corrections, and they have to happen together because either alone is wrong.
+
+    Correlating a case against a total it belongs to guarantees a positive floor: for a case
+    carrying no signal the zero distribution centres near ``1/sqrt(k)``, which at k=31 is 0.18 —
+    above the 0.15 threshold meant to reject exactly such a case. Leaving the item out is the
+    standard fix.
+
+    The total also has to be a rate, not a count. A run that lost rows to infra errors solved
+    fewer cases for a reason that has nothing to do with capability, and a raw count reads that
+    outage as weakness: on ``runs/calibration_20260809_231654`` the per-run pass counts are
+    ``[26,25,24, 7,5,6, 24,24,24]`` while the rows each run actually produced are
+    ``[30,29,29, 9,9,9, 31,31,31]`` — the middle anchor looks four times weaker than the
+    weakest one, and its pass *rate* is 0.78/0.56/0.67, in line with the rest.
+
+    Taking counts and doing the arithmetic here is deliberate: a caller passing a rate to a
+    routine that subtracts a 0/1 outcome from it gets a plausible number out of mismatched
+    units, and nothing in the signature would say so.
+    """
+    if not (len(item) == len(run_passes) == len(run_measured)):
+        return None
+    rest: list[float] = []
+    for outcome, passes, measured in zip(item, run_passes, run_measured, strict=True):
+        if measured <= 1:
+            return None  # nothing left once this case is removed
+        rest.append((passes - outcome) / (measured - 1))
+    return point_biserial(item, rest)
+
+
 def point_biserial(item: list[float], total: list[float]) -> float | None:
     """Correlation between one case's outcomes and overall scores across the same runs.
 
     Near zero means the case is noise: solving it says nothing about how capable the
     configuration is, so it contributes nothing to separating them.
+
+    Callers scoring a case against a total that includes it want
+    :func:`item_rest_correlation`.
     """
     n = len(item)
     if n < 2 or len(total) != n:

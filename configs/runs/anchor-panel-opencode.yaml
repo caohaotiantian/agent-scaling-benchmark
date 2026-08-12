@@ -1,0 +1,54 @@
+# Calibration anchor panel that varies only the step budget.
+#
+# NOT YET RUN. This file is the design; the measurement it enables is a separate, paid
+# decision. Cost scales with the top rung: at 40 steps a single row was measured at roughly
+# 107k tokens under the old tool loop, so budget by the ladder's top, not its average.
+#
+# Why a ladder rather than the existing panel: anchor-panel.yaml mixes adapters *and* models
+# across its three members, and after the adapter fixes its "weak" member measured 85.2%
+# against its "strong" member's 77.4%. `spread` is the first sort key in select-cases, so a
+# panel that inverts makes it negative and the selection meaningless. The cause was traced and
+# is not capability -- the weak member's single-turn adapter pastes every file, including the
+# visible tests, into the prompt, while the tool loop is told only the workspace root.
+#
+# Holding the adapter and the model fixed and moving only max_steps removes that confound by
+# construction: rung k can do everything rung k-1 can, plus more turns.
+#
+# Construction guarantees the capability subset. It does NOT guarantee the measured pass rates
+# come out ordered -- more turns can also mean more chances to break working code. Whether
+# they do is the open question, and it is answerable for the first time because opencode's
+# maxSteps was measured to actually stop the loop.
+#
+# FIRST DATA POINT, and it is a caution rather than a confirmation. Two cases at s1, s3 and
+# s40: s40 solved both, s1 and s3 solved neither and left the workspace untouched. So the ends
+# are ordered. Between s1 and s3 they are not: on one case s1 issued three tool calls and s3
+# issued two.
+#
+# The reason is that `maxSteps` bounds model *turns*, not tool calls -- opencode can emit
+# several tool calls in one turn, so a one-turn rung can do more looking than a three-turn rung
+# that spent a turn on a refused call. Read the rung labels as turn budgets, and do not assume
+# rung k >= rung k-1 without measuring it. That measurement is what this panel is for.
+anchors:
+  # Floor: one turn, one tool call. No reacting to test output.
+  - name: oc-s1
+    agent_config: configs/agents/opencode-s1.yaml
+    model_config: configs/models/glm52.yaml
+    run_config: configs/runs/baseline-opencode.yaml
+
+  # Enough to look, edit, and run the suite once.
+  - name: oc-s3
+    agent_config: configs/agents/opencode-s3.yaml
+    model_config: configs/models/glm52.yaml
+    run_config: configs/runs/baseline-opencode.yaml
+
+  # Room for a couple of test-edit-test rounds.
+  - name: oc-s10
+    agent_config: configs/agents/opencode-s10.yaml
+    model_config: configs/models/glm52.yaml
+    run_config: configs/runs/baseline-opencode.yaml
+
+  # Ceiling: the budget the production config uses.
+  - name: oc-s40
+    agent_config: configs/agents/opencode-s40.yaml
+    model_config: configs/models/glm52.yaml
+    run_config: configs/runs/baseline-opencode.yaml

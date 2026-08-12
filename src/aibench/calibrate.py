@@ -28,7 +28,7 @@ from typing import Any
 
 from aibench.cases import case_set_dir, is_case_json_path
 from aibench.io_util import load_json, load_yaml, repo_root, write_json
-from aibench.stats import point_biserial, wilson_ci
+from aibench.stats import item_rest_correlation, wilson_ci
 
 DEFAULT_P_MAX = 0.9
 DEFAULT_P_MIN = 0.05
@@ -85,21 +85,36 @@ class CaseCalibration:
         return asdict(self)
 
 
+#: Bumped when the basis below changes, and carried inside the value. A stored fingerprint from
+#: an older scheme can then never compare equal to one computed now, so the reuse gate rejects
+#: it instead of handing back a p_hat measured by code that no longer exists.
+ANCHOR_FINGERPRINT_VERSION = "v2"
+
+
 def anchor_fingerprint(anchors: list[AnchorSpec]) -> str:
     """Identity of the panel a calibration was measured against.
 
     Includes the *contents* of each referenced config, not just its path: swapping the model
     inside `glm52.yaml` changes what the anchors mean while every path stays the same, and a
     p_hat measured against the old panel would silently keep being trusted.
+
+    It also includes the harness source that decides what a run means. Hashing only the three
+    YAML files left the panel byte-identical across an adapter fix that moved the same model's
+    pass rate by 58 points — the same ``5f5233c7214879f4`` before and after — so
+    ``--reuse-from`` would have carried the old numbers straight through a change of behaviour.
+    Config files say which agent and model; they say nothing about how the agent is driven.
     """
+    from aibench.provenance import harness_digest
+
     root = repo_root()
-    parts: list[str] = []
+    parts: list[str] = [harness_digest()]
     for a in sorted(anchors, key=lambda x: x.name):
         parts.append(a.name)
         for rel in (a.agent_config, a.model_config, a.run_config):
             path = _abs(root, rel)
             parts.append(path.read_text(encoding="utf-8") if path and path.is_file() else str(rel))
-    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
+    return f"{ANCHOR_FINGERPRINT_VERSION}:{digest}"
 
 
 def unfit_anchors(
@@ -194,16 +209,33 @@ def plan_calibration(
     return [cid for cid in case_ids if cid not in reused_ids], reusable
 
 
+#: Reason code for a case the panel did not fully measure. Kept apart from the quality reasons
+#: on purpose: it says *our measurement* is incomplete, and the remedy is to re-run, not to
+#: discard the case. Folding it in with `too_easy` and friends is how a half-finished sweep gets
+#: read as a batch of bad cases — the same confusion the uncollectable/hard split exists to stop.
+INCOMPLETE_PANEL = "incomplete_panel"
+
+
 def verdict_reasons(
     p_hat: float,
     r_pb: float | None,
     policy: SelectionPolicy,
+    *,
+    anchors_measured: int | None = None,
+    anchors_expected: int | None = None,
 ) -> list[str]:
     """Why this case would be dropped, under ``policy``. Empty means keep.
 
     A pure function of the measurement and the thresholds, so a reused result can be re-judged
     without re-running anything.
+
+    A case the panel did not fully cover is blocked before any quality judgement: its ``spread``
+    and ``r_pb`` were computed across a different panel than the report names, so comparing them
+    against thresholds calibrated on the full panel is a category error.
     """
+    if anchors_expected and anchors_measured is not None and anchors_measured < anchors_expected:
+        return [f"{INCOMPLETE_PANEL}({anchors_measured}/{anchors_expected} anchors) — re-run"]
+
     reasons: list[str] = []
     if p_hat > policy.p_max:
         reasons.append(f"too_easy(p={p_hat:.2f}>{policy.p_max})")
@@ -289,11 +321,15 @@ def aggregate_calibration(
     for i, name in enumerate(anchor_of):
         runs_of_anchor.setdefault(name, []).append(i)
 
-    # Ability score per run = how many cases it solved; the baseline r_pb is measured against.
-    totals = [
+    # Ability per run, as a pass rate over the cases that run actually measured. A raw count
+    # would read an outage as weakness: the middle anchor of
+    # `runs/calibration_20260809_231654` produced 9 rows of 31 per repeat, so its pass count is
+    # a third of the others while its pass rate is in line with them.
+    run_passes = [
         float(sum(1 for per_run in outcomes.values() for ok in per_run.get(i, []) if ok))
         for i in run_indices
     ]
+    run_measured = [sum(1 for per_run in outcomes.values() if per_run.get(i)) for i in run_indices]
 
     reports: list[CaseCalibration] = []
     for cid in sorted(outcomes):
@@ -316,13 +352,24 @@ def aggregate_calibration(
             flaky = flaky or 0.0 < rate < 1.0
         spread = (max(by_anchor.values()) - min(by_anchor.values())) if by_anchor else 0.0
 
-        item = [
-            (sum(1 for ok in per_run[i] if ok) / len(per_run[i])) if per_run.get(i) else 0.0
-            for i in run_indices
-        ]
-        r_pb = point_biserial(item, totals)
+        # Only the runs that actually produced a row for this case. Scoring a missing run as
+        # 0.0 made the case look failed exactly where the run also scored low overall — a
+        # correlation with the outage rather than with ability. Measured on
+        # `runs/calibration_20260809_231654`: 11 of the 13 kept cases had incomplete attempts,
+        # among them `rev-4646d93ae250add0` at attempts 6/9, p_hat 1.00 and r_pb 0.996.
+        measured = [i for i in run_indices if per_run.get(i)]
+        item = [sum(1 for ok in per_run[i] if ok) / len(per_run[i]) for i in measured]
+        r_pb = item_rest_correlation(
+            item, [run_passes[i] for i in measured], [run_measured[i] for i in measured]
+        )
 
-        reasons = verdict_reasons(p_hat, r_pb, pol)
+        reasons = verdict_reasons(
+            p_hat,
+            r_pb,
+            pol,
+            anchors_measured=len(by_anchor),
+            anchors_expected=len(runs_of_anchor),
+        )
 
         ci = wilson_ci(passes, attempts)
         reports.append(
@@ -354,8 +401,26 @@ def aggregate_calibration(
         "p_hat_distribution": _p_buckets(reports),
         "kept_p_hat_distribution": _p_buckets(kept),
         "tier_distribution": _tier_counts(kept),
+        # Coverage is reported next to the verdicts, not inferred from them. A sweep that lost
+        # passes still writes a report, and nothing in the numbers used to say the panel was
+        # smaller than intended. `run_count` above already carries how many passes were made.
+        "incomplete_panel_count": sum(
+            1 for r in reports if any(x.startswith(INCOMPLETE_PANEL) for x in r.reasons)
+        ),
+        "rows_dropped_by_anchor": _dropped_by_anchor(runs),
         "cases": [r.to_dict() for r in reports],
     }
+
+
+def _dropped_by_anchor(runs: list[dict[str, Any]]) -> dict[str, int]:
+    """Rows each anchor lost to infra errors — the usual reason a panel comes back partial."""
+    out: dict[str, int] = {}
+    for run in runs:
+        name = str(run.get("anchor", "anchor"))
+        lost = sum(1 for row in run.get("rows") or [] if row.get("infra_error"))
+        if lost:
+            out[name] = out.get(name, 0) + lost
+    return dict(sorted(out.items()))
 
 
 def _p_buckets(reports: list[CaseCalibration]) -> dict[str, int]:
@@ -487,7 +552,11 @@ def calibrate_case_set(
     report = aggregate_calibration(runs, policy=policy)
     if reused:
         report = _merge_reused(
-            report, reused, policy=policy, tiers={c.case_id: c.tier for c in cases}
+            report,
+            reused,
+            policy=policy,
+            tiers={c.case_id: c.tier for c in cases},
+            anchors_expected=len(anchors),
         )
     report["case_set"] = case_set
     report["repeats"] = repeats
@@ -533,6 +602,7 @@ def _merge_reused(
     *,
     policy: SelectionPolicy | None,
     tiers: dict[str, str | None] | None = None,
+    anchors_expected: int | None = None,
 ) -> dict[str, Any]:
     """Fold previously measured cases back in and recompute the set-level distributions.
 
@@ -553,7 +623,17 @@ def _merge_reused(
         p_hat = row.get("p_hat")
         if p_hat is None:
             continue
-        row["reasons"] = verdict_reasons(float(p_hat), row.get("point_biserial"), pol)
+        # Coverage travels with the reused row: a case carried over from a partial sweep is
+        # still a case the panel did not fully measure, and re-judging it without that fact
+        # would launder an incomplete measurement into a clean verdict.
+        by_anchor = row.get("by_anchor") or {}
+        row["reasons"] = verdict_reasons(
+            float(p_hat),
+            row.get("point_biserial"),
+            pol,
+            anchors_measured=len(by_anchor),
+            anchors_expected=anchors_expected,
+        )
         row["keep"] = not row["reasons"]
     cases = [*(report.get("cases") or []), *reused]
     cases.sort(key=lambda c: str(c.get("case_id")))
@@ -568,6 +648,14 @@ def _merge_reused(
             "p_hat_distribution": _p_buckets_from_rows(cases),
             "kept_p_hat_distribution": _p_buckets_from_rows(kept),
             "tier_distribution": _count_by_tier(kept),
+            # Recomputed for the same reason as the counts above: a reused row can be judged
+            # `incomplete_panel` here, and a report that drops it while claiming zero
+            # incomplete cases contradicts itself.
+            "incomplete_panel_count": sum(
+                1
+                for c in cases
+                if any(str(x).startswith(INCOMPLETE_PANEL) for x in c.get("reasons") or [])
+            ),
             "cases": cases,
         }
     )
@@ -903,6 +991,8 @@ def _count_by_band(cases: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def render_calibration_md(report: dict[str, Any]) -> str:
+    incomplete = int(report.get("incomplete_panel_count") or 0)
+    dropped = report.get("rows_dropped_by_anchor") or {}
     lines = [
         "# Case Calibration",
         "",
@@ -910,6 +1000,18 @@ def render_calibration_md(report: dict[str, Any]) -> str:
         f"- Anchors: {', '.join(report.get('anchors') or [])}",
         f"- Runs: {report.get('run_count')} (repeats={report.get('repeats')})",
         f"- Kept: **{report.get('kept_count')}** / {report.get('total_cases')}",
+    ]
+    if incomplete or dropped:
+        # Kept apart from the quality verdicts on purpose. A reader who sees only "Kept: 4 / 31"
+        # concludes the set is bad, when what happened is that the sweep did not finish.
+        lines.append(
+            f"- **未测完：{incomplete} 条**（面板缺锚点，判 `{INCOMPLETE_PANEL}`）"
+            " —— 这些不是坏题，对策是重跑"
+        )
+        if dropped:
+            detail = ", ".join(f"{name} {n}" for name, n in dropped.items())
+            lines.append(f"- 因 infra 错误丢弃的行：{detail}")
+    lines += [
         "",
         "## 通过率分布",
         "",

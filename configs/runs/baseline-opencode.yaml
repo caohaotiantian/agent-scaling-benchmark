@@ -1,0 +1,22 @@
+# Production single-run defaults for the opencode adapter.
+#
+# max_steps is the adapter's own budget unless an agent config pins it (the ladder rungs do).
+# 40 matches baseline-tool-loop.yaml so the two are comparable on the step axis; the wall
+# clock is larger because opencode really runs the test suite between turns, which the
+# single-turn adapters never do.
+experiment_name: prod-opencode
+algorithm_name: Baseline
+algorithm_version: v1.0
+budget_axis: steps
+budget_value: "max_steps=40, max_wall_time_s=900"
+branches: 1
+max_attempts: 1
+max_steps: 40
+max_wall_time_s: 900
+selection_strategy: first-submit
+case_set: _revclean
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: configs/agents/opencode.yaml
+model_config: configs/models/glm51.yaml
+case_workers: 3

@@ -150,7 +150,7 @@ uv run pytest tests/ -q     # 应全部通过
 <div class="step">
 <h3><span class="num">5</span>挑选可用集合</h3>
 <pre><code>uv run aibench select-cases --calibration runs/calibration_…/calibration.json \
-  --output-set my-benchmark</code></pre>
+  --from-set _revmixed --to-set my-benchmark</code></pre>
 <p>依据校准结果保留有区分度的用例。判定条件：通过率处于中段、且强弱锚点之间存在可测量的差距。</p>
 </div>
 
@@ -205,6 +205,8 @@ uv run aibench ablation --matrix configs/runs/ablation-matrix.yaml \
 
 <h2 id="tuning">4. 调整难度分布</h2>
 
+<blockquote><p><strong>⚠️ 本节与 §7 的通过率数字全部测于 2026-08-09 之前的有缺陷 harness，暂不可作为结论。</strong>用它们判断「隐藏几条测试」的相对方向尚可（同一天同一 harness 内部比较），绝对数值需要在锚点面板重新指派后重测。见 <code>docs/HANDOFF.md</code> §0.3。</p></blockquote>
+
 <p>若产出的用例过于集中在易档，可用隐藏测试提高难度。该机制把模型写的测试拆成可见与隐藏两部分，隐藏部分仅在评分时注入。</p>
 
 <div class="table-wrap"><table>
@@ -239,7 +241,7 @@ for p in Path('benchmarks/ai_coding/cases/my-set').glob('*.json'):
 <h2 id="artifacts">5. 用例在哪里：可复用的产物清单</h2>
 
 <div class="callout warn">
-<p><strong>用例本身不入库。</strong> 反向构造的用例逐字包含真实仓库源码（实测 13%–75.2%），
+<p><strong>用例本身不入库。</strong> 反向构造的用例逐字包含真实仓库源码（实测 0%–91.2%），
 因此 <code>benchmarks/ai_coding/cases/_rev*/</code> 全部在 <code>.gitignore</code> 中。
 克隆本仓库<strong>不会</strong>得到用例文件，只会得到生成它们的代码与校准数字。</p>
 </div>
@@ -247,11 +249,11 @@ for p in Path('benchmarks/ai_coding/cases/my-set').glob('*.json'):
 <div class="table-wrap"><table>
 <thead><tr><th>产物</th><th>位置</th><th>是否入库</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><strong><code>_revmixed</code></strong></td><td><code>benchmarks/ai_coding/cases/_revmixed/</code></td><td>否</td><td><strong>当前最优集合</strong>：31 条，全部通过效度门禁，易档已按 <code>hide_count=2</code> 处理</td></tr>
+<tr><td><strong><code>_revmixed</code></strong></td><td><code>benchmarks/ai_coding/cases/_revmixed/</code></td><td>否</td><td><strong>当前最优集合</strong>：31 条，易档已按 <code>hide_count=2</code> 处理。<strong>新增 <code>test_reads_source_text</code> 门禁后为 19/31</strong>——被拒的 12 条是抄写题，刻意保留作为门禁有效性的回归样本</td></tr>
 <tr><td><code>_revfinal2</code></td><td>同上目录</td><td>否</td><td>同 31 条，测试全部可见（未做隐藏处理）</td></tr>
-<tr><td><code>_rev6</code></td><td>同上目录</td><td>否</td><td>120 条原始产物，其中 43 条通过门禁</td></tr>
+<tr><td><code>_rev6</code></td><td>同上目录</td><td>否</td><td>120 条原始产物，此前 43 条通过门禁，新门禁后 <strong>29 条</strong></td></tr>
 <tr><td><code>_rev_raw4</code></td><td>同上目录</td><td>否</td><td>3,312 条草稿，重跑生成的输入</td></tr>
-<tr><td>校准数据</td><td><code>benchmarks/ai_coding/calibrations/</code></td><td><strong>是</strong></td><td>14 份，纯数字无代码，任何人可复算</td></tr>
+<tr><td>校准数据</td><td><code>benchmarks/ai_coding/calibrations/</code></td><td><strong>是</strong></td><td>13 份 JSON + README（其中 10 份是校准），纯数字无代码，任何人可复算</td></tr>
 <tr><td>运行记录</td><td><code>runs/</code></td><td>否</td><td>含 <code>grade.detail</code>，可能带测试源码</td></tr>
 </tbody>
 </table></div>
@@ -269,6 +271,8 @@ for p in Path('benchmarks/ai_coding/cases/my-set').glob('*.json'):
 不加 <code>--allow-production-derived</code> 时反向构造用例会被全部拒绝，理由 <code>production_derived</code>。</p>
 
 <h2 id="export">6. 对外分发的门禁</h2>
+
+<blockquote><p><strong>⚠️ 交付前必须先跑一次 <code>uv run aibench audit-cases --case-set &lt;集合&gt; --annotate</code>。</strong><br>导出门禁读的是 case 文件里 <code>metadata.validity_ok</code> 的<em>落盘值</em>，不会现场重算。2026-08-11 新增 <code>test_reads_source_text</code> 门禁后若未重新标注，<code>_revmixed</code> 的 12 条抄写题会被当作合格用例一并导出——实测 <code>--allow-production-derived --dry-run</code> 导出 31/31。</p></blockquote>
 
 <pre><code>uv run aibench export-bundle --from-set my-benchmark \
   --output-dir /path/outside/repo \
@@ -288,8 +292,8 @@ for p in Path('benchmarks/ai_coding/cases/my-set').glob('*.json'):
 </table></div>
 
 <div class="callout warn">
-<p><strong>反向构造的用例默认被拒绝，理由是 <code>production_derived</code>。</strong> 这类用例按定义逐字包含真实仓库源码，实测逐字比例 13%–75.2%。</p>
-<p>确需分发时使用 <code>--allow-production-derived</code>。该开关<strong>不跳过任何检查</strong>，其余门禁照常生效；它记录「分发生产代码是有意为之」这一决定，并在清单中逐条写明源文件名、语言与实测逐字比例，使接收方知悉所收内容。</p>
+<p><strong>反向构造的用例默认被拒绝，理由是 <code>production_derived</code>。</strong> 这类用例按定义逐字包含真实仓库源码，实测逐字比例 0%–91.2%。</p>
+<p>确需分发时使用 <code>--allow-production-derived</code>。该开关只放行来源门禁。<strong>但对反向构造用例，verbatim 门禁本就不生效</strong>（<code>export_bundle.py</code> 对 <code>generation == "reverse"</code> 直接跳过），所以实际生效的是 4 道而非 5 道；它记录「分发生产代码是有意为之」这一决定，并在清单中逐条写明源文件名、语言与实测逐字比例，使接收方知悉所收内容。</p>
 </div>
 
 <h2 id="repro">7. 复现已发布的结论</h2>
@@ -332,8 +336,5 @@ print(collections.Counter(band(x) for x in v), statistics.mean(v))</code></pre>
 </tbody>
 </table></div>
 
-<div class="callout">
-<p><strong>判断长任务是否存活</strong>：用一次独立的 <code>pgrep</code> 确认进程存在，不要以「已发出启动命令」为依据。若使用轮询等待，模式串不可出现在发起它的那条命令中，否则会匹配到等待进程自身，导致永远等待。</p>
-</div>
 
 </section>

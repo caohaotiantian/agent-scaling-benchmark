@@ -1,0 +1,73 @@
+# Does this case set have any resolution at all, or are the models simply equal?
+#
+# At four hidden tests, GLM-5.1 and Deepseek-V4-Flash came out 63.2% and 68.4% over three
+# repeats each, one discordant case of nineteen, p = 1.000 -- and that one case is the same one
+# both models flip against themselves. Measured discrimination: zero. Two explanations survive
+# and the data cannot separate them:
+#
+#   1. the cases have no resolution -- no pair of models would separate on them
+#   2. those two models are genuinely equal on single-file defect repair
+#
+# They point at completely different work, so the next measurement has to be the one that tells
+# them apart: run the WIDEST capability gap the gateway offers and see whether the same cases
+# register it. A narrow pair returning "no difference" again would repeat the mistake that made
+# this experiment necessary.
+#
+# GLM-5 is the oldest model on the gateway and GLM-5.2 the newest. Same case set, same adapter,
+# same dose, so the result joins GLM-5.1 (63.2%) and Deepseek (68.4%) into a four-model panel
+# on identical cases.
+#
+# Reading it:
+#   * GLM-5 separates from GLM-5.2  -> the ruler has markings; the earlier pair was just equal,
+#                                      and the benchmark is answering a question about models
+#                                      that happen not to differ
+#   * no separation                 -> the cases have no resolution, and difficulty is not the
+#                                      missing ingredient. Capability has to compound across
+#                                      steps to show up, which means multi-file and retrieval
+#                                      tasks (T4/T5) -- blocked on material, not on tuning
+#
+# `_revp4` keeps the two cases the new `hidden_test_requires_unknowable_symbol` gate rejects, so
+# these rows stay comparable with the ones already measured; results are reported both ways.
+#
+# 2 models x 19 cases x 3 repeats = 114 case-runs.
+case_set: _revp4
+baseline_experiment: res-glm52-r1
+parallel: 3
+allow_weak_grader: false
+runs:
+  - experiment_name: res-glm52-r1
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: res-glm52-r1
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: res-glm5-r1
+    algorithm_name: GLM-5
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: res-glm5-r1
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: res-glm52-r2
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: res-glm52-r2
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: res-glm5-r2
+    algorithm_name: GLM-5
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: res-glm5-r2
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: res-glm52-r3
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: res-glm52-r3
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: res-glm5-r3
+    algorithm_name: GLM-5
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: res-glm5-r3
+    run_config: configs/runs/baseline-opencode.yaml

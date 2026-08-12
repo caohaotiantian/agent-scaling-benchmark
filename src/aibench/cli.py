@@ -193,17 +193,20 @@ def main(argv: list[str] | None = None) -> int:
         "--allow-production-derived",
         action="store_true",
         help="Include reverse-constructed cases, which carry source from real repositories "
-        "verbatim (measured 13%%-76%% of their lines). This skips no check — every other gate "
-        "still applies — it records that shipping production source is intended, and the "
-        "MANIFEST names each source and its measured share.",
+        "verbatim (measured 0%%-91.2%% over the 31 shipped cases). Every other gate still "
+        "applies — this records that shipping production source is intended, and the MANIFEST "
+        "names each source and its measured share. Note that the verbatim gate never applies to "
+        "reverse-constructed cases in the first place, so four gates bear on them, not five.",
     )
     p_exp.add_argument(
         "--drafts-dir",
         type=Path,
         default=None,
         help="The private drafts this set was generated from. Every case is checked line by "
-        "line against them; over a 575-case build the LLM path overlapped 1.7% and the "
-        "heuristic fallback 100%, because it deep-copies the draft.",
+        # Percent signs are doubled because argparse runs this through %-formatting; a bare
+        # one makes `export-bundle -h` die with "not enough arguments for format string".
+        "line against them; over a 575-case build the LLM path overlapped 1.7%% and the "
+        "heuristic fallback 100%%, because it deep-copies the draft.",
     )
     p_exp.add_argument("--max-verbatim", type=float, default=DEFAULT_MAX_VERBATIM)
     p_exp.add_argument(
@@ -356,7 +359,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Per-band share of the selected set by measured p_hat, e.g. "
         "easy=0.15,mid=0.70,hard=0.15. Bands: hard <0.2, mid 0.2-0.8, easy >0.8. "
         "Thresholds alone cannot shape a distribution — they drop the unusable and then rank "
-        "the rest by discrimination, which is how a selected set still ran 39% easy. A band "
+        # Doubled for the same reason as --drafts-dir below: argparse %-formats help text.
+        "the rest by discrimination, which is how a selected set still ran 39%% easy. A band "
         "with too few cases is reported as a shortfall, never back-filled from another band.",
     )
     p_sel.add_argument("--dry-run", action="store_true")
@@ -600,6 +604,20 @@ def main(argv: list[str] | None = None) -> int:
 
         reverse_chat = None
         if args.reverse:
+            # The extraction predicate lets a draft through when `configs/grading-env.yaml` says
+            # its imports resolve. If that promise is unmet, the case is built, paid for, and
+            # then fails at grading — where a missing package is indistinguishable from a hard
+            # task. Check before the first model call, not after the last.
+            from aibench.grading_env import unsatisfied_promises
+
+            if missing := unsatisfied_promises():
+                print(
+                    "configs/grading-env.yaml promises packages this interpreter cannot import: "
+                    f"{', '.join(missing)}.\n"
+                    "Install them (`uv sync --extra grading`) or remove them from the manifest. "
+                    "Generating against an unmet promise produces cases that fail at grading."
+                )
+                return 1
             settings = openai_settings()
             if not all((settings["api_key"], settings["base_url"], settings["model"])):
                 print("OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL required for --reverse")

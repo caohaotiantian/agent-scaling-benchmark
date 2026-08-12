@@ -88,6 +88,41 @@ def strip_defect_markers(case_dict: dict[str, Any]) -> list[str]:
     return changed
 
 
+def _delimiters_balanced(text: str) -> bool:
+    """Whether ``text`` closes every bracket it opens, ignoring strings and line comments.
+
+    Deliberately a counter rather than a parser: it only has to answer "are the test functions
+    nested inside something", and being wrong the other way costs an unnecessary refusal to
+    hide rather than a workspace that will not parse.
+    """
+    depth = 0
+    quote: str | None = None
+    index = 0
+    while index < len(text):
+        ch = text[index]
+        if quote:
+            if ch == "\\":
+                index += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'`":
+            quote = ch
+        elif ch == "#" or text.startswith("//", index):
+            newline = text.find("\n", index)
+            if newline < 0:
+                break
+            index = newline
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth < 0:
+                return False
+        index += 1
+    return depth == 0
+
+
 def _split_test_body(
     content: str, *, language: str | None = None
 ) -> tuple[str, list[tuple[str, str]]]:
@@ -116,6 +151,13 @@ def _split_test_body(
         return content, []
 
     prelude = "".join(lines[: starts[0][0]]).rstrip() + "\n"
+    if not _delimiters_balanced(prelude):
+        # The tests are nested inside something -- a JavaScript `describe(...)` block is the
+        # common case -- and this splitter works on whole lines, so every slice it produces
+        # would carry an unclosed delimiter. Both halves then fail to parse, and a workspace
+        # that cannot be collected reads as a case nobody can solve rather than as a broken
+        # transform. Hiding nothing is the honest outcome; the caller sees a count of zero.
+        return content, []
     blocks: list[tuple[str, str]] = []
     for i, (start, name) in enumerate(starts):
         end = starts[i + 1][0] if i + 1 < len(starts) else len(lines)

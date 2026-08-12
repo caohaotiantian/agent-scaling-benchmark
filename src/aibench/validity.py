@@ -218,6 +218,272 @@ def check_contamination(case: Case) -> list[ValidityIssue]:
     return issues
 
 
+#: Reflection that hands a test the source of the thing it is meant to exercise.
+_GETSOURCE = re.compile(r"\binspect\.getsource\b|\bgetsourcelines\b")
+
+#: Where a read begins. Arguments are then taken by matching parentheses rather than by regex:
+#: ``[^)]*`` stops at the first ``)``, so ``open(os.path.join(d, "o.txt"), "w")`` loses its mode
+#: argument and reads as a read — and `os.path.join` in a test is entirely ordinary.
+_READ_NAME = re.compile(r"\b(?:readFileSync|readFile|read_text|read_bytes|open)\s*\(")
+
+#: A mode argument, matched against one argument at a time. Scanning the whole argument list
+#: for a quoted single letter meant `readFileSync(p, 'utf8').includes('a')` counted as a write
+#: and skipped the read entirely: changing `'foo'` to `'a'` in an assertion was enough to walk
+#: through an error-level gate.
+_WRITE_MODE_ARG = re.compile(r"^(?:mode\s*=\s*)?['\"][wax]b?\+?['\"]$")
+
+#: Asserting on text rather than on behaviour.
+#:
+#: Deliberately free of name-based alternatives. `\b(?:source|src|code)\s*\.` and a bare
+#: `\.match\s*\(` matched `err.code.startsWith(...)`, `MAC_RE.match(mac)`, a fixture variable
+#: called `source`, and prose in a docstring. Measured over the two calibration sets they
+#: contributed no discrimination at all — `_revmixed` stays at 12 and `_rev6` at 30 without
+#: them — while costing three false positives on `_scaleprobe`.
+_TEXT_ASSERT = re.compile(
+    r"\.includes\s*\(|assert\.match\s*\(|toContain\s*\("
+    r"|assertIn\s*\(|\bin\s+(?:source|src|content|code)\b"
+)
+
+
+def _call_args(text: str, open_paren: int) -> tuple[str, int]:
+    """Argument text between matching parentheses, and the index just past the closer."""
+    depth, i, quote = 0, open_paren, None
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'`":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_paren + 1 : i], i + 1
+        i += 1
+    return text[open_paren + 1 :], len(text)
+
+
+def _split_args(args: str) -> list[str]:
+    """Top-level comma-separated arguments, ignoring commas nested in calls or strings."""
+    out, depth, quote, start = [], 0, None, 0
+    for i, ch in enumerate(args):
+        if quote:
+            if ch == "\\":
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'`":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            out.append(args[start:i].strip())
+            start = i + 1
+    out.append(args[start:].strip())
+    return [a for a in out if a]
+
+
+def _reads(line: str) -> list[str]:
+    """Argument lists of the read calls on one line; write-mode calls are not reads."""
+    found: list[str] = []
+    pos = 0
+    while (m := _READ_NAME.search(line, pos)) is not None:
+        args, end = _call_args(line, m.end() - 1)
+        pos = end
+        parts = _split_args(args)
+        if any(_WRITE_MODE_ARG.match(p) for p in parts):
+            continue
+        found.append(args)
+    return found
+
+
+#: `from parse_reports import create_shared_strings` / `import { build } from './impl.mjs'`.
+_FROM_IMPORT = re.compile(r"^\s*from\s+([\w.]+)\s+import\s+([^\n#]+)", re.M)
+_JS_NAMED_IMPORT = re.compile(r"import\s*\{([^}]*)\}\s*from\s*['\"]([^'\"]+)['\"]")
+
+
+#: A word boundary that also refuses a preceding dot, so `other.build` does not count as the
+#: visible surface defining `build`.
+def _defines(surface: str, name: str) -> bool:
+    return re.search(rf"(?<![.\w]){re.escape(name)}\b", surface) is not None
+
+
+#: Suffixes that follow a module name in prose and in paths, where `impl.py` is a filename
+#: rather than an attribute access. Without this the check reports that the test "needs py".
+_PATH_SUFFIXES = frozenset({"py", "js", "mjs", "cjs", "ts", "tsx", "jsx", "json", "txt", "md"})
+
+
+def _impl_modules(case: Case) -> set[str]:
+    """Module names a hidden test would import the implementation under."""
+    names: set[str] = set()
+    for fb in case.files:
+        if fb.role != "impl":
+            continue
+        base = fb.path.replace("\\", "/").rsplit("/", 1)[-1]
+        names.add(base.rsplit(".", 1)[0])
+    return names
+
+
+def required_hidden_symbols(case: Case) -> dict[str, list[str]]:
+    """Identifiers each hidden test demands from the implementation, by hidden-test path."""
+    modules = _impl_modules(case)
+    out: dict[str, list[str]] = {}
+    for fb in case.grader.hidden_tests:
+        content = fb.content or ""
+        wanted: list[str] = []
+        for module, names in _FROM_IMPORT.findall(content):
+            if module.rsplit(".", 1)[-1] not in modules:
+                continue
+            for raw in names.split(","):
+                name = raw.split(" as ")[0].strip().strip("()")
+                if name and name != "*":
+                    wanted.append(name)
+        for names, source in _JS_NAMED_IMPORT.findall(content):
+            stem = source.replace("\\", "/").rsplit("/", 1)[-1]
+            if stem not in modules and stem.rsplit(".", 1)[0] not in modules:
+                continue
+            for raw in names.split(","):
+                name = raw.split(" as ")[0].strip()
+                if name:
+                    wanted.append(name)
+        for module in modules:
+            for attr in re.findall(rf"(?<![.\w]){re.escape(module)}\.(\w+)", content):
+                # `impl.py` in a path or a message is not an attribute access, and `__file__`
+                # and friends exist on every module.
+                if attr in _PATH_SUFFIXES or attr.startswith("__"):
+                    continue
+                wanted.append(attr)
+        if wanted:
+            out[fb.path] = sorted(set(wanted))
+    return out
+
+
+def check_hidden_tests_are_inferable(case: Case) -> list[ValidityIssue]:
+    """Reject hidden tests that require a name the solver has no way to learn.
+
+    Hiding tests is the one intervention that has ever moved difficulty on this corpus, and
+    measured on ``_revclean`` at four hidden it took a real coding agent from 19 of 19 solved
+    to 11. But difficulty earned two different ways is not the same thing. Of the eight cases
+    that moved, seven failed on assertions — behaviour the visible suite did not pin down, which
+    is the point — and one failed with ``module 'parse_reports' has no attribute
+    'create_shared_strings'``: the hidden test calls a function whose name appears in neither
+    the implementation, nor the visible tests, nor the prompt.
+
+    That case is not hard, it is unanswerable. Every solver fails it for the same reason, so it
+    discriminates nothing while looking exactly like a difficult case in the pass rate — the
+    shape this project keeps having to dig back out of.
+
+    The rule is that the *interface* must be visible even when the *behaviour* is hidden. A
+    symbol counts as visible if it appears anywhere the solver can read: a shipped file, a
+    visible test, or the prompt.
+    """
+    # The reference solution is deliberately absent. It is the one place the missing name is
+    # certain to appear -- that is what makes the case pass its solvability gate -- and it is
+    # exactly what the solver cannot read. Counting it as visible is what made a first version
+    # of this check report the contaminated case as clean.
+    surface = "\n".join([fb.content or "" for fb in case.files] + [case.prompt or ""])
+    issues: list[ValidityIssue] = []
+    for path, names in required_hidden_symbols(case).items():
+        missing = [n for n in names if not _defines(surface, n)]
+        if missing:
+            issues.append(
+                ValidityIssue(
+                    "hidden_test_requires_unknowable_symbol",
+                    "error",
+                    f"hidden test {path} needs {', '.join(missing)}, "
+                    "which appears in no visible file, test, or prompt",
+                )
+            )
+    return issues
+
+
+def _test_blob(case: Case) -> str:
+    """Everything the solver is graded by: visible tests plus the hidden ones."""
+    return "\n".join(
+        [fb.content or "" for fb in case.files if fb.role == "test"]
+        + [fb.content or "" for fb in case.grader.hidden_tests]
+    )
+
+
+def check_test_reads_source(case: Case) -> list[ValidityIssue]:
+    """Reject tests that grep the implementation's text instead of running it.
+
+    Reverse construction rests on the argument in :mod:`aibench.extract.reverse_case`: a model
+    that writes tests which do not separate pre from post produces a case the existing gates
+    reject, so it cannot make the task easier. That argument has a hole — *source text* always
+    separates the two versions, because the fix changed the text. Such a suite passes
+    :func:`check_stub_fails` and :func:`check_reference_solution` by construction, and grades
+    transcription rather than behaviour.
+
+    Measured on the 31 cases of ``_revmixed``: 12 hit, split JavaScript 11/14 against Python
+    1/17. A single loose pattern ("a test that mentions ``readFileSync`` or ``open``") also
+    caught six clean suites — three writing a fixture with ``open(..., 'w')``, two with
+    ``os.fdopen(fd, 'w')`` and one calling ``urlopen`` — so the check is the union of three
+    narrower rules, none of which is redundant:
+
+    ===============================================  ======  ==============
+    rule                                             hits    unique to it
+    ===============================================  ======  ==============
+    reflection (``inspect.getsource``)                    1               1
+    read whose *arguments* name a shipped impl file       4               1
+    read anywhere plus a substring/regex assertion       10               7
+    ===============================================  ======  ==============
+
+    The second rule is scoped to the *line* holding the read, deliberately. Matching the whole
+    file turns it into "any read at all", because a JavaScript test necessarily names the
+    implementation in its import line — 4 hits become 11 on the same set, and legitimate data
+    fixtures start being rejected. A line is narrow enough to exclude the import and wide enough
+    to catch ``Path('impl.py').read_text()``, where the name precedes the call.
+
+    Known limitation: when the behaviour under test *is* file content — a documentation
+    generator, a config writer — the third rule fires on a suite that is doing the right thing.
+    Two such cases exist in ``_scaleprobe``. Distinguishing them needs the read target resolved
+    against the shipped files, which this does not attempt. The three published sets
+    (``auto-v0``, ``disc-v0``, ``retrieval-v0``) take zero hits, but note that between them they
+    contain only one read call at all, so that is weak evidence of precision.
+    """
+    blob = _test_blob(case)
+    if not blob.strip():
+        return []
+    impls = {fb.path.rsplit("/", 1)[-1] for fb in case.files if fb.role == "impl"}
+
+    reasons: list[str] = []
+    if _GETSOURCE.search(blob):
+        reasons.append("reads its own source via inspect")
+
+    reads_impl_by_name = False
+    reads_anything = False
+    for line in blob.splitlines():
+        found = _reads(line)
+        if not found:
+            continue
+        reads_anything = True
+        named = sorted(n for n in impls if re.search(rf"(?<![\w.]){re.escape(n)}(?![\w])", line))
+        if named:
+            reads_impl_by_name = True
+            reasons.append(f"reads the implementation by name: {', '.join(named)}")
+
+    if reads_anything and not reads_impl_by_name and _TEXT_ASSERT.search(blob):
+        reasons.append("reads a file and asserts on its text")
+
+    if not reasons:
+        return []
+    return [
+        ValidityIssue(
+            "test_reads_source_text",
+            "error",
+            "grading is transcription, not behaviour: " + "; ".join(dict.fromkeys(reasons)),
+        )
+    ]
+
+
 #: Detail prefixes the audit keys off. Defined once so the reported reason and the boolean
 #: derived from it cannot drift apart.
 STUB_UNCOLLECTABLE = "stub_uncollectable"
@@ -334,6 +600,8 @@ def audit_case(
     checks: dict[str, Any] = {"fingerprint": fp, "difficulty": difficulty}
 
     issues.extend(check_contamination(case))
+    issues.extend(check_test_reads_source(case))
+    issues.extend(check_hidden_tests_are_inferable(case))
 
     # The reference solution runs first: whether it makes the workspace collectable is what
     # tells an incomplete stub apart from a broken one.

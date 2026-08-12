@@ -15,7 +15,8 @@ exact situation it exists for.
 Reverse-constructed cases are a separate matter, and ``--allow-production-derived`` is not an
 exception to the above. Those cases ship the file as the trace found it and as the trace left
 it, so they are production source *by design* rather than by accident — measured across 8 of
-them, 13% to 76% of their substantive lines appear verbatim in the private drafts. There is no
+them, 0% to 91.2% of their substantive lines appear verbatim in the private drafts (measured
+over the 31 shipped cases; an earlier 13%-76% came from a sample of 8). There is no
 version of them that is not production code, so a gate can only ask whether the owner intends
 to send that out. The flag records that intent; it skips nothing, every other gate still
 applies, and the manifest names each source project and its measured share so whoever receives
@@ -55,7 +56,7 @@ def _draft_source_lines(draft: dict[str, Any]) -> list[str]:
     — the real before and after of an edit, which is exactly what reverse construction ships as
     the stub and the reference solution. Indexing only the first made the gate blind to the
     second: measured on 8 reverse-constructed cases it reported 2.4%-23.9% verbatim while the
-    true overlap with production source was 13%-76%. The one gate that exists to answer "is
+    true overlap with production source was 0%-91.2%. The one gate that exists to answer "is
     this production code?" could not see the production code.
     """
     out = _substantive_lines(draft)
@@ -110,7 +111,7 @@ def _reject_reason(
     if generation == "reverse" and not allow_production_derived:
         # Not a mislabelling to wave through: reverse construction ships the file as the trace
         # found it and as it left it, so these cases ARE production source by design, at a
-        # measured 13%-76% verbatim. Whether that may leave the building is the owner's call
+        # measured 0%-91.2% verbatim. Whether that may leave the building is the owner's call
         # and not a default, so it is named for what it is rather than filed under "provenance".
         return "production_derived"
     if generation not in ("llm", "reverse"):
@@ -125,7 +126,7 @@ def _reject_reason(
     if share > max_verbatim and generation != "reverse":
         return f"verbatim:{share:.3f}"
     # For a reverse case the share is not a leak detector — high is the expected reading, and
-    # enforcing a 5% threshold on cases that are 13%-76% verbatim by construction would reject
+    # enforcing a 5% threshold on cases that are 0%-91.2% verbatim by construction would reject
     # every one while implying the survivors had been sanitised. It is recorded instead.
     return None
 
