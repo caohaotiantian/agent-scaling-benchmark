@@ -398,6 +398,24 @@ def _key(path: str) -> str:
     return re.split(r"[\\/]", path.strip())[-1]
 
 
+def _same_file(a: str, b: str) -> bool:
+    """Whether two spellings of a path can be the same file, on the evidence available.
+
+    The two sides are not written alike: `extract_files_from_tool_text` keeps only the last
+    three components of an absolute path and only the basename of a Windows one, while an edit
+    call carries the path in full. So they are compared over the components they *both* have —
+    `/home/u/proj/calc.py` and `ubuntu/proj/calc.py` agree wherever they overlap.
+
+    When one side is a bare basename there is nothing to compare and this answers True. That is
+    the honest answer, not a safe one: a Windows trace touching two same-named files in
+    different directories cannot be told apart at all, which is a limit of `_key` itself.
+    """
+    pa = [c for c in re.split(r"[\\/]", a.strip()) if c and c != "."]
+    pb = [c for c in re.split(r"[\\/]", b.strip()) if c and c != "."]
+    n = min(len(pa), len(pb))
+    return n > 0 and pa[-n:] == pb[-n:]
+
+
 def replay_file_versions(
     messages: list[dict[str, Any]],
     *,
@@ -494,9 +512,10 @@ def replay_file_versions(
 
     out: list[FileVersion] = []
     for k, fv in current.items():
-        if len(paths_for_key.get(k, ())) > 1:
-            # Two different files share a basename, so the read that would vouch for this `pre`
-            # may have been of the other one. Withdraw the claim rather than stamp a guess.
+        paths = sorted(paths_for_key.get(k, ()))
+        if any(not _same_file(a, b) for a in paths for b in paths):
+            # Two genuinely different files share a basename, so the read that would vouch for
+            # this `pre` may have been of the other one. Withdraw the claim rather than guess.
             fv.pre_origin = PRE_FROM_AMBIGUOUS_PATH
         if fv.pre == fv.post:
             continue

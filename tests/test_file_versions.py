@@ -220,6 +220,27 @@ class TestProvenance:
         fvs, _ = replay_file_versions(msgs)
         assert fvs[0].pre_origin == PRE_FROM_UNLABELLED_READ
 
+    def test_a_read_path_shortened_by_the_extractor_is_still_the_same_file(self):
+        """`extract_files_from_tool_text` keeps only the last three components of an absolute
+        path, and only the basename of a Windows one, while the edit call carries the path in
+        full. Comparing those two spellings as strings called every single file a collision:
+        on the 3,312-draft pool it labelled 1,615 pairs `ambiguous_path` and left zero usable.
+        """
+        msgs = [
+            _read("home/ubuntu/proj/calc.py", BEFORE),
+            _edit("/home/ubuntu/proj/calc.py", "sum(items) - 1", "sum(items)"),
+        ]
+        fvs, _ = replay_file_versions(msgs)
+        assert [f.pre_origin for f in fvs] == [PRE_FROM_READ]
+
+    def test_a_windows_read_reduced_to_a_basename_is_not_a_collision(self):
+        msgs = [
+            _read("calc.py", BEFORE),
+            _edit(r"C:\Users\x\proj\calc.py", "sum(items) - 1", "sum(items)"),
+        ]
+        fvs, _ = replay_file_versions(msgs)
+        assert [f.pre_origin for f in fvs] == [PRE_FROM_READ]
+
     def test_two_files_sharing_a_basename_withdraw_the_claim(self):
         """Replay keys on basenames, so the read that vouches may have been of the other file."""
         msgs = [
