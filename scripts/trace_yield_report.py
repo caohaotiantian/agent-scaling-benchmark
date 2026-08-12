@@ -165,6 +165,12 @@ def pool_report(pool: Path) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Assert the predicate against inline fixtures. Always runs; naming it explicitly "
+        "is what the acceptance command does.",
+    )
+    ap.add_argument(
         "--pool",
         type=Path,
         default=None,

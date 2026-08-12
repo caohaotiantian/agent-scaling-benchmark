@@ -323,17 +323,20 @@ def _with_vouched_pre(fv: dict[str, Any]) -> dict[str, Any] | None:
     from aibench.extract.file_versions import PRE_FROM_READ
     from aibench.extract.history_parse import READ_COMPLETE, split_read_footer
 
-    pre = str(fv.get("pre") or "")
+    pre, post = str(fv.get("pre") or ""), str(fv.get("post") or "")
     origin = fv.get("pre_origin")
     if origin is not None:
         return fv if origin == PRE_FROM_READ else None
-    body, how = split_read_footer(pre)
-    if how != READ_COMPLETE or body == pre:
-        # No footer at all means the text never came from a read: 182 of the 278 such pairs in
-        # the pool name a file that appears in no read anywhere, and the rest cannot be told
+    pre_body, how = split_read_footer(pre)
+    if how != READ_COMPLETE:
+        # No footer at all means the text is not evidence of a read: 182 of the 278 such pairs
+        # in the pool name a file that appears in no read anywhere, and the rest cannot be told
         # apart from those. Refusing what cannot be vouched for is the whole point.
         return None
-    return {**fv, "pre": body}
+    # `post` is stripped too. It becomes `grader.gold_files`, and leaving the footer there while
+    # cleaning the stub ships a valid stub against a reference solution that does not parse —
+    # the same failure as `rev-d098848d56868e13`, moved to the other side and paid for first.
+    return {**fv, "pre": pre_body, "post": split_read_footer(post)[0]}
 
 
 def iter_file_versions(

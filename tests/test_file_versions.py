@@ -9,13 +9,15 @@ produce a case that is fiction wearing real code.
 import json
 
 from aibench.extract.file_versions import (
+    PRE_FROM_AMBIGUOUS_PATH,
     PRE_FROM_READ,
     PRE_FROM_TOOL_WRITE,
+    PRE_FROM_UNLABELLED_READ,
     replay_file_versions,
 )
 
 
-def _read(path, body):
+def _raw_read(path, body):
     return {
         "role": "tool",
         "content": f"<path>{path}</path>\n<type>file</type>\n<content>{body}</content>",
@@ -23,9 +25,18 @@ def _read(path, body):
     }
 
 
+def _read(path, body):
+    """A read as the tool actually reports it — body, blank line, then its own summary.
+
+    Written this way so these tests exercise footer parsing rather than the no-footer default;
+    a suite whose every fixture is footerless proves nothing about the case that matters.
+    """
+    return _raw_read(path, f"{body}\n(End of file - total {len(body.splitlines())} lines)")
+
+
 def _window(path, body, *, shown="1-2", total=190):
     """A read that returned only part of the file, as the tool reports it."""
-    return _read(path, f"{body}\n(Showing lines {shown} of {total}. Use offset=3 to continue.)")
+    return _raw_read(path, f"{body}\n(Showing lines {shown} of {total}. Use offset=3 to continue.)")
 
 
 def _write(path, body):
@@ -188,6 +199,42 @@ class TestPartialReads:
         fvs, _ = replay_file_versions(msgs)
         assert [f.pre for f in fvs] == ["x = 1\ny = 2\nz = 3\n"]
         assert fvs[0].pre_origin == PRE_FROM_READ
+
+
+class TestProvenance:
+    """`pre_origin` is the only thing standing between a case and a fabricated before-state."""
+
+    def test_a_read_after_a_write_shows_the_tool_its_own_output(self):
+        msgs = [
+            _write("a.py", "x = 1\ny = 2\n"),
+            _read("a.py", "x = 1\ny = 2\n"),
+            _edit("a.py", "x = 1", "x = 99"),
+        ]
+        fvs, _ = replay_file_versions(msgs)
+        assert fvs[0].pre_origin == PRE_FROM_TOOL_WRITE, (
+            "reading a file back after writing it is not evidence of what an engineer found"
+        )
+
+    def test_a_read_with_no_footer_is_not_vouched_for(self):
+        msgs = [_raw_read("a.py", "x = 1\ny = 2\n"), _edit("a.py", "x = 1", "x = 99")]
+        fvs, _ = replay_file_versions(msgs)
+        assert fvs[0].pre_origin == PRE_FROM_UNLABELLED_READ
+
+    def test_two_files_sharing_a_basename_withdraw_the_claim(self):
+        """Replay keys on basenames, so the read that vouches may have been of the other file."""
+        msgs = [
+            _read("src/a/conf.py", "x = 1\n"),
+            _read("src/b/conf.py", "x = 1\n"),
+            _edit("src/b/conf.py", "x = 1", "x = 99"),
+        ]
+        fvs, _ = replay_file_versions(msgs)
+        assert [f.pre_origin for f in fvs] == [PRE_FROM_AMBIGUOUS_PATH]
+
+    def test_provenance_reaches_the_draft(self):
+        """`to_dict` is the whole handoff to `iter_file_versions`; dropping the key empties it."""
+        msgs = [_read("a.py", "x = 1\n"), _edit("a.py", "x = 1", "x = 99")]
+        fvs, _ = replay_file_versions(msgs)
+        assert fvs[0].to_dict()["pre_origin"] == PRE_FROM_READ
 
 
 class TestStats:

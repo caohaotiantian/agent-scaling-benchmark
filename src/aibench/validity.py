@@ -502,16 +502,17 @@ def check_tool_output_footer(case: Case) -> list[ValidityIssue]:
     published cases for a defect that does not touch them, which is the failure §14.3.7 already
     records for rule 3 of the transcription gate.
     """
-    from aibench.extract.history_parse import READ_COMPLETE, split_read_footer
+    from aibench.extract.history_parse import split_read_footer
 
     g = case.grader
     graded = {gf.path for gf in g.gold_files if gf.path}
     suspect = [(fb.path, fb.content or "") for fb in g.gold_files + g.hidden_tests]
     suspect += [(fb.path, fb.content or "") for fb in case.files if fb.path in graded]
 
-    hits = [
-        path for path, content in suspect if split_read_footer(content) != (content, READ_COMPLETE)
-    ]
+    # A footer was found exactly when stripping changed the text. Asking instead whether the
+    # verdict is "complete" would condemn every ordinary file, because a file with no footer
+    # carries no verdict at all.
+    hits = [path for path, content in suspect if split_read_footer(content)[0] != content]
     if not hits:
         return []
     return [

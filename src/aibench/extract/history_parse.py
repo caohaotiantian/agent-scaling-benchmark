@@ -20,6 +20,10 @@ _FILE_HEADER = re.compile(
 #: built on; a window of one is not, and the two arrive looking identical.
 READ_COMPLETE = "read_complete"
 READ_PARTIAL = "read_partial"
+#: No footer at all, so the tool never said which of the two this is. 470 of the 23,868 files in
+#: the current pool (2.0%, and 416 of the 6,021 Python ones) are like this. Calling them complete
+#: would vouch for them on no evidence, which is the whole thing this distinction exists to stop.
+READ_UNKNOWN = "read_unknown"
 
 #: The read tool appends a line describing its own output inside `<content>`. Enumerated over
 #: every line of the 23,868 files reconstructed for `_rev_raw4`: these five shapes are the only
@@ -160,23 +164,26 @@ def split_read_footer(content: str) -> tuple[str, str]:
     lines than they hold. Reading the wording alone lets exactly the fragment this predicate
     exists to reject back in through the other branch.
 
-    A tolerance of one line covers the blank line the tool leaves before the footer, which is
-    what 15,834 of those 17,010 exhibit.
+    The comparison is exact. The tool leaves one blank line between the body and the footer, and
+    only that one is discounted — collapsing every trailing blank line instead made the check
+    measure "how many blank lines does this file end with" rather than "is anything missing",
+    and misfiled 61 whole files as fragments because they genuinely end in blank lines.
     """
     lines = content.splitlines()
     last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
     if last is None:
-        return content, READ_COMPLETE
+        return content, READ_UNKNOWN
     stripped = lines[last].strip()
+    body_lines = lines[:last]
+    if body_lines and not body_lines[-1].strip():
+        body_lines = body_lines[:-1]  # the separator the tool inserts, not part of the file
+    body = ("\n".join(body_lines) + "\n") if body_lines else ""
     if _FOOTER_PARTIAL.match(stripped):
-        return "\n".join(lines[:last]).rstrip() + "\n", READ_PARTIAL
+        return body, READ_PARTIAL
     m = _FOOTER_COMPLETE.match(stripped)
     if m is None:
-        return content, READ_COMPLETE
-    body = "\n".join(lines[:last]).rstrip() + "\n"
-    declared = int(m.group("n"))
-    actual = len(body.splitlines())
-    return body, (READ_COMPLETE if abs(declared - actual) <= 1 else READ_PARTIAL)
+        return content, READ_UNKNOWN
+    return body, (READ_COMPLETE if int(m.group("n")) == len(body_lines) else READ_PARTIAL)
 
 
 def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
@@ -197,10 +204,14 @@ def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
                 cleaned_lines.append(re.sub(r"^\s*\d+:\s?", "", line))
             else:
                 cleaned_lines.append(line)
-        content = "\n".join(cleaned_lines).strip() + "\n"
-        content, origin = split_read_footer(content)
+        # The footer is split off before any trimming. Trimming first ate the blank lines a file
+        # genuinely ends with, and the line count then came up short — a whole file refused as a
+        # window for ending in whitespace. Only newlines are trimmed, never indentation: the old
+        # `.strip()` dedented the first line of every file it touched.
+        content, origin = split_read_footer("\n".join(cleaned_lines).strip("\n"))
+        content = content.strip("\n")
         if path and content.strip():
-            files.append({"path": path, "content": content[:200_000], "origin": origin})
+            files.append({"path": path, "content": content[:200_000] + "\n", "origin": origin})
     return files
 
 

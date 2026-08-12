@@ -466,7 +466,7 @@ runs:
 | `--all-agents` | flag | 关 | 默认 `only_opencode=true`（User-Agent 含 opencode）；打开则不限 |
 | `--require-gold` | flag | 关 | 只保留能从 assistant 抽出代码块的草稿 |
 | `--require-edits` | flag | 关 | 只取真正编辑过代码的会话（SQL 谓词 `full_history LIKE '%"name": "edit"%'`）。反向构造需要编辑前后两个版本，按时间抽样几乎取不到 |
-| `--require-usable-pair` | flag | 关 | 只写出反向构造真能建题的草稿，判据就是 `generate-cases --reverse` 用的那条 `iter_file_versions`。**实测 `_rev_raw4` 3,312 条里只有 153 条合格**（2,977 条根本没有 pre/post 对），所以 `--max-cases` 有 95.4% 花在永远出不了用例的草稿上。<br>⚠️ 默认关：本命令同时喂正向生成器，那条路线不需要 `file_versions`，默认开会把它**静默清空** |
+| `--require-usable-pair` | flag | 关 | 只写出反向构造真能建题的草稿，判据就是 `generate-cases --reverse` 用的那条 `iter_file_versions`。**实测 `_rev_raw4` 3,312 条里只有 50 条合格（1.5%）**，2,977 条根本没有 pre/post 对，其余的 `pre` 无法证明来自一次完整 read。<br>⚠️ 默认关：本命令同时喂正向生成器，那条路线不需要 `file_versions`，默认开会把它**静默清空**。<br>⚠️ **不要照搬到既有草稿池上读数**：`_rev_raw4` 建于页脚修复之前，它里面的 Python 素材**全部**是无页脚、无从证明的那一类，所以按新判据 50 条里 **0 条是 Python**。要拿回 Python 素材必须重跑一次 `extract-from-db`（不花模型钱） |
 | `--since` | str | 无 | `start_time >=`，`YYYY-MM-DD` |
 | `--until` | str | 无 | `start_time <`，`YYYY-MM-DD` |
 | `--export-raw` | Path | 无 | 额外写 meta 清单（id、预览、是否有 gold 等） |
