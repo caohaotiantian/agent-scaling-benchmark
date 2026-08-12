@@ -1,0 +1,98 @@
+# Does withholding the grading signal move a real coding agent off the ceiling?
+#
+# Measured first: opencode solved 19 of 19 cases, both models, three repeats each, 114 for 114.
+# The three levers this project has tried explain themselves with one variable -- how much of
+# the grading signal the solver can observe:
+#
+#   * hidden tests moved difficulty (90.3% -> 47.3%) and are the only lever that ever did
+#   * making cases bigger and more realistic did not (corr +0.07, wrong sign)
+#   * removing the function name from the prompt did not (12.8pp intervention, no movement)
+#   * bare_model discriminates on these very cases (89.5% vs 82.5%) where opencode does not
+#
+# An agent with bash and a step budget does not solve the task; it hill-climbs on an oracle it
+# can query for free. Withholding part of that oracle is the intervention.
+#
+# THE DOSE IS THE NUMBER HIDDEN, NOT THE NUMBER LEFT VISIBLE. The earlier calibration measured
+# the strong anchor at 87.5% / 50.0% / 46.7% / 33.3% / 0.0% for 1/2/3/4/5+ hidden, and
+# `keep_visible=1` hides a median of four -- already past the collapse, and it drove 12-14 of
+# 31 cases into "nobody solves". Holding the hidden count fixed is the only way to land in
+# between. Hence three arms at 0, 2 and 4.
+#
+# All three arms declare `protected_paths`, so the run is comparable and the agent cannot pass
+# by editing the tests. `_revclean` had none: nothing stopped it, and the only reason the
+# ceiling result stands is that it did not try.
+#
+# One JavaScript case (rev-461e8d91390e3915) stays at dose 0 in every arm: its tests are nested
+# in a `describe(...)` block and the line-based splitter would leave both halves unparseable,
+# so the transform refuses. It contributes one always-easy case to each arm.
+#
+# One model, because the question is about the material, not the ranking. 3 arms x 19 cases
+# x 3 repeats = 171 case-runs.
+case_set: _revp0
+baseline_experiment: hide0-r1
+parallel: 3
+allow_weak_grader: false
+runs:
+  - experiment_name: hide0-r1
+    algorithm_name: hidden=0
+    case_set: _revp0
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide0-r1
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: hide2-r1
+    algorithm_name: hidden=2
+    case_set: _revp2
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide2-r1
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: hide4-r1
+    algorithm_name: hidden=4
+    case_set: _revp4
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide4-r1
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: hide0-r2
+    algorithm_name: hidden=0
+    case_set: _revp0
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide0-r2
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: hide2-r2
+    algorithm_name: hidden=2
+    case_set: _revp2
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide2-r2
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: hide4-r2
+    algorithm_name: hidden=4
+    case_set: _revp4
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide4-r2
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: hide0-r3
+    algorithm_name: hidden=0
+    case_set: _revp0
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide0-r3
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: hide2-r3
+    algorithm_name: hidden=2
+    case_set: _revp2
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide2-r3
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: hide4-r3
+    algorithm_name: hidden=4
+    case_set: _revp4
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: hide4-r3
+    run_config: configs/runs/baseline-opencode.yaml

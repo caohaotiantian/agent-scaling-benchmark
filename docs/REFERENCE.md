@@ -810,10 +810,15 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 | adapter | 配置文件 | 行为摘要 |
 |---------|----------|----------|
+| `bare_model` | `configs/agents/bare_model.yaml` | 单次调用，返回整份修好的文件；测「模型本身有多强」 |
 | `openai_compat` | `configs/agents/openai_compat.yaml` | 单轮 Chat；要求返回 `{"files":[...],"message":"..."}` 并写入 workspace |
-| `tool_loop` | `configs/agents/tool_loop.yaml` | 多步工具：`list` / `read` / `write` / `bash` / `submit` |
-| `shell` | `configs/agents/shell.yaml` | 外部 CLI；占位符 `{workspace}` `{prompt_file}` `{case_id}` `{max_steps}` |
+| `opencode` | `configs/agents/opencode.yaml`、`opencode-s{1,3,10,40}.yaml` | 真实编码 agent（opencode CLI）作为子进程驱动；见 §12.4 |
+| `tool_loop` | `configs/agents/tool_loop.yaml` | 自研多步工具：`list` / `read` / `write` / `bash` / `submit`。**已知会主导测量**，见 §12.4 开头 |
+| `shell` | `configs/agents/shell.yaml` | 外部 CLI；占位符 `{workspace}` `{prompt_file}` `{case_id}` `{max_steps}`。不记 token，`empty_patch` 恒 false |
 | `mock` | **仅** `tests/fixtures/configs/agents/mock.yaml` | 单测 / dry-run |
+
+三种口径不要混用：`bare_model` 答「模型多强」，`opencode` 答「模型在真实 agent 里多强」，
+`openai_compat` / `tool_loop` 答「模型在本项目自研脚手架里多强」。
 
 ### 12.1 `openai_compat` options
 
@@ -839,6 +844,73 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 | `env` | 额外环境变量 |
 
 退出码 0 视为 agent 完成；修改须落在 `{workspace}` 下。
+
+**不要用它接 opencode**，尽管 `shell.yaml` 的注释里有这么一行示例。它 `usage` 恒为 0
+（成本轴的 `token_amplification` 因此无意义）、把工作区里**每个**文件都算作 written
+（`empty_patch` 因此恒 false）、且 `(proc.stdout or "")[-2000]` 是单字符索引而非切片
+（与 §12.4 开头那个让 agent 轴多年未被测量的缺陷同款）。用 `opencode` 适配器。
+
+### 12.4 `opencode` options
+
+把 opencode CLI 作为子进程驱动。存在的理由：`tool_loop` 是本项目自研的脚手架，
+与无脚手架口径对比时它**主导了测量而不是测量了对象**——同一批用例三次重复翻转 32.3%、
+轮间极差 12.9pp（无脚手架 0.0pp），且修它内部三个缺陷让同一模型通过率移动 58 个百分点。
+`opencode` 回答的是另一个问题：模型在人们真正使用的编码 agent 里表现如何。
+
+| 选项 | 默认 | 说明 |
+|------|------|------|
+| `binary` | `opencode` | 可执行文件路径（实测版本 1.18.15） |
+| `max_steps` | 取 run-config 的 `max_steps` | 钉死步数上限；阶梯锚点用它 |
+| `system_prompt` | 见 `DEFAULT_SYSTEM` | 写进生成配置的 `agent.aibench.prompt` |
+| `allowed_commands` | 同 `tool_loop` 的白名单 | bash 允许的程序名 |
+
+**运行身份可复算**：provider、网关、模型、步数、工具集、权限全部由 `configs/models/*.yaml`
+与 `.env` 在每次运行时生成到临时 `opencode.json`，经 `OPENCODE_CONFIG` 注入；
+不读操作者的 `~/.config/opencode`。`--pure` 是必需的（否则加载插件时挂死，实测 150s 无事件）。
+
+**边界由 `sandbox-exec` 承担，不是由 opencode 的权限配置承担。**
+`external_directory: deny` **不是文件系统边界**：它只对硬编码的一小撮命令名做路径检查。
+实测让 agent 读本仓库的一个文件——`cat` 被拒，而 `grep` / `head` / `sed` / `find`
+**全部成功返回了文件内容**。（本项目早先版本声称该规则拦得住，依据是一个只用了
+`cat` 与 `python3 -c` 的探针，而这两个恰好在被检查的集合里。这是 §5.9 的同型错误。）
+
+现在的边界是 seatbelt 配置：`deny file-read-data file-write*` 覆盖仓库子树，
+`allow file-read-data` 放行 `.venv`（grader 命令是 `python -m pytest -q`，
+不放行 agent 就跑不了被评分的测试）。**只拒内容不拒元数据**——连 `file-read-metadata`
+一起拒会让 opencode 在 `lstat` 上以 EPERM 退出，而 gold 解是文件里的字节，不是 stat。
+同一个探针在加沙箱前泄漏、加沙箱后不泄漏，这是能区分改前改后的对照。
+`artifacts.sandboxed` 如实记录本次是否真的施加了边界；无 `sandbox-exec` 的平台记 `false`，
+不继承一个没得到的保证。opencode 的权限块保留为便宜的第二层。
+
+**工作区镜像到仓库外**：opencode 向上走到 **git 根**来确定「项目目录」，
+工作区留在 `runs/.../workspace` 时整个仓库都算「项目内」。镜像目标用
+`tempfile.mkdtemp()` 并 `.resolve()`（macOS 上 `/var` 与 `/private/var` 不是一回事）。
+跑完按内容双向镜像回原路径（含删除与符号链接），因为 grader 拿到的是原路径。
+
+**权限里不要加 `read`/`edit` 路径规则。** `bash` 按原始命令串匹配，绝对路径模式有效；
+`read`/`edit` 匹配不上绝对路径，于是 `{"*": "deny"}` 兜底会把 agent 锁在自己的工作区外——
+实测每次 read 与 edit 全被拒、连两行缺陷都改不了，而**状态码仍是 `completed`、
+单测全绿、数字上看不出任何异常**。
+
+**子进程环境是重建的，不是继承的**：`OPENCODE_CONFIG` 是**追加**一份配置而非替换，
+全局 `~/.config/opencode` 仍会被合并，故 `XDG_CONFIG_HOME` 一并指向 staging；
+继承来的 `OPENCODE_*` 全部剔除（`OPENCODE_PERMISSION` 能整块覆盖权限）；
+`PWD`/`OLDPWD` 也剔除（它们仍指向仓库，opencode 启动时会 stat 它）；
+`OPENCODE_DB` 与 `XDG_DATA/CACHE/STATE_HOME` 每次运行独占——
+共用单个 SQLite 并发跑会 `database is locked` 并让整行变成 `infra_error`。
+`PATH` 故意保留，理由同上（`.venv/bin` 决定 agent 能否跑测试）。
+子进程 `stdin=DEVNULL`（opencode 会把非 TTY 的 stdin 读到 EOF 并**追加进题面**）、
+`cwd` 设为工作区、独立进程组（超时按组终止，否则它派生的 pytest/node 会在 staging
+被删除时仍在写）。
+
+**状态映射**（决定一行算模型的还是算基础设施的）：opencode 遇到网关错误会打一条
+`{"type":"error"}` 并非零退出——只要出现该事件且退出码非零即 `infra_error`；
+超时且零模型调用也是 `infra_error`（网关不通时的挂起与「预算耗尽」形状相同，
+误判会把一次故障写成模型的失败并留在分母里且不重试）。
+
+**残留风险**：seatbelt 是 macOS 专有且 Apple 已弃用；`artifacts.out_of_workspace_attempts`
+记录越界尝试（含模型把路径写错这类假阳性，**不要读作作弊**）。
+容器隔离仍是更彻底且可移植的答案，且能一并覆盖 grader 侧（§13 开头记的最大安全缺口）。
 
 ---
 
@@ -1130,6 +1202,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 | Gold 污染 | `contamination_gold_in_context` | error | 是 | gold 全文已在 context |
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | 测试抄写源码 | `test_reads_source_text` | error | 是 | §14.3.7；测试 grep 实现的源码文本而非运行它 |
+| 隐藏测试索要不可知符号 | `hidden_test_requires_unknowable_symbol` | error | 是 | §14.3.8；隐藏了行为可以，隐藏了接口不行 |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
 | 弱 grader 标记 | `weak_grader_flag` | warn | 否 | script 却标 weak_grader |
@@ -1322,7 +1395,44 @@ JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走�
 > 仓库根在 `sys.path` 上时，`import src...` / `import tests...` 被本项目自己的目录满足。
 > 同一批草稿存活数 24 vs 21，取决于调用方式。详见 `docs/HANDOFF.md` §0.7。
 
-#### 14.3.8 `annotate` 写回字段
+#### 14.3.8 隐藏测试索要不可知符号（`hidden_test_requires_unknowable_symbol`）
+
+规则一句话：**隐藏行为可以，隐藏接口不行。** 隐藏测试向实现索要的符号，
+若在解题者能读到的任何地方（shipped 文件、可见测试、题面）都不出现，判 error。
+
+为什么需要它：隐藏测试是本项目**唯一**动过难度的杠杆，实测把真实编码 agent 从 19/19 压到 11/19。
+但同样是「变难」，来源有两种。8 条变难的用例里 7 条挂在断言上 ——
+考的是可见测试没钉住的行为，这正是目的；另有 2 条挂在
+`module 'parse_reports' has no attribute 'create_shared_strings'` 这类错误上 ——
+隐藏测试调用的函数名在实现、可见测试、题面里**都不存在**。
+
+后者不是难题，是无解题：所有解题者以同一原因失败，因此**区分不了任何东西，
+却在通过率上长得和难题一模一样** —— 本项目反复要从中挖出来的正是这个形状。
+
+实现两处易错，都是第一版写错后由实测纠正的：
+
+1. **参考解不计入「可见面」。** 缺失的符号**必然**出现在参考解里（那正是它能过可解性门禁的原因），
+   而参考解恰恰是解题者读不到的。算进去会让真正的污染用例判为干净。
+2. **文件名不是属性访问。** `postcss.config.js` 里的 `js`、`..._parallel.py` 里的 `py`、
+   以及 `__file__`，第一版把它们当成被索要的符号，**报 4 个假阳性同时漏掉真阳性**。
+
+误伤情况：
+
+| case set | 用例 | 有隐藏测试 | 被检查符号 | 命中 |
+|---|---:|---:|---:|---:|
+| `auto-v0` | 126 | 92 | 102 | **0** |
+| `disc-v0` | 28 | 25 | 26 | **0** |
+| `retrieval-v0` | 27 | 26 | 27 | **0** |
+
+三个已发布集合合计 155 个符号零命中。与 §14.3.7 那次「零误伤」不同，这里暴露面足够大，
+证据是有分量的。
+
+> **注意它挡不住的**：难度与区分度是两件事。同一批用例在 hidden=4 上，
+> 两个模型一起从 100% 掉到 ~65%，而配对不一致只有 1/19，且那一条正是两个模型
+> 各自对自己也会翻转的用例 —— 实测区分度为零。**这道门禁提高的是难度的成色，不是区分度。**
+> 详见 `docs/HANDOFF.md` §0.0b。
+
+#### 14.3.9 `annotate` 写回字段
 
 | metadata 键 | 值 |
 |-------------|-----|

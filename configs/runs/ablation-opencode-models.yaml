@@ -1,0 +1,55 @@
+# Model comparison inside a real coding agent, three repeats each.
+#
+# The pair is deliberately GLM-5.1 against Deepseek-V4-Flash, the one where the scaffold
+# reversed the answer: bare, GLM-5.1 led 90.3% to 83.9%; under tool_loop Deepseek led 90.3% to
+# 71.0%. Same cases, same models, opposite direction. Running that pair through opencode is
+# what makes this measurement comparable to both existing yardsticks instead of a third
+# unanchored number.
+#
+# Three repeats are mandatory, not thorough: one pass of this comparison reported p = 0.0312
+# and three passes of the same comparison returned p = 0.167. Report the run-to-run spread
+# alongside the rates -- under tool_loop it was 12.9 and 16.1 points, which is larger than any
+# difference between these two models.
+#
+# 2 models x 19 cases x 3 repeats = 114 case-runs.
+case_set: _revclean
+baseline_experiment: oc-glm51-r1
+parallel: 3
+allow_weak_grader: false
+runs:
+  - experiment_name: oc-glm51-r1
+    algorithm_name: GLM-5.1
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: oc-glm51-r1
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: oc-deepseek-r1
+    algorithm_name: Deepseek-V4-Flash
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/deepseek-v4-flash.yaml
+    run_id: oc-deepseek-r1
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: oc-glm51-r2
+    algorithm_name: GLM-5.1
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: oc-glm51-r2
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: oc-deepseek-r2
+    algorithm_name: Deepseek-V4-Flash
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/deepseek-v4-flash.yaml
+    run_id: oc-deepseek-r2
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: oc-glm51-r3
+    algorithm_name: GLM-5.1
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/glm51.yaml
+    run_id: oc-glm51-r3
+    run_config: configs/runs/baseline-opencode.yaml
+  - experiment_name: oc-deepseek-r3
+    algorithm_name: Deepseek-V4-Flash
+    agent_config: configs/agents/opencode.yaml
+    model_config: configs/models/deepseek-v4-flash.yaml
+    run_id: oc-deepseek-r3
+    run_config: configs/runs/baseline-opencode.yaml
