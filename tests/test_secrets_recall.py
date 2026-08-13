@@ -16,6 +16,7 @@ happened to build it, which this repository has already learned once.
 
 import json
 from types import SimpleNamespace
+from typing import ClassVar
 
 from aibench.extract.llm_chat_records import record_to_case_draft
 from aibench.secrets_scan import scan_case_dict, scan_text
@@ -74,14 +75,14 @@ class TestTheFieldsCarryingRawTraceContent:
         case = self._draft_shaped(f"API_KEY = '{CREDENTIALS['openai_sk']}'\n")
         assert any(f.rule == "openai_sk" for f in scan_case_dict(case))
 
-    def test_the_harness_own_records_are_not_case_content(self):
-        """`key_lines` can hold the redactor's own `sk-***` placeholder and `validity_issues`
-        holds verbatim runner output. Reporting either makes the gate refuse a case for text it
-        produced itself — and `export_bundle` deletes `validity_issues` before writing anyway."""
+    def test_a_runner_transcript_is_not_case_content(self):
+        """`validity_issues` quotes the case back at itself to explain a refusal. Reporting it
+        makes the gate refuse a case for the words it used to describe the last refusal, and
+        everything quoted there is scanned where it actually lives."""
         case = {
             "prompt": "fix it",
             "context": {"files": []},
-            "grader": {"key_lines": ["headers = {'Authorization': 'Bearer sk-***'}"]},
+            "grader": {},
             "metadata": {
                 "validity_issues": [
                     {
@@ -152,3 +153,62 @@ class TestDraftsAreBuiltWithoutRawCredentials:
         blob = json.dumps(fvs, ensure_ascii=False)
         assert CREDENTIALS["openai_sk"] not in blob
         assert "zzfakefakefakefk" not in blob
+
+
+class TestTheKeywordNeedNotTouchTheSeparator:
+    """`SECRET_KEY = "..."` matched nothing: the rule wanted the keyword immediately before the
+    `=`, and here `_KEY` sits between. The redactor's own word list has the same shape, so both
+    layers missed it — 12 files in this corpus carry that spelling.
+    """
+
+    LEAKS: ClassVar[list[str]] = [
+        'SECRET_KEY = "hardcoded-secret-key-12345"',
+        'JWT_SECRET_KEY = "zzfakefakefake00"',
+        'ACCESS_TOKEN_ID = "zzfake000111222"',
+        'MY_API_KEY_PROD = "zzfake000111222"',
+    ]
+
+    def test_a_keyword_inside_a_longer_name_is_still_a_credential(self):
+        missed = [line for line in self.LEAKS if not scan_text(line)]
+        assert missed == []
+
+
+class TestWhatMustNotBeReported:
+    """Every floor and every negative side, because loosening a rule is invisible otherwise:
+    each format is pinned by one positive string, and nothing stops a bound from drifting.
+    """
+
+    NOT_CREDENTIALS: ClassVar[list[str]] = [
+        "sk-tooshort",  # openai_sk floor
+        "ghp_short",  # github_token floor
+        "github_pat_tooshort",  # github_pat floor
+        "glpat-short",  # gitlab_token length
+        "AIzaTooShort",  # google_api_key length
+        "eyJhbGciOiJIUzI1NiJ9.notbase64payload",  # jwt needs both segments
+        "AKIAshortlower",  # aws_key charset
+        "postgres://user@host/db",  # db url with no password
+        # The redactor's own output. Reporting it makes the gate refuse a case for text this
+        # very pipeline wrote, and `key_lines` carries exactly this shape.
+        "headers = {'Authorization': 'Bearer sk-***'}",
+        "API_KEY = '***'",
+        "password = ***",
+    ]
+
+    def test_none_of_these_is_reported(self):
+        reported = [s for s in self.NOT_CREDENTIALS if scan_text(s)]
+        assert reported == []
+
+
+class TestGraderKeyLinesIsCaseContent:
+    """`grading.py` decides pass/fail from `key_lines`, and both `promote` and `export-bundle`
+    write it. Excluding it from the scan was wrong: what it needed was for the redactor's
+    placeholder to stop reading as a credential.
+    """
+
+    def test_a_credential_in_key_lines_is_reported(self):
+        case = {
+            "prompt": "fix it",
+            "context": {"files": []},
+            "grader": {"key_lines": [f"API_KEY = '{CREDENTIALS['openai_sk']}'"]},
+        }
+        assert any(f.rule == "openai_sk" for f in scan_case_dict(case))

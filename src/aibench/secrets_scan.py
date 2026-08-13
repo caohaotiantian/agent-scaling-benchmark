@@ -39,13 +39,21 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # The value needs real length, or the quoted-key form turns every config entry into a
     # finding: `"pwd": "allow"` is a permission setting, and flagging it makes `--secrets-scan`
     # report a clean set as dirty and `promote` refuse it.
-    ("password_assign", re.compile(r"(?i)(password|passwd|pwd)['\"]?\s*[:=]\s*['\"]?[^\s'\"]{6,}")),
+    # `[\w-]*` on both sides because the keyword need not touch the separator: `SECRET_KEY = …`
+    # matched nothing, and the redactor's own word list has the same shape, so both layers
+    # missed it. Twelve files in this project's corpus are spelled that way.
+    (
+        "password_assign",
+        re.compile(r"(?i)[\w-]*(?:password|passwd|pwd)[\w-]*['\"]?\s*[:=]\s*['\"]?[^\s'\"]{6,}"),
+    ),
     # Six, matching password_assign and the redactor's own floor. At eight there was a band of
     # values that redaction declined to rewrite and the scanner declined to report — covered by
     # neither, while the tests asserted the two met.
     (
         "api_key_assign",
-        re.compile(r"(?i)(api[_-]?key|secret|token)['\"]?\s*[:=]\s*['\"]?[^\s'\"]{6,}"),
+        re.compile(
+            r"(?i)[\w-]*(?:api[_-]?key|secret|token)[\w-]*['\"]?\s*[:=]\s*['\"]?[^\s'\"]{6,}"
+        ),
     ),
     ("bearer", re.compile(r"(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*")),
 ]
@@ -148,6 +156,8 @@ def scan_text(text: str, *, path: str = "<text>") -> list[Finding]:
     for name, pat in _PATTERNS:
         for m in pat.finditer(text or ""):
             snip = m.group(0)
+            if _REDACTED in snip or text[m.end() : m.end() + 3] == _REDACTED:
+                continue
             if name in _ASSIGNMENT_RULES and _is_code_not_credential(snip):
                 continue
             if len(snip) > 80:
@@ -163,10 +173,24 @@ def scan_text(text: str, *, path: str = "<text>") -> list[Finding]:
 #:
 #: Matched by their exact position. Excluding the names wherever they appear would exempt any
 #: subtree a case happened to give one of them — a case about a validation library, say.
-_HARNESS_RECORDS = frozenset(["grader:key_lines", "metadata:validity_issues"])
+#: `grader.key_lines` is NOT here: `grading.py` decides pass/fail from it and both `promote`
+#: and `export-bundle` write it, so it is case content. What it needed was for the redactor's
+#: own placeholder to stop reading as a credential — see `_REDACTED`.
+#:
+#: `metadata.validity_issues` is a runner transcript. `export_bundle` drops it before writing;
+#: `promote` does not, so it does ship — but everything it quotes comes from case content that
+#: is scanned in place, and reporting a gate's own failure message makes it refuse a case for
+#: the words it used to explain the last refusal.
+_HARNESS_RECORDS = frozenset(["metadata:validity_issues"])
 
-#: Deep enough for any case; `json.loads` accepts a thousand. Without a bound, a pathological
-#: document raises `RecursionError` out of a gate, and a gate that crashes decides nothing.
+#: What this pipeline writes in place of a secret. Checked on the text around a match, not just
+#: inside it: `redact_source` leaves `Bearer sk-***`, and the `bearer` rule's character class
+#: stops at the first `*`, so the asterisks fall outside the snippet it would report.
+_REDACTED = "***"
+
+#: Deep enough for any case — the deepest in this corpus is four. Returning "clean" at the
+#: bound would be the one failure a gate must not have, so it raises instead: a scan that could
+#: not finish is not a scan that found nothing.
 _MAX_DEPTH = 60
 
 
@@ -181,7 +205,7 @@ def _walk_strings(node: Any, path: str, depth: int = 0) -> list[Finding]:
     if isinstance(node, str):
         return scan_text(node, path=path)
     if depth >= _MAX_DEPTH:
-        return []
+        raise ValueError(f"document nests deeper than {_MAX_DEPTH} at {path!r}; refusing to guess")
     out: list[Finding] = []
     if isinstance(node, dict):
         # A file entry names itself. Reporting `context:files[3]:content` makes a human open the
