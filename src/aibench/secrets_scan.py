@@ -11,8 +11,28 @@ from aibench.io_util import load_json
 
 _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("openai_sk", re.compile(r"sk-[A-Za-z0-9]{20,}")),
-    ("aws_key", re.compile(r"AKIA[0-9A-Z]{16}")),
+    # `sk-ant-` values contain hyphens, which `openai_sk`'s character class stops at, so it
+    # matches only the first fragment and the length floor can then miss it entirely.
+    ("anthropic_key", re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}")),
+    ("aws_key", re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}")),
     ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    # Each of these was found in this project's own corpus with no rule to match it. The
+    # `github_pat` sat in a draft's `prompt` — a field the scanner has always read — which is
+    # why coverage is two separate problems: a field this does not reach, and a format it does
+    # not know. Widening one never fixes the other.
+    ("github_pat", re.compile(r"github_pat_[A-Za-z0-9_]{50,}")),
+    ("github_token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}")),
+    ("gitlab_token", re.compile(r"glpat-[A-Za-z0-9_-]{20}")),
+    ("slack_token", re.compile(r"xox[abpres]-[A-Za-z0-9-]{10,}")),
+    ("google_api_key", re.compile(r"AIza[A-Za-z0-9_-]{35}")),
+    # Header and payload both, so a lone base64 word cannot pass as one.
+    ("jwt", re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+")),
+    (
+        "db_url_password",
+        re.compile(
+            r"(?:postgres|postgresql|mysql|mongodb|redis|amqp)(?:\+\w+)?://[^:/\s]+:[^@\s]{6,}@"
+        ),
+    ),
     # The optional quote after the name matches a quoted key, as in {"token": "..."} — the
     # exact shape `redact_source` may decline to rewrite, and therefore the shape this gate
     # has to catch. Without it the JSON form was invisible to both.
@@ -136,21 +156,37 @@ def scan_text(text: str, *, path: str = "<text>") -> list[Finding]:
     return out
 
 
+#: Text the harness wrote about a case, not text the case ships. `key_lines` can hold the
+#: redactor's own `sk-***` placeholder, and `validity_issues` holds verbatim runner output —
+#: which `export_bundle` deletes before writing anyway. Reporting either makes the gate refuse
+#: a case for something it produced itself.
+_HARNESS_RECORDS = frozenset(["key_lines", "validity_issues"])
+
+
+def _walk_strings(node: Any, path: str) -> list[Finding]:
+    """Every string in the document, with the path that led to it.
+
+    An explicit list of fields has to be extended whenever a field is added, and once was not:
+    `metadata.file_versions` — raw trace content, the one draft field written without
+    redaction — reached the drafts with nothing scanning it, and five live keys sat there.
+    Walking removes the step that gets skipped.
+    """
+    out: list[Finding] = []
+    if isinstance(node, str):
+        return scan_text(node, path=path)
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in _HARNESS_RECORDS:
+                continue
+            out.extend(_walk_strings(v, f"{path}:{k}" if path else str(k)))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            out.extend(_walk_strings(v, f"{path}[{i}]"))
+    return out
+
+
 def scan_case_dict(case: dict[str, Any], *, path: str = "case") -> list[Finding]:
-    findings: list[Finding] = []
-    findings.extend(scan_text(str(case.get("prompt") or ""), path=f"{path}:prompt"))
-    for f in (case.get("context") or {}).get("files") or []:
-        p = f.get("path") or "file"
-        findings.extend(scan_text(str(f.get("content") or ""), path=f"{path}:{p}"))
-    for g in (case.get("grader") or {}).get("gold_files") or []:
-        p = g.get("path") or "gold"
-        findings.extend(scan_text(str(g.get("content") or ""), path=f"{path}:gold:{p}"))
-    # Hidden tests are written into the workspace at grading time and are shipped in the case
-    # file like any other content, so leaving them unscanned exempted a whole surface.
-    for h in (case.get("grader") or {}).get("hidden_tests") or []:
-        p = h.get("path") or "hidden"
-        findings.extend(scan_text(str(h.get("content") or ""), path=f"{path}:hidden:{p}"))
-    return findings
+    return _walk_strings(case, path)
 
 
 def scan_case_file(path: Path) -> list[Finding]:

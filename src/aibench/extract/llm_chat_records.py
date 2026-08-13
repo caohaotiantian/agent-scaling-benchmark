@@ -336,7 +336,20 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             # What the engineer actually changed, replayed from the trace's own edits. This is
             # the material reverse construction builds on: the defect is then whatever they
             # really got wrong, not what a model invents when asked for a benchmark case.
-            "file_versions": [fv.to_dict() for fv in file_versions],
+            #
+            # Redacted like every other body on this path. It was the one that was not, and
+            # being raw trace content it is the likeliest to carry a credential: five live keys
+            # and a mail authorization code reached the draft pool through here. Reverse
+            # construction redacts the same text again when it builds a case, so the published
+            # artefact is unchanged — what changes is that the key never touches the disk.
+            "file_versions": [
+                {
+                    **fv.to_dict(),
+                    "pre": redact_source(fv.pre, path=fv.path),
+                    "post": redact_source(fv.post, path=fv.path),
+                }
+                for fv in file_versions
+            ],
             "file_versions_stats": replay_stats.to_dict(),
         },
     }
