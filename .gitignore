@@ -47,3 +47,11 @@ benchmarks/ai_coding/cases/retrieval-v0/
 
 # Archived case sets: generated material, same reason as the sets above.
 benchmarks/ai_coding/cases_archive/
+
+# Every generated case set, by shape rather than by name. The `_rev*` pattern above missed
+# `_raw2026`, `_geninput`, `_retrytest`, `_clean2026` and `_retryout`, and `git add -A` then
+# committed 3,551 files of verbatim production source — including a live `sk-` key, a mail
+# authorization code and an engineer's home path. Naming each new set in this file is a step
+# that gets skipped; matching the directory that holds them is not.
+benchmarks/ai_coding/cases/*/
+!benchmarks/ai_coding/cases/.gitkeep
