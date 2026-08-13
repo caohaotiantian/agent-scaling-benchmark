@@ -338,7 +338,7 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             # really got wrong, not what a model invents when asked for a benchmark case.
             #
             # Redacted like every other body on this path. It was the one that was not, and
-            # being raw trace content it is the likeliest to carry a credential: five live keys
+            # being raw trace content it is the likeliest to carry a credential: three live keys
             # and a mail authorization code reached the draft pool through here. Reverse
             # construction redacts the same text again when it builds a case, so the published
             # artefact is unchanged — what changes is that the key never touches the disk.

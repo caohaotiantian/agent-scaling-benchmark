@@ -656,16 +656,39 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 ### 8.11 `secrets-scan`
 
-**作用**：用正则扫描 prompt / context.files / gold_files 中疑似密钥。
+**作用**：用正则扫描 case JSON 里**每一个字符串值**中疑似密钥。
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
 | `--case-set` | str | 无 | 与 `--input-dir` 二选一 |
-| `--input-dir` | Path | 无 | 直接扫目录下 `*.json` |
+| `--input-dir` | Path | 无 | 直接扫目录下 `*.json`（草稿目录同样可用） |
 | `--report` | Path | 无 | 报告路径；stdout 也打印 |
 
-规则示例：`sk-…`、`AKIA…`、PRIVATE KEY、password/api_key 赋值、Bearer token。  
+**扫描范围是整份文档，不是字段清单。** 早先版本只读 prompt / context.files / gold_files /
+hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里唯一未经消毒的 trace 原文）
+不在其中 —— 三个真实 `sk-` 密钥、一个邮箱授权码由此进入草稿池而无人报告。
+字段清单在新增字段时要同步修改，这一步被跳过过；遍历没有这一步。
+
+**两处例外**，按位置而非按名字排除：`grader.key_lines` 与 `metadata.validity_issues`。
+前者可能存着消毒器自己的 `sk-***` 占位符，后者是 runner 的原始输出且 `export-bundle`
+写盘前就删掉 —— 报它们等于让门禁因自己产生的文本拒绝用例。
+只按名字排除会连带豁免任何恰好用了这两个键名的子树，所以匹配的是完整路径。
+
+**规则**（`secrets_scan.py`）：
+
+| 类别 | 规则 |
+|---|---|
+| 固定格式 | `sk-…`、`sk-ant-…`、`AKIA/ASIA…`、PRIVATE KEY、`github_pat_…`、`gh[pousr]_…`、`glpat-…`、`xox[abpres]-…`、`AIza…`、JWT、带口令的数据库连接串 |
+| 赋值形状 | `password`/`passwd`/`pwd` 与 `api_key`/`secret`/`token` 的赋值、`Bearer` |
+
+固定格式类不走 `_is_code_not_credential` 的代码判别；赋值形状类走。
 `clean=false` → exit 2。
+
+> **已知精度问题（未修）**：赋值形状两条规则在生产源码上误报率高 ——
+> `apiKey: config['X']`、`token = github_token`、`password: newPassword` 一类
+> 「引用凭证的代码」被判成「写死的凭证」。`db_url_password` 在现有语料上
+> **26 处命中全是误报**（README 的 `.env.example`、Rust 文档注释、测试断言）。
+> 收紧它们需要一份对抗性召回语料先落盘，否则放宽会同时漏掉真凭证 —— 单独一轮处理。
 
 ### 8.12 `snapshot-skeleton`
 

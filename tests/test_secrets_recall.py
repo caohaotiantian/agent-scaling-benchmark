@@ -20,9 +20,12 @@ from types import SimpleNamespace
 from aibench.extract.llm_chat_records import record_to_case_draft
 from aibench.secrets_scan import scan_case_dict, scan_text
 
-#: One live-shaped credential per format the scanner is expected to know. The values are
-#: synthetic but structurally exact — a rule that matches a shortened stand-in and misses the
-#: real thing is the failure this file is here to prevent.
+#: One credential per format the scanner must know: invented values in the exact shape of the
+#: real thing, because a rule tuned to a shortened stand-in misses the real thing.
+#:
+#: Every value here is fabricated. An earlier draft of this file reached for the corpus and
+#: pasted four values lifted from it — one of which git had never seen before — which would
+#: have put a credential into tracked history in the commit that exists to keep them out.
 CREDENTIALS = {
     "openai_sk": "sk-REDACTED",
     "anthropic_key": "sk-ant-REDACTED",
@@ -32,6 +35,9 @@ CREDENTIALS = {
     "slack_token": "xoxb-123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",
     "google_api_key": "AIzaSyA1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6Q",
     "aws_key": "AKIAIOSFODNN7EXAMPLE",
+    # The temporary-credential prefix. Without it, reverting the rule to `AKIA` only
+    # leaves the whole suite green.
+    "aws_temp_key": "ASIAZZFAKE0000FAKE00",
     "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1g",
     "db_url_password": "mysql+pymysql://root:rootpassword123@10.0.0.1:3306/app",
 }
@@ -87,11 +93,22 @@ class TestTheFieldsCarryingRawTraceContent:
         }
         assert scan_case_dict(case) == []
 
+    def test_the_exclusion_is_positional_not_by_name(self):
+        """A case that ships a file under a key called `key_lines` is still case content."""
+        case = {
+            "prompt": "fix it",
+            "context": {
+                "files": [{"path": "a.py", "key_lines": f"K = '{CREDENTIALS['openai_sk']}'"}]
+            },
+            "grader": {},
+        }
+        assert any(f.rule == "openai_sk" for f in scan_case_dict(case))
+
 
 class TestDraftsAreBuiltWithoutRawCredentials:
     def test_file_versions_is_redacted_before_it_reaches_disk(self):
         """Reporting a key still leaves it in the file. This is the half that removes it."""
-        body = f"API_KEY = '{CREDENTIALS['openai_sk']}'\nPASSWORD = 'buqgupvifauabbfc'\n"
+        body = f"API_KEY = '{CREDENTIALS['openai_sk']}'\nPASSWORD = 'zzfakefakefakefk'\n"
         read = {
             "role": "tool",
             "content": (
@@ -110,7 +127,7 @@ class TestDraftsAreBuiltWithoutRawCredentials:
                         "arguments": json.dumps(
                             {
                                 "filePath": "settings.py",
-                                "oldString": "PASSWORD = 'buqgupvifauabbfc'",
+                                "oldString": "PASSWORD = 'zzfakefakefakefk'",
                                 "newString": "PASSWORD = os.environ['PW']",
                             }
                         ),
@@ -134,4 +151,4 @@ class TestDraftsAreBuiltWithoutRawCredentials:
         assert fvs, "the fixture must actually produce a pair, or this test proves nothing"
         blob = json.dumps(fvs, ensure_ascii=False)
         assert CREDENTIALS["openai_sk"] not in blob
-        assert "buqgupvifauabbfc" not in blob
+        assert "zzfakefakefakefk" not in blob

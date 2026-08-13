@@ -160,28 +160,43 @@ def scan_text(text: str, *, path: str = "<text>") -> list[Finding]:
 #: redactor's own `sk-***` placeholder, and `validity_issues` holds verbatim runner output —
 #: which `export_bundle` deletes before writing anyway. Reporting either makes the gate refuse
 #: a case for something it produced itself.
-_HARNESS_RECORDS = frozenset(["key_lines", "validity_issues"])
+#:
+#: Matched by their exact position. Excluding the names wherever they appear would exempt any
+#: subtree a case happened to give one of them — a case about a validation library, say.
+_HARNESS_RECORDS = frozenset(["grader:key_lines", "metadata:validity_issues"])
+
+#: Deep enough for any case; `json.loads` accepts a thousand. Without a bound, a pathological
+#: document raises `RecursionError` out of a gate, and a gate that crashes decides nothing.
+_MAX_DEPTH = 60
 
 
-def _walk_strings(node: Any, path: str) -> list[Finding]:
-    """Every string in the document, with the path that led to it.
+def _walk_strings(node: Any, path: str, depth: int = 0) -> list[Finding]:
+    """Every string *value* in the document, with the path that led to it.
 
-    An explicit list of fields has to be extended whenever a field is added, and once was not:
-    `metadata.file_versions` — raw trace content, the one draft field written without
-    redaction — reached the drafts with nothing scanning it, and five live keys sat there.
-    Walking removes the step that gets skipped.
+    Keys are not scanned, and neither are non-string scalars. What matters is that no list of
+    fields has to be extended when a field is added: `metadata.file_versions` — raw trace
+    content, the one draft field written without redaction — reached the drafts with nothing
+    scanning it, and three live keys sat there.
     """
-    out: list[Finding] = []
     if isinstance(node, str):
         return scan_text(node, path=path)
+    if depth >= _MAX_DEPTH:
+        return []
+    out: list[Finding] = []
     if isinstance(node, dict):
+        # A file entry names itself. Reporting `context:files[3]:content` makes a human open the
+        # JSON to learn which file; reporting the path it carries does not.
+        own = node.get("path") if isinstance(node.get("path"), str) else None
         for k, v in node.items():
-            if k in _HARNESS_RECORDS:
+            here = f"{path}:{k}" if path else str(k)
+            if here.split(":", 1)[-1] in _HARNESS_RECORDS:
                 continue
-            out.extend(_walk_strings(v, f"{path}:{k}" if path else str(k)))
+            out.extend(
+                _walk_strings(v, f"{here}({own})" if own and k != "path" else here, depth + 1)
+            )
     elif isinstance(node, list):
         for i, v in enumerate(node):
-            out.extend(_walk_strings(v, f"{path}[{i}]"))
+            out.extend(_walk_strings(v, f"{path}[{i}]", depth + 1))
     return out
 
 
