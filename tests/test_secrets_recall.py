@@ -28,10 +28,10 @@ from aibench.secrets_scan import scan_case_dict, scan_text
 #: pasted four values lifted from it — one of which git had never seen before — which would
 #: have put a credential into tracked history in the commit that exists to keep them out.
 CREDENTIALS = {
-    "openai_sk": "sk-REDACTED",
-    "anthropic_key": "sk-ant-REDACTED",
-    "github_pat": "github_pat_REDACTED",
-    "github_token": "ghp_REDACTED",
+    "openai_sk": "sk-ZZfakeFAKE0000fakeFAKE11",
+    "anthropic_key": "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+    "github_pat": "github_pat_00ZZFAKE000000000000_ZZfakeFAKE0000fakeFAKE0000fakeFAKE0000fake00",
+    "github_token": "ghp_ZZfakeFAKE0000fakeFAKE0000fakeFAKE00",
     "gitlab_token": "glpat-AbCdEfGhIjKlMnOpQrSt",
     "slack_token": "xoxb-123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",
     "google_api_key": "AIzaSyA1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6Q",
