@@ -1,0 +1,54 @@
+# Patch review over `_review30`, against the widest capability gap the gateway offers.
+#
+# Same two models, same three repeats and same adapter family as
+# `configs/runs/ablation-widest-gap.yaml`, so the only thing that moved is the task: the solver
+# judges a patch instead of writing one. That comparison is the whole point, and it is why the
+# repeats and the model pair are copied rather than chosen afresh.
+#
+# Read the result against a floor of 67%, not 50%. `scripts/review_case_gate.py` rejected this
+# set: the mean length of an added line separates the real fixes from the failed ones at 67%
+# held-out balanced accuracy (permutation p = 0.025), because the real fix is always a human
+# commit and the failed ones are always model output. The run is bought anyway, with that
+# ceiling recorded in advance — a score inside 50–67% carries no information about review
+# ability, and `scripts/review_readout.py` refuses to call such a result positive.
+case_set: _review30
+baseline_experiment: review-glm52-r1
+parallel: 3
+allow_weak_grader: false
+runs:
+  - experiment_name: review-glm5-r1
+    algorithm_name: GLM-5
+    agent_config: configs/agents/bare_model_review.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: review-glm5-r1
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: review-glm52-r1
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/bare_model_review.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: review-glm52-r1
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: review-glm5-r2
+    algorithm_name: GLM-5
+    agent_config: configs/agents/bare_model_review.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: review-glm5-r2
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: review-glm52-r2
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/bare_model_review.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: review-glm52-r2
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: review-glm5-r3
+    algorithm_name: GLM-5
+    agent_config: configs/agents/bare_model_review.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: review-glm5-r3
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: review-glm52-r3
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/bare_model_review.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: review-glm52-r3
+    run_config: configs/runs/baseline-bare.yaml
