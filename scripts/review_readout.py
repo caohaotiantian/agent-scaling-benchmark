@@ -77,10 +77,18 @@ def load(run_dir: Path) -> list[tuple[str, str, dict[str, dict[str, Any]]]]:
     return out
 
 
-_VERDICT = re.compile(r"(?i)(?<![A-Za-z0-9_])(YES|NO)(?![A-Za-z0-9_])")
+def verdict_pattern(labels: set[str]) -> re.Pattern[str]:
+    """Match whatever this set's answers are.
+
+    A first version hard-coded YES and NO, and reported 100% unreadable on a set whose answers
+    are A and B — the format column read as a total failure while the pass rate showed the
+    models answering fine. The vocabulary comes from the cases now.
+    """
+    alternatives = "|".join(sorted(re.escape(x) for x in labels))
+    return re.compile(rf"(?i)(?<![A-Za-z0-9_])({alternatives})(?![A-Za-z0-9_])")
 
 
-def submitted(run_dir: Path, run_id: str, case_id: str) -> str | None:
+def submitted(run_dir: Path, run_id: str, case_id: str, pattern: re.Pattern[str]) -> str | None:
     """The verdict the model actually submitted, or None if the file names zero or both.
 
     Read from the workspace rather than inferred from pass/fail, because "wrong answer" and
@@ -99,7 +107,7 @@ def submitted(run_dir: Path, run_id: str, case_id: str) -> str | None:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             return None
-        named = {m.group(0).upper() for m in _VERDICT.finditer(text)}
+        named = {m.group(0).upper() for m in pattern.finditer(text)}
         return next(iter(named)) if len(named) == 1 else None
     return None
 
@@ -120,7 +128,12 @@ def main() -> int:
 
     cases = {c.case_id: c for c in load_cases(args.case_set)}
     truth = {cid: str(c.metadata.get("answer")) for cid, c in cases.items()}
-    source = {cid: str(c.metadata.get("source_case_id")) for cid, c in cases.items()}
+    source = {
+        cid: str(c.metadata.get("source_case_id") or c.metadata.get("source_file") or cid)
+        for cid, c in cases.items()
+    }
+    labels = sorted({v for v in truth.values() if v})
+    pattern = verdict_pattern(set(labels))
     runs = load(args.run)
     if not runs:
         print(f"no runs under {args.run}")
@@ -132,18 +145,6 @@ def main() -> int:
     unreadable: dict[str, int] = dict.fromkeys(models, 0)
     total: dict[str, int] = dict.fromkeys(models, 0)
 
-    for run_id, model, rows in runs:
-        for cid, row in rows.items():
-            if cid not in truth:
-                continue
-            total[model] += 1
-            per_model[model][cid].append(bool(row["passed"]))
-            said = submitted(args.run, run_id, cid)
-            if said is None:
-                unreadable[model] += 1
-            else:
-                answers[model][said] += 1
-
     report: dict[str, Any] = {
         "models": models,
         "n_items": len(cases),
@@ -151,17 +152,53 @@ def main() -> int:
     }
     print(f"# patch-review readout — {args.case_set} ({len(cases)} items)\n")
 
+    # A run that never reached the model is not a wrong answer. `stats.paired_outcomes` drops
+    # these rows for the same reason, and `HANDOFF §0.8` records what counting them costs: a
+    # calibration where the middle anchor looked four times weaker than the weakest one because
+    # an outage was being read as capability.
+    panel: dict[str, dict[str, int]] = {m: {} for m in models}
+    for run_id, model, rows in runs:
+        usable = 0
+        for cid, row in rows.items():
+            if cid not in truth:
+                continue
+            if row.get("infra_error"):
+                continue
+            usable += 1
+            total[model] += 1
+            per_model[model][cid].append(bool(row["passed"]))
+            said = submitted(args.run, run_id, cid, pattern)
+            if said is None:
+                unreadable[model] += 1
+            else:
+                answers[model][said] += 1
+        panel[model][run_id] = usable
+
+    print("## 0. 面板完整性（跑不起来 ≠ 做不对）\n")
+    print("| model | run | 有效 case | 占比 |")
+    print("| --- | --- | ---: | ---: |")
+    panel_ok = True
+    for m in models:
+        for run_id, usable in panel[m].items():
+            share = usable / max(1, len(cases))
+            panel_ok = panel_ok and share >= 0.95
+            print(f"| {m} | {run_id} | {usable}/{len(cases)} | {share:.0%} |")
+    report["panel"] = panel
+    print()
+    if not panel_ok:
+        print("> **面板不完整。** 缺的行不是坏题，是没测完；对策是重跑，不是丢题。")
+        print("> 下面的数字只在各自的有效行上成立，不构成模型比较。\n")
+
     # 1. Format.
     print("## 1. 格式（先看这个：读不出来的回复与答错在通过率上无法区分）\n")
-    print("| model | runs | 读不出裁决 | 占比 | YES | NO |")
-    print("| --- | ---: | ---: | ---: | ---: | ---: |")
+    print("| model | runs | 读不出裁决 | 占比 | " + " | ".join(labels) + " |")
+    print("| --- | ---: | ---: | ---: | " + " | ".join("---:" for _ in labels) + " |")
     format_ok = True
     for m in models:
         share = unreadable[m] / max(1, total[m])
         format_ok = format_ok and share <= MAX_FORMAT_FAILURE
-        print(
-            f"| {m} | {total[m]} | {unreadable[m]} | {share:.1%} | {answers[m]['YES']} | {answers[m]['NO']} |"
-        )
+        counts = " | ".join(str(answers[m][x]) for x in labels)
+        print(f"| {m} | {total[m]} | {unreadable[m]} | {share:.1%} | {counts} |")
     report["format"] = {
         m: {"runs": total[m], "unreadable": unreadable[m], "answers": dict(answers[m])}
         for m in models
@@ -223,22 +260,20 @@ def main() -> int:
                 sum(sum(per_model[m][cid]) for cid in cases if truth[cid] == label),
                 sum(len(per_model[m][cid]) for cid in cases if truth[cid] == label),
             )
-            for label in ("YES", "NO")
+            for label in labels
         }
         for m in models
     }
     print("## 附：按真值分层（识别「一律答 NO」这类退化策略）\n")
-    print("| model | 真值 YES 上正确 | 真值 NO 上正确 |")
-    print("| --- | ---: | ---: |")
+    print("| model | " + " | ".join(f"真值 {x} 上正确" for x in labels) + " |")
+    print("| --- | " + " | ".join("---:" for _ in labels) + " |")
     for m in models:
-        yes, no = by_truth[m]["YES"], by_truth[m]["NO"]
-        print(f"| {m} | {yes[0]}/{yes[1]} | {no[0]}/{no[1]} |")
+        cells = " | ".join(f"{by_truth[m][x][0]}/{by_truth[m][x][1]}" for x in labels)
+        print(f"| {m} | {cells} |")
     report["by_truth"] = {m: {k: list(v) for k, v in d.items()} for m, d in by_truth.items()}
     print()
     clusters = len({source[cid] for cid in cases})
-    print(
-        f"聚簇：{len(cases)} 条题来自 {clusters} 个源用例，每个源用例出一 YES 一 NO，逐题检验未按簇校正。"
-    )
+    print(f"聚簇：{len(cases)} 条题来自 {clusters} 个源用例，逐题检验未按簇校正。")
     print()
 
     if args.json:
@@ -246,6 +281,7 @@ def main() -> int:
 
     print("## 判定（规则在跑之前就写死了）\n")
     checks = [
+        ("面板完整（每行 >= 95% 有效 case）", panel_ok),
         (f"格式失败 <= {MAX_FORMAT_FAILURE:.0%}", format_ok),
         (f"两个模型都显著高于 {ceiling:.0%}", above),
         (f"配对检验 p < {ALPHA}", p_paired < ALPHA),
