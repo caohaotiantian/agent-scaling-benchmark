@@ -38,9 +38,12 @@ from __future__ import annotations
 import argparse
 import ast
 import difflib
+import hashlib
 import json
+import re
 import subprocess
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -81,6 +84,12 @@ DUPLICATE_RATIO = 0.98
 #: Long enough that no candidate's own fenced code can close the block. One source patch in
 #: `_clean2026` contains a bare triple backtick.
 FENCE = "`````"
+
+#: Cap per source file so one file with thirteen edits cannot supply a seventh of the set.
+MAX_ITEMS_PER_FILE = 4
+
+#: A draft prompt longer than this is a transcript, not an issue description.
+MAX_PROMPT_CHARS = 4000
 
 
 def normalise(text: str, language: str) -> str:
@@ -359,13 +368,236 @@ def to_case_json(built: Built, source: Case, run_name: str) -> dict[str, Any]:
     }
 
 
+CHOICE_CONFTEST = '''\
+"""Read the submitted choice out of `answer.py` without importing it.
+
+The submission is whatever the model put in its fenced block, which is not always valid
+Python. Importing it would turn a readable answer into a collection error, and a collection
+error is indistinguishable from a wrong answer in the pass rate.
+"""
+
+import pathlib
+import re
+
+import pytest
+
+
+@pytest.fixture(scope="session")
+def chosen():
+    """The single option the submission names, or None if it names neither or both."""
+    text = pathlib.Path(__file__).with_name("answer.py").read_text(encoding="utf-8")
+    named = {m.group(0).upper() for m in re.finditer(r"(?<![A-Za-z0-9_])[ABab](?![A-Za-z0-9_])", text)}
+    return next(iter(named)) if len(named) == 1 else None
+'''
+
+CHOICE_VISIBLE_TEST = '''\
+def test_answer_names_exactly_one_option(chosen):
+    """Well-posedness, not correctness: the submission has to name A or B, not both."""
+    assert chosen in ("A", "B")
+'''
+
+CHOICE_HIDDEN_TEST = """\
+def test_the_right_patch_was_chosen(chosen):
+    assert chosen == "{answer}"
+"""
+
+
+@dataclass
+class HumanEdit:
+    key: str
+    path: str
+    pre: str
+    post: str
+    prompt: str
+    diff: str = ""
+    size: int = 0
+
+
+def collect_human_edits(pool: Path) -> dict[str, dict[str, HumanEdit]]:
+    """Every vouched human edit in the draft pool, grouped by the file it touched.
+
+    Drafts carry their own issue text, so this is not limited to the curated case set — and it
+    is the only source of a distractor with the same author as the answer.
+    """
+    from aibench.extract.reverse_case import _is_test_file, _with_vouched_pre
+
+    by_file: dict[str, dict[str, HumanEdit]] = defaultdict(dict)
+    for path in sorted(pool.glob("*.json")):
+        if path.name.startswith("_"):
+            continue
+        try:
+            draft = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+            continue
+        prompt = str(draft.get("prompt") or "")
+        for raw in (draft.get("metadata") or {}).get("file_versions") or []:
+            if not isinstance(raw, dict):
+                continue
+            fv = _with_vouched_pre(raw)
+            if fv is None:
+                continue
+            file_path = str(fv.get("path") or "")
+            if _is_test_file(file_path) or not file_path.endswith(".py"):
+                continue
+            pre, post = str(fv.get("pre") or ""), str(fv.get("post") or "")
+            key = hashlib.sha1(f"{pre}\0{post}".encode(errors="replace")).hexdigest()
+            base = file_path.replace("\\", "/").rsplit("/", 1)[-1]
+            by_file[base].setdefault(
+                key, HumanEdit(key=key, path=file_path, pre=pre, post=post, prompt=prompt)
+            )
+    return by_file
+
+
+def prepare_edit(edit: HumanEdit) -> bool:
+    """Normalise, diff and size one edit. False if it cannot be used."""
+    if not edit.prompt.strip() or len(edit.prompt) > MAX_PROMPT_CHARS:
+        return False
+    if not parses(edit.post, "python"):
+        return False
+    pre = normalise(edit.pre, "python")
+    post = normalise(edit.post, "python")
+    edit.diff = unified(pre, post, edit.path.replace("\\", "/").rsplit("/", 1)[-1])
+    edit.size = changed_lines(edit.diff)
+    return 0 < edit.size <= MAX_DIFF_LINES
+
+
+def build_choice_prompt(issue: str, first: HumanEdit, second: HumanEdit) -> str:
+    return (
+        "下面是一条真实的问题描述，以及**两个**都真实提交过的补丁——它们改的是同一个文件，"
+        "但只有一个是针对这条问题描述的，另一个解决的是别的问题。\n\n"
+        f"## 问题描述\n\n{issue.strip()}\n\n"
+        f"## 补丁 A\n\n{FENCE}diff\n{first.diff.rstrip()}\n{FENCE}\n\n"
+        f"## 补丁 B\n\n{FENCE}diff\n{second.diff.rstrip()}\n{FENCE}\n\n"
+        "## 你要做的\n\n"
+        "判断哪一个补丁针对上面这条问题描述，把 `answer.py` 的内容改成那个字母：\n\n"
+        '```\nCHOICE = "A"\n```\n\n'
+        "只写这一行。不要解释，不要复述补丁内容。"
+    )
+
+
+_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+
+
+def issue_overlap(issue: str, diff: str) -> float:
+    """Share of the issue's identifiers that appear in the diff's added lines.
+
+    Selection has to look at this, not only at diff similarity. With both candidates written by
+    hand the size and style tells are gone — four blind heuristics measured 50%, 53%, 52%, 52% —
+    but the issue text names what it is about, and a first version of this builder left a
+    bag-of-words matcher scoring 105 of 167 (63%, p = 0.0005) by picking whichever patch shared
+    more words with the issue. That is lexical matching, not review.
+    """
+    wanted = {w.lower() for w in _WORD.findall(issue)}
+    if not wanted:
+        return 0.0
+    body = " ".join(
+        ln[1:] for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")
+    ).lower()
+    return sum(1 for w in wanted if w in body) / len(wanted)
+
+
+def build_choice_items(pool: Path, out_dir: Path) -> tuple[int, int]:
+    """One item per usable edit: its own issue against another edit to the same file.
+
+    The distractor matches the answer on issue-word overlap first and resembles it textually
+    second. Matching the overlap is what stops the item being solvable by counting shared words;
+    resemblance is what stops it being solvable by noticing that one patch touches a completely
+    different part of the file.
+    """
+    by_file = collect_human_edits(pool)
+    written = 0
+    files_used = 0
+    for base in sorted(by_file):
+        edits = [e for e in by_file[base].values() if prepare_edit(e)]
+        if len(edits) < 2:
+            continue
+        files_used += 1
+        edits.sort(key=lambda e: e.key)
+        for answer_edit in edits[:MAX_ITEMS_PER_FILE]:
+            others = [e for e in edits if e.key != answer_edit.key]
+            target = issue_overlap(answer_edit.prompt, answer_edit.diff)
+            distractor = min(
+                others,
+                key=lambda e: (
+                    abs(issue_overlap(answer_edit.prompt, e.diff) - target),
+                    -difflib.SequenceMatcher(None, e.diff, answer_edit.diff).ratio(),
+                ),
+            )
+            item_id = f"chc-{hashlib.sha1(f'{base}:{answer_edit.key}'.encode()).hexdigest()[:16]}"
+            answer = "A" if int(item_id[-8:], 16) % 2 == 0 else "B"
+            first, second = (
+                (answer_edit, distractor) if answer == "A" else (distractor, answer_edit)
+            )
+            payload = {
+                "case_id": item_id,
+                "schema_version": "0.1",
+                "task_type": "pairwise",
+                "language": "python",
+                "prompt": build_choice_prompt(answer_edit.prompt, first, second),
+                "context": {
+                    "files": [
+                        {"path": "answer.py", "content": 'CHOICE = "?"\n', "role": "impl"},
+                        {"path": "conftest.py", "content": CHOICE_CONFTEST, "role": "spec"},
+                        {"path": "test_answer.py", "content": CHOICE_VISIBLE_TEST, "role": "test"},
+                    ],
+                    "notes": f"forced choice between two human edits to {base}",
+                },
+                "grader": {
+                    "mode": "script",
+                    "command": "python -m pytest -q",
+                    "gold_files": [{"path": "answer.py", "content": f'CHOICE = "{answer}"\n'}],
+                    "hidden_tests": [
+                        {
+                            "path": "test_answer_spec.py",
+                            "content": CHOICE_HIDDEN_TEST.format(answer=answer),
+                        }
+                    ],
+                    "protected_paths": ["test_answer.py", "conftest.py"],
+                },
+                "metadata": {
+                    "generation": "review-choice",
+                    "source": "raw2026-human-pairs",
+                    "source_file": base,
+                    "answer": answer,
+                    # Both options are human commits, which is the whole point: the four-way
+                    # version leaked because the answer was the only human patch among four.
+                    "answer_author": "human",
+                    "distractor_author": "human",
+                    "answer_diff_lines": answer_edit.size,
+                    "distractor_diff_lines": distractor.size,
+                    "split": "auto",
+                    "review_status": "needs_review",
+                },
+            }
+            (out_dir / f"{item_id}.json").write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+            written += 1
+    return written, files_used
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--run", required=True, type=Path)
-    ap.add_argument("--source-set", required=True)
+    ap.add_argument("--mode", choices=("verdict", "choice"), default="verdict")
+    ap.add_argument("--run", type=Path, help="ablation run, for --mode verdict")
+    ap.add_argument("--source-set", help="case set, for --mode verdict")
+    ap.add_argument("--draft-pool", type=Path, help="draft pool, for --mode choice")
     ap.add_argument("--out-set", required=True)
     args = ap.parse_args()
 
+    if args.mode == "choice":
+        if args.draft_pool is None:
+            ap.error("--mode choice needs --draft-pool")
+        out_dir = case_set_dir(args.out_set)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for stale in out_dir.glob("*.json"):
+            stale.unlink()
+        written, files_used = build_choice_items(args.draft_pool, out_dir)
+        print(f"built {written} forced-choice items from {files_used} files in {out_dir}")
+        return 0
+
+    if args.run is None or args.source_set is None:
+        ap.error("--mode verdict needs --run and --source-set")
     cases = {c.case_id: c for c in load_cases(args.source_set)}
     pools = collect(args.run, cases)
 

@@ -109,7 +109,14 @@ def main() -> int:
     ap.add_argument("--run", required=True, type=Path)
     ap.add_argument("--case-set", required=True)
     ap.add_argument("--json", type=Path)
+    ap.add_argument(
+        "--floor",
+        type=float,
+        default=BLIND_CEILING,
+        help="what a blind heuristic already reaches on this set; the bar accuracy must clear",
+    )
     args = ap.parse_args()
+    ceiling = args.floor
 
     cases = {c.case_id: c for c in load_cases(args.case_set)}
     truth = {cid: str(c.metadata.get("answer")) for cid, c in cases.items()}
@@ -140,7 +147,7 @@ def main() -> int:
     report: dict[str, Any] = {
         "models": models,
         "n_items": len(cases),
-        "blind_ceiling": BLIND_CEILING,
+        "blind_ceiling": ceiling,
     }
     print(f"# patch-review readout — {args.case_set} ({len(cases)} items)\n")
 
@@ -162,15 +169,15 @@ def main() -> int:
     print()
 
     # 2. Accuracy against the leak ceiling.
-    print(f"## 2. 正确率（判据是 > {BLIND_CEILING:.0%}，不是 50%）\n")
-    print("| model | item-trial 正确 | 正确率 | p vs 67% | 多数票正确率 |")
+    print(f"## 2. 正确率（判据是 > {ceiling:.0%}，不是 50%）\n")
+    print(f"| model | item-trial 正确 | 正确率 | p vs {ceiling:.0%} | 多数票正确率 |")
     print("| --- | ---: | ---: | ---: | ---: |")
     above = True
     accuracy: dict[str, Any] = {}
     for m in models:
         trials = sum(len(v) for v in per_model[m].values())
         hits = sum(sum(v) for v in per_model[m].values())
-        p = binomial_tail(hits, trials, BLIND_CEILING)
+        p = binomial_tail(hits, trials, ceiling)
         majority = sum(1 for v in per_model[m].values() if sum(v) * 2 > len(v))
         above = above and p < ALPHA
         accuracy[m] = {
@@ -240,7 +247,7 @@ def main() -> int:
     print("## 判定（规则在跑之前就写死了）\n")
     checks = [
         (f"格式失败 <= {MAX_FORMAT_FAILURE:.0%}", format_ok),
-        (f"两个模型都显著高于 {BLIND_CEILING:.0%}", above),
+        (f"两个模型都显著高于 {ceiling:.0%}", above),
         (f"配对检验 p < {ALPHA}", p_paired < ALPHA),
     ]
     for label, ok in checks:

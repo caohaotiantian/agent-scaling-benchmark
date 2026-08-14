@@ -156,6 +156,119 @@ def permutation_p(
     return (hits + 1) / (PERMUTATIONS + 1)
 
 
+_CHOICE_BLOCK = re.compile(r"## 补丁 ([AB])\n\n`{5}diff\n(.*?)\n`{5}", re.S)
+_ISSUE_BLOCK = re.compile(r"## 问题描述\n\n(.*?)\n\n## 补丁 A", re.S)
+_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+
+
+def choice_parts(case: Case) -> tuple[str, str, str]:
+    """The issue text and the two candidate diffs, as the model is shown them."""
+    issue = _ISSUE_BLOCK.search(case.prompt)
+    blocks = dict(_CHOICE_BLOCK.findall(case.prompt))
+    return (issue.group(1) if issue else ""), blocks.get("A", ""), blocks.get("B", "")
+
+
+def _overlap(issue: str, diff: str) -> float:
+    """Share of the issue's identifiers that appear in the diff's added lines.
+
+    The blind feature that matters for a human-vs-human set. Both patches are real commits to
+    the same file, so the size and style tells are gone — but the issue text names the thing it
+    is about, and if that alone picks the right patch then the item measures string matching
+    rather than review. `HANDOFF §5.5`.
+    """
+    wanted = {w.lower() for w in _WORD.findall(issue)}
+    if not wanted:
+        return 0.0
+    body = " ".join(added(diff)).lower()
+    return sum(1 for w in wanted if w in body) / len(wanted)
+
+
+CHOICE_HEURISTICS: dict[str, Callable[[str, str, str], str]] = {
+    "larger_diff": lambda i, a, b: (
+        "A" if len(added(a)) + len(removed(a)) >= len(added(b)) + len(removed(b)) else "B"
+    ),
+    "smaller_diff": lambda i, a, b: (
+        "A" if len(added(a)) + len(removed(a)) <= len(added(b)) + len(removed(b)) else "B"
+    ),
+    "more_issue_overlap": lambda i, a, b: "A" if _overlap(i, a) >= _overlap(i, b) else "B",
+    "more_added_cjk": lambda i, a, b: (
+        "A"
+        if sum(len(_CJK.findall(x)) for x in added(a))
+        >= sum(len(_CJK.findall(x)) for x in added(b))
+        else "B"
+    ),
+    "more_hunks": lambda i, a, b: (
+        "A"
+        if sum(1 for x in a.splitlines() if x.startswith("@@"))
+        >= sum(1 for x in b.splitlines() if x.startswith("@@"))
+        else "B"
+    ),
+}
+
+
+def check_choice(cases: list[Case]) -> tuple[list[str], dict[str, Any]]:
+    """Two human patches, one issue, forced choice. Chance is 1 in 2."""
+    problems: list[str] = []
+    report: dict[str, Any] = {"n": len(cases), "mode": "choice"}
+
+    answers = [str(c.metadata.get("answer") or "") for c in cases]
+    parts = [choice_parts(c) for c in cases]
+    for case, (issue, a, b) in zip(cases, parts, strict=True):
+        if not (issue.strip() and a.strip() and b.strip()):
+            problems.append(f"{case.case_id}: prompt is missing the issue or a candidate")
+
+    positions = Counter(answers)
+    report["answer_positions"] = dict(sorted(positions.items()))
+    worst = max(positions.values()) if positions else 0
+    if binomial_tail(worst, len(cases), 0.5) < 0.05:
+        problems.append(f"answer letters concentrate: {dict(positions)}")
+
+    blind: dict[str, Any] = {}
+    for name, fn in CHOICE_HEURISTICS.items():
+        hits = sum(
+            fn(issue, a, b) == want for (issue, a, b), want in zip(parts, answers, strict=True)
+        )
+        p = binomial_tail(hits, len(cases), 0.5)
+        blind[name] = {
+            "hits": f"{hits}/{len(cases)}",
+            "rate": round(hits / len(cases), 3),
+            "p": round(p, 4),
+        }
+        if p < 0.05:
+            problems.append(
+                f"blind heuristic `{name}` scores {hits}/{len(cases)} against a 50% floor "
+                f"(p={p:.4f}) — the item is answerable without reading the code"
+            )
+    report["blind_heuristics"] = blind
+
+    authors = Counter(str(c.metadata.get("distractor_author")) for c in cases)
+    report["distractor_authors"] = dict(authors)
+    if set(authors) != {"human"}:
+        problems.append(f"a distractor is not human-written: {dict(authors)}")
+
+    files = Counter(str(c.metadata.get("source_file")) for c in cases)
+    report["source_files"] = len(files)
+    report["max_items_from_one_file"] = max(files.values()) if files else 0
+
+    oversized = [
+        f"{c.case_id}(~{len(c.prompt) / CHARS_PER_TOKEN:.0f})"
+        for c in cases
+        if len(c.prompt) / CHARS_PER_TOKEN > MAX_PROMPT_TOKENS
+    ]
+    report["approx_prompt_tokens"] = {
+        "median": round(statistics.median(len(c.prompt) / CHARS_PER_TOKEN for c in cases)),
+        "max": round(max(len(c.prompt) / CHARS_PER_TOKEN for c in cases)),
+        "total_per_pass": round(sum(len(c.prompt) / CHARS_PER_TOKEN for c in cases)),
+    }
+    if oversized:
+        problems.append(f"prompt over {MAX_PROMPT_TOKENS} tokens: {', '.join(oversized)}")
+    for case in cases:
+        if case.prompt.count("`````") % 2:
+            problems.append(f"{case.case_id}: unbalanced fences in the prompt")
+
+    return problems, report
+
+
 def check(cases: list[Case]) -> tuple[list[str], dict[str, Any]]:
     problems: list[str] = []
     report: dict[str, Any] = {"n": len(cases)}
@@ -233,6 +346,34 @@ def main() -> int:
     args = ap.parse_args()
 
     cases = load_cases(args.case_set)
+    if any(c.metadata.get("generation") == "review-choice" for c in cases):
+        problems, report = check_choice(cases)
+        print(
+            f"# review case gate — {args.case_set} ({len(cases)} items, "
+            f"{report['source_files']} source files, 二选一，运气底 50%)\n"
+        )
+        print("| blind heuristic | hits | rate | p vs 50% |")
+        print("| --- | ---: | ---: | ---: |")
+        for name, row in report["blind_heuristics"].items():
+            print(f"| {name} | {row['hits']} | {row['rate']:.0%} | {row['p']} |")
+        print()
+        print(f"answer positions:     {report['answer_positions']}")
+        print(f"candidate authors:    {report['distractor_authors']}")
+        print(f"max items one file:   {report['max_items_from_one_file']}")
+        print(f"approx prompt tokens: {report['approx_prompt_tokens']}")
+        print()
+        if args.json:
+            args.json.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        if problems:
+            print(f"GATE FAILED — {len(problems)} problem(s):")
+            for problem in problems[:20]:
+                print(f"  - {problem}")
+            if len(problems) > 20:
+                print(f"  ... and {len(problems) - 20} more")
+            return 1
+        print("GATE OK: no blind heuristic beats chance; both candidates are human-written.")
+        return 0
+
     problems, report = check(cases)
 
     print(
