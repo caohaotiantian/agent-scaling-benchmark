@@ -59,6 +59,10 @@ CASE = Case.from_dict(
 
 
 def _agent(**opts) -> OpenCodeAgent:
+    # These tests drive a stand-in binary, not a measurement. The production default is
+    # sandbox=True, which refuses on Linux because sandbox-exec is macOS-only. Tests that
+    # want that refusal pass sandbox=True themselves.
+    opts.setdefault("sandbox", False)
     ac = AgentConfig.from_dict(
         {"name": "oc", "version": "1", "adapter": "opencode", "options": opts}
     )
@@ -469,6 +473,21 @@ def test_the_sandbox_profile_hides_the_repo_but_keeps_the_interpreter(tmp_path):
     # Metadata stays readable: denying it too made opencode exit with EPERM on lstat before it
     # ever reached the gateway, and the gold solution is bytes inside a file, not a stat.
     assert "file-read-metadata" not in profile
+
+
+def test_a_platform_without_a_sandbox_is_refused_unless_asked(tmp_path, monkeypatch):
+    """Linux has no sandbox-exec. Measuring anyway used to be the default, so a replay there
+    was a different instrument. The opt-out is `options.sandbox: false` or
+    AIBENCH_ALLOW_UNSANDBOXED=1 — this helper uses the former; this test checks the refuse."""
+    import aibench.agents.opencode as adapter
+
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setattr(adapter, "_SANDBOX_EXEC", tmp_path / "absent")
+    result = _agent(binary=_fake_cli(tmp_path, "raise SystemExit(0)\n"), sandbox=True).run(
+        CASE, _workspace(tmp_path), max_steps=5, max_wall_time_s=60
+    )
+    assert result.status == "infra_error"
+    assert "sandbox-exec is macOS-only" in (result.error_message or "")
 
 
 def test_a_run_records_whether_it_was_actually_confined(tmp_path, monkeypatch):
