@@ -237,7 +237,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Do not strip weak_grader=true cases (default: strip)",
     )
-    p_abl.add_argument("--parallel", type=int, default=1, help="Parallel run workers")
+    p_abl.add_argument(
+        "--parallel",
+        type=int,
+        default=None,
+        help="Parallel run workers (default: the matrix's own `parallel:` key, else 1)",
+    )
     p_abl.add_argument(
         "--baseline-experiment",
         type=str,

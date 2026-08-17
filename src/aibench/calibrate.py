@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from aibench.cases import case_set_dir, is_case_json_path
-from aibench.io_util import load_json, load_yaml, repo_root, write_json
+from aibench.io_util import load_json, load_yaml, repo_root, write_json, write_text
 from aibench.stats import item_rest_correlation, wilson_ci
 
 DEFAULT_P_MAX = 0.9
@@ -574,7 +574,7 @@ def calibrate_case_set(
             "against a full-panel calibration."
         )
     write_json(cal_dir / "calibration.json", report)
-    (cal_dir / "calibration_report.md").write_text(render_calibration_md(report), encoding="utf-8")
+    write_text(cal_dir / "calibration_report.md", render_calibration_md(report))
     return cal_dir, report
 
 

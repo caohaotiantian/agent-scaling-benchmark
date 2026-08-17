@@ -552,6 +552,40 @@ def check_tool_output_footer(case: Case) -> list[ValidityIssue]:
     ]
 
 
+def check_gold_is_not_collection_control(case: Case) -> list[ValidityIssue]:
+    """Reject a case whose fix has to be made in a file that decides how the suite collects.
+
+    ``detect_grading_interference`` exists to stop a solver dropping in a ``conftest.py`` or a
+    ``pytest.ini``. It cannot enforce that on a case whose *reference solution* edits one:
+    demanding the file be untouched and demanding it be fixed are the same demand pointed two
+    ways. `_clean2026/rev-bb519c7bf511ac8b` is that shape — ``conftest.py`` shipped ``role:
+    impl`` and named in ``gold_files``, with only ``test_conftest.py`` protected — so the agent
+    is required to edit the file pytest auto-loads and may write ``collect_ignore_glob`` into it.
+
+    The gate belongs here rather than in the grader because the answer is "do not build this
+    case", not "fail this submission".
+    """
+    from aibench.grading import _COLLECTION_CONTROL_FILES
+
+    hits = sorted(
+        {
+            gf.path
+            for gf in case.grader.gold_files
+            if gf.path.replace("\\", "/").rsplit("/", 1)[-1] in _COLLECTION_CONTROL_FILES
+        }
+    )
+    if not hits:
+        return []
+    return [
+        ValidityIssue(
+            "gold_is_collection_control_file",
+            "error",
+            "the reference solution edits a file that decides how the suite collects, so the "
+            f"anti-interference gate cannot be armed on it: {', '.join(hits)}",
+        )
+    ]
+
+
 #: Detail prefixes the audit keys off. Defined once so the reported reason and the boolean
 #: derived from it cannot drift apart.
 STUB_UNCOLLECTABLE = "stub_uncollectable"
@@ -671,6 +705,7 @@ def audit_case(
     issues.extend(check_test_reads_source(case))
     issues.extend(check_hidden_tests_are_inferable(case))
     issues.extend(check_tool_output_footer(case))
+    issues.extend(check_gold_is_not_collection_control(case))
 
     # The reference solution runs first: whether it makes the workspace collectable is what
     # tells an incomplete stub apart from a broken one.

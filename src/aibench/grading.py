@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -68,30 +69,76 @@ def detect_grading_interference(case: Case, workspace: Path) -> str | None:
     dropping in a ``conftest.py`` that patches the module under test, adding a ``pytest.ini``
     whose addopts deselect the failing cases, or sprinkling skip markers into files the case
     never shipped.
+
+    A *shipped* file used to be exempt outright, on the argument that ``protected_paths``
+    already covered it. That is only true for the paths ``protect_visible_tests`` names, and it
+    names ``role == "test"`` files only — so a ``conftest.py`` carrying ``role: impl`` was
+    neither protected nor scanned, and the case set on disk contains exactly that shape. A
+    shipped collection-control file is therefore exempt only while it still holds the bytes the
+    case shipped. The single exception is a collection-control file that *is* the reference
+    solution's target: the case cannot be solved without editing it, and
+    :func:`aibench.validity.check_gold_is_not_collection_control` rejects that shape at audit
+    time instead.
     """
-    shipped = {fb.path for fb in case.files}
+    shipped: dict[str, str] = {}
+    for fb in case.files:
+        try:
+            shipped[_safe_relpath(fb.path)] = fb.content
+        except ValueError:
+            continue
+    gold_targets: set[str] = set()
+    for gf in case.grader.gold_files:
+        try:
+            gold_targets.add(_safe_relpath(gf.path))
+        except ValueError:
+            continue
+
     for path in sorted(workspace.rglob("*")):
-        if not path.is_file():
+        if path.is_symlink() or not path.is_file():
             continue
         rel = path.relative_to(workspace).as_posix()
+        if path.name in _COLLECTION_CONTROL_FILES:
+            if rel not in shipped:
+                return f"grading_interference_file: {rel}"
+            if rel in gold_targets:
+                continue
+            try:
+                current = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                return f"grading_interference_unreadable: {rel} ({e})"
+            if current != shipped[rel]:
+                return f"grading_interference_file_modified: {rel}"
+            continue
         if rel in shipped:
             continue  # covered by protected_paths, or legitimately editable
-        if path.name in _COLLECTION_CONTROL_FILES:
-            return f"grading_interference_file: {rel}"
-        if path.suffix == ".py" and _SKIP_MARKERS.search(
-            path.read_text(encoding="utf-8", errors="replace")
-        ):
-            return f"grading_interference_skip_marker: {rel}"
+        if path.suffix == ".py":
+            try:
+                body = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                return f"grading_interference_unreadable: {rel} ({e})"
+            if _SKIP_MARKERS.search(body):
+                return f"grading_interference_skip_marker: {rel}"
     return None
 
 
 def inject_hidden_tests(case: Case, workspace: Path) -> list[str]:
-    """Write the grader's hidden tests into the workspace. Call only after the agent stops."""
+    """Write the grader's hidden tests into the workspace. Call only after the agent stops.
+
+    Anything already sitting at a hidden test's path is removed first. The names are
+    predictable (``*_spec.py`` at the workspace root), so an agent can plant a symlink or a
+    directory there: a symlink makes ``write_text`` follow it and write the hidden test
+    *outside* the workspace, and a directory makes it raise ``IsADirectoryError`` out of
+    ``grade_case``.
+    """
     written: list[str] = []
     for fb in case.grader.hidden_tests:
         rel = _safe_relpath(fb.path)
         path = workspace / rel
         path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
         path.write_text(fb.content, encoding="utf-8")
         written.append(rel)
     return written
@@ -101,9 +148,13 @@ def grade_case(case: Case, workspace: Path) -> GradeResult:
     mode = case.grader.mode
 
     violation = check_protected_paths(case, workspace)
-    if violation is None and case.grader.protected_paths:
-        # Only enforced for cases that opted into anti-tampering; a plain case may legitimately
-        # ship whatever files it likes.
+    if violation is None and (case.grader.protected_paths or mode in {"script", "composite"}):
+        # Armed for every case whose verdict comes from running a suite, not only for cases
+        # that declared `protected_paths`. The old condition left the gate off for every case
+        # with none — 90 `_raw2026` and 12 `_geninput` cases among them — which is precisely
+        # where a planted `conftest.py` costs the most, because there is no other anti-tampering
+        # check at all. Files the case shipped are still exempt (see the function's docstring),
+        # so this cannot fail a case for its own contents.
         violation = detect_grading_interference(case, workspace)
     if violation:
         return GradeResult(
@@ -199,7 +250,10 @@ def _grade_gold(case: Case, workspace: Path) -> GradeResult:
         for rel in targets:
             p = workspace / rel
             if p.is_file():
-                blobs.append(p.read_text(encoding="utf-8"))
+                # `errors="replace"`, like every other read in this module: a non-UTF-8 byte the
+                # agent wrote to a gold path used to raise out of `grade_case` and take the
+                # whole run's results with it.
+                blobs.append(p.read_text(encoding="utf-8", errors="replace"))
         if not blobs:
             # Hidden tests were injected into this workspace; scanning them would let a
             # key_line match against the specification instead of against the solution.
@@ -231,7 +285,7 @@ def _grade_gold(case: Case, workspace: Path) -> GradeResult:
         if not p.is_file():
             mismatches.append(f"missing file {gold.path}")
             continue
-        actual = p.read_text(encoding="utf-8")
+        actual = p.read_text(encoding="utf-8", errors="replace")
         expected = gold.content
         if g.match == "exact":
             if actual != expected:

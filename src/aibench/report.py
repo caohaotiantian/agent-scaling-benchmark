@@ -35,7 +35,17 @@ def build_summary(
     run_id: str,
     run_manifest: dict[str, Any],
     case_results: list[dict[str, Any]],
+    elapsed_wall_s: float | None = None,
 ) -> dict[str, Any]:
+    """Fold per-case rows into the run summary.
+
+    ``elapsed_wall_s`` is the run's real duration, measured by the caller. Without it the only
+    time available is the sum of the agents' own clocks, which is not elapsed time: cases run
+    ``case_workers`` at a time, so at the shipped default of 4 the sum overstates by up to 4x
+    and throughput understates by the same factor. It is kept as ``total_agent_wall_time_h``
+    under a name that does not claim to be elapsed, and ``total_wall_time_h`` is left ``None``
+    rather than filled with it.
+    """
     case_count = len(case_results)
     infra = [r for r in case_results if r.get("infra_error")]
     effective = [r for r in case_results if not r.get("infra_error")]
@@ -45,7 +55,7 @@ def build_summary(
     success_rate = (success_n / effective_n) if effective_n else 0.0
 
     total_tokens = sum(int(r.get("total_tokens") or 0) for r in case_results)
-    total_wall_s = sum(float(r.get("wall_time_s") or 0.0) for r in case_results)
+    agent_wall_s = sum(float(r.get("wall_time_s") or 0.0) for r in case_results)
     total_steps = sum(int(r.get("step_count") or 0) for r in case_results)
     total_model_calls = sum(int(r.get("model_calls") or 0) for r in case_results)
     empty_patch = sum(1 for r in case_results if r.get("empty_patch"))
@@ -56,8 +66,9 @@ def build_summary(
 
     avg_tokens = (total_tokens / effective_n) if effective_n else 0.0
     avg_tokens_success = (total_tokens / success_n) if success_n else None
-    avg_wall_min = (total_wall_s / 60.0 / effective_n) if effective_n else 0.0
-    throughput = (case_count / (total_wall_s / 3600.0)) if total_wall_s > 0 else None
+    avg_wall_min = (agent_wall_s / 60.0 / effective_n) if effective_n else 0.0
+    elapsed_h = (elapsed_wall_s / 3600.0) if elapsed_wall_s is not None else None
+    throughput = (case_count / elapsed_h) if elapsed_h else None
 
     m = run_manifest
     summary: dict[str, Any] = {
@@ -126,7 +137,13 @@ def build_summary(
         "token_amplification": None,
         "cost_curve": cost_curve(effective, budgets=budget_quantiles(effective)),
         # 时间效率
-        "total_wall_time_h": total_wall_s / 3600.0,
+        "total_wall_time_h": elapsed_h,
+        # The sum of the agents' own clocks. Kept because it is the only cost figure comparable
+        # across runs that used different `case_workers`, and named so it cannot be read as
+        # elapsed time.
+        "total_agent_wall_time_h": agent_wall_s / 3600.0,
+        "started_at": m.get("started_at"),
+        "finished_at": m.get("finished_at"),
         "throughput_cases_per_h": throughput,
         "avg_wall_min_per_case": avg_wall_min,
         # Agent 行为
@@ -193,6 +210,11 @@ def _estimate_cost_usd(total_tokens: int) -> float | None:
 def format_pct(value: Any) -> str:
     """Percent for report tables; missing data prints as "-" rather than 0%."""
     return "-" if value is None else f"{float(value) * 100:.1f}%"
+
+
+def format_hours(value: Any) -> str:
+    """Hours for report tables. Unmeasured elapsed time prints as "-", never as 0.000000."""
+    return "-" if value is None else f"{float(value):.6f}"
 
 
 def _render_scaling_md(summary: dict[str, Any]) -> list[str]:
@@ -280,7 +302,7 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
             f"| {summary.get('case_count')} "
             f"| {summary.get('primary_metric_name')} "
             f"| {sr * 100:.1f}% "
-            f"| {float(summary.get('total_wall_time_h') or 0):.6f} "
+            f"| {format_hours(summary.get('total_wall_time_h'))} "
             f"| {summary.get('total_tokens')} "
             f"|  |"
         ),
@@ -322,7 +344,9 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         f"| 总 Token | {summary.get('total_tokens')} |",
         f"| 平均 Token/Case | {float(summary.get('avg_tokens_per_case') or 0):.1f} |",
         f"| 平均 Token/成功 Case | {summary.get('avg_tokens_per_success')} |",
-        f"| 总墙钟(h) | {float(summary.get('total_wall_time_h') or 0):.6f} |",
+        f"| 总墙钟(h)（实际经过） | {format_hours(summary.get('total_wall_time_h'))} |",
+        f"| Agent 累计耗时(h)（并发下会超过墙钟） | "
+        f"{format_hours(summary.get('total_agent_wall_time_h'))} |",
         f"| 平均耗时/Case(min) | {float(summary.get('avg_wall_min_per_case') or 0):.4f} |",
         f"| 总 Step 数 | {summary.get('total_steps')} |",
         f"| 平均 Step/Case | {float(summary.get('avg_steps_per_case') or 0):.2f} |",
@@ -431,6 +455,7 @@ def render_summary_tables_json(summary: dict[str, Any]) -> dict[str, Any]:
         "平均Token/Case": summary.get("avg_tokens_per_case"),
         "平均Token/成功Case": summary.get("avg_tokens_per_success"),
         "总墙钟": summary.get("total_wall_time_h"),
+        "Agent累计耗时": summary.get("total_agent_wall_time_h"),
         "吞吐": summary.get("throughput_cases_per_h"),
         "平均耗时/Case": summary.get("avg_wall_min_per_case"),
         "总Step数": summary.get("total_steps"),

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from aibench.io_util import load_json
+from aibench.io_util import atomic_write, load_json
 
 
 def export_ablation_csv(ablation_dir: Path, out_csv: Path | None = None) -> Path:
@@ -27,7 +27,7 @@ def export_ablation_csv(ablation_dir: Path, out_csv: Path | None = None) -> Path
         "relative_success_lift",
         "run_dir",
     ]
-    with out.open("w", encoding="utf-8", newline="") as f:
+    with atomic_write(out) as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         for r in rows:

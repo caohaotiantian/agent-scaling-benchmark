@@ -9,8 +9,8 @@ from typing import Any
 from aibench.agents.registry import create_agent
 from aibench.cases import case_set_dir, load_cases
 from aibench.grading import grade_case
-from aibench.io_util import load_yaml, repo_root, write_json, write_jsonl
-from aibench.models import AgentConfig, AgentRunResult, Case, ModelConfig, RunConfig
+from aibench.io_util import load_yaml, repo_root, write_json, write_jsonl, write_text
+from aibench.models import AgentConfig, AgentRunResult, Case, GradeResult, ModelConfig, RunConfig
 from aibench.parallel_util import parallel_map
 from aibench.report import (
     build_summary,
@@ -86,7 +86,20 @@ def _run_one_attempt(
         infra = agent_result.status == "infra_error"
         grade = None
         if not infra:
-            grade = grade_case(case, workspace)
+            try:
+                grade = grade_case(case, workspace)
+            except Exception as e:
+                # The only stage of this loop that was not guarded, and the most expensive one
+                # to lose: `parallel_map` re-raises a worker's exception out of the executor
+                # block, so one case that made `inject_hidden_tests` or `_grade_gold` raise
+                # discarded `results.jsonl`, `summary.json` and `report.md` for the whole run
+                # after every other case had already been paid for.
+                grade = GradeResult(
+                    passed=False,
+                    mode=case.grader.mode,
+                    detail=f"grader raised: {type(e).__name__}: {e}",
+                    infra_error=True,
+                )
             if grade.infra_error:
                 infra = True
 
@@ -290,6 +303,8 @@ def run_benchmark(
     workers = int(case_workers if case_workers is not None else run_cfg.case_workers)
 
     rid = run_id or f"{run_cfg.experiment_name}-{uuid.uuid4().hex[:8]}"
+    started_monotonic = time.monotonic()
+    started_at = time.strftime("%Y-%m-%dT%H:%M:%S")
     ts = time.strftime("%Y%m%d_%H%M%S")
     out_root = output_root or (root / "runs")
     run_dir = out_root / f"{run_cfg.benchmark_name}__{ts}_{rid}"
@@ -311,6 +326,7 @@ def run_benchmark(
         "run_id": rid,
         "experiment_name": run_cfg.experiment_name,
         "experiment_time": date.today().isoformat(),
+        "started_at": started_at,
         # Was `aibench@0.1.0 / agent@{version}` — two literals, identical across all 148
         # manifests on disk, including the ones straddling an adapter fix worth 58 points.
         **environment(),
@@ -373,7 +389,20 @@ def run_benchmark(
     case_results = parallel_map(_job, cases, workers=workers)
     case_results.sort(key=lambda r: str(r.get("case_id") or ""))
 
-    summary = build_summary(run_id=rid, run_manifest=manifest, case_results=case_results)
+    # Real elapsed time. Summing the agents' own clocks is not elapsed time when `case_workers`
+    # is above 1, and it also excludes workspace materialization, `setup_commands` and the
+    # grader subprocess entirely.
+    elapsed_wall_s = time.monotonic() - started_monotonic
+    manifest["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    manifest["elapsed_wall_time_s"] = elapsed_wall_s
+    write_json(run_dir / "run_manifest.json", manifest)
+
+    summary = build_summary(
+        run_id=rid,
+        run_manifest=manifest,
+        case_results=case_results,
+        elapsed_wall_s=elapsed_wall_s,
+    )
     tables = render_summary_tables_json(summary)
     report_md = render_report_md(summary, case_results)
 
@@ -386,7 +415,7 @@ def run_benchmark(
     write_json(run_dir / "summary.json", summary)
     write_jsonl(run_dir / "results.jsonl", case_results)
     write_json(run_dir / "tables.json", tables)
-    (run_dir / "report.md").write_text(report_md, encoding="utf-8")
+    write_text(run_dir / "report.md", report_md)
 
     problems = check_summary(summary)
     if problems:

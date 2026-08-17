@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 import yaml
 
@@ -20,18 +24,53 @@ def load_json(path: Path) -> Any:
         return json.load(f)
 
 
-def write_json(path: Path, data: Any) -> None:
+@contextmanager
+def atomic_write(path: Path) -> Generator[TextIO, None, None]:
+    """Write ``path`` via a temporary file and one ``os.replace``.
+
+    ``path.open("w")`` truncates first, so a process killed between the truncate and the flush
+    leaves a zero-length or half-written file that every reader here treats as complete: the
+    resume journal's ``is_file()`` test counts it as a written case and refuses to regenerate
+    it, and the truncated JSON then fails schema validation when the set is loaded. Replacing
+    the whole file in one step means a reader sees either the previous contents or the new
+    ones, never a prefix.
+
+    Deliberately without ``fsync``: the failure this addresses is the process dying, which
+    ``os.replace`` covers on its own. Surviving a machine crash would cost an fsync on every
+    per-case artifact, and nothing here is worth that.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            yield handle
+        os.replace(tmp, path)
+    finally:
+        # A raise inside the body (or in `os.replace`) must not leave the scratch file behind.
+        if tmp.exists():
+            tmp.unlink()
+
+
+def write_json(path: Path, data: Any) -> None:
+    with atomic_write(path) as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    with atomic_write(path) as f:
         for row in rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def write_text(path: Path, text: str) -> None:
+    """``Path.write_text`` with the same all-or-nothing guarantee as :func:`write_json`.
+
+    The reports are artifacts too: a run killed while writing ``report.md`` leaves a file that
+    reads as a short report rather than as a missing one.
+    """
+    with atomic_write(path) as f:
+        f.write(text)
 
 
 def repo_root() -> Path:

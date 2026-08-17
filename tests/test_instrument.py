@@ -65,20 +65,41 @@ class TestPanelIdentity:
     def test_fingerprint_carries_its_version(self):
         assert anchor_fingerprint(self._anchors()).startswith("v2:")
 
-    def test_editing_an_adapter_moves_the_fingerprint(self):
-        """Config files name the agent; they say nothing about how it is driven."""
+    def test_editing_an_adapter_moves_the_harness_digest(self, tmp_path, monkeypatch):
+        """Config files name the agent; they say nothing about how it is driven.
+
+        The probe edit lands in a *copy* of `src/aibench`. Writing it into the checkout — which
+        is what this test used to do — leaves the working tree modified for the length of the
+        test, and any concurrent read of `git status` or of the same file sees the probe.
+        """
+        import shutil
+
+        import aibench.provenance as provenance
+
+        copy_root = tmp_path / "checkout"
+        shutil.copytree(repo_root() / "src", copy_root / "src")
+        monkeypatch.setattr(provenance, "repo_root", lambda: copy_root)
+
+        harness_digest.cache_clear()
+        before = harness_digest()
+        adapter = copy_root / "src/aibench/agents/openai_compat.py"
+        adapter.write_bytes(adapter.read_bytes() + b"\n# probe\n")
+        harness_digest.cache_clear()
+        assert harness_digest() != before, "an adapter edit must move the harness digest"
+        harness_digest.cache_clear()
+
+    def test_the_panel_fingerprint_carries_the_harness_digest(self, monkeypatch):
+        """The digest is what makes the panel witness an adapter change, so the panel must
+        actually consult it — hashing the three YAML files alone left the fingerprint
+        byte-identical across a fix worth 58 points."""
+        import aibench.provenance as provenance
+
         anchors = self._anchors()
+        harness_digest.cache_clear()
         before = anchor_fingerprint(anchors)
-        adapter = repo_root() / "src/aibench/agents/openai_compat.py"
-        original = adapter.read_bytes()
-        try:
-            adapter.write_bytes(original + b"\n# probe\n")
-            harness_digest.cache_clear()
-            assert anchor_fingerprint(anchors) != before
-        finally:
-            adapter.write_bytes(original)
-            harness_digest.cache_clear()
-        assert anchor_fingerprint(anchors) == before
+        monkeypatch.setattr(provenance, "harness_digest", lambda: "not-the-real-digest")
+        assert anchor_fingerprint(anchors) != before
+        harness_digest.cache_clear()
 
 
 class TestItemRestCorrelation:

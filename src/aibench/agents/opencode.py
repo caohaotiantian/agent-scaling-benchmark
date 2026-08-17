@@ -50,6 +50,7 @@ from typing import Any
 from aibench.agents.base import AgentAdapter
 from aibench.io_util import repo_root
 from aibench.models import AgentConfig, AgentRunResult, Case, ModelConfig, StepRecord, UsageRecord
+from aibench.workspace import assert_disposable
 
 #: Identifiers for the generated config. Fixed rather than derived: they appear in the
 #: ``-m provider/model`` argument, and a name that varies per run would make the command line
@@ -396,6 +397,7 @@ def _mirror_into(source: Path, target: Path) -> None:
     ``IsADirectoryError`` on a link to a directory, and by then the loop above had already
     emptied the target -- the graded workspace was destroyed on the way to reproducing it.
     """
+    assert_disposable(target)
     for entry in target.iterdir():
         if entry.is_dir() and not entry.is_symlink():
             shutil.rmtree(entry)

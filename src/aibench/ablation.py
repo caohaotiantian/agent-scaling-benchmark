@@ -10,8 +10,8 @@ from typing import Any
 
 from aibench.calibrate import read_result_rows
 from aibench.cases import case_set_dir
-from aibench.io_util import load_json, load_yaml, repo_root, write_json
-from aibench.report import format_pct, render_summary_tables_json
+from aibench.io_util import load_json, load_yaml, repo_root, write_json, write_text
+from aibench.report import format_hours, format_pct, render_summary_tables_json
 from aibench.runner import run_benchmark
 from aibench.stats import mcnemar_test, paired_outcomes
 
@@ -68,7 +68,7 @@ def run_ablation(
     case_set_override: str | None = None,
     skip_weak_grader: bool = True,
     allow_weak_grader: bool = False,
-    parallel: int = 1,
+    parallel: int | None = None,
     baseline_experiment: str | None = None,
 ) -> Path:
     root = repo_root()
@@ -179,7 +179,12 @@ def run_ablation(
             }
 
     rows: list[dict[str, Any]] = []
-    parallel = max(1, int(parallel or matrix.get("parallel") or 1))
+    # `parallel or matrix.get("parallel")` short-circuited on the first operand every time,
+    # because the CLI passed a truthy default of 1 unconditionally — so 11 of the 12 shipped
+    # matrices declared `parallel: 3` and every one of them ran serially while
+    # `ablation_summary.json` recorded `"parallel": 1`. The explicit `is None` is what lets the
+    # matrix speak when the caller did not.
+    parallel = max(1, int(parallel if parallel is not None else matrix.get("parallel") or 1))
     if parallel == 1:
         rows = [_one_guarded(job) for job in jobs]
     else:
@@ -239,7 +244,7 @@ def run_ablation(
         tier_matrix=tier_matrix,
         failed=failed_rows,
     )
-    (abl_dir / "ablation_report.md").write_text(report, encoding="utf-8")
+    write_text(abl_dir / "ablation_report.md", report)
     return abl_dir
 
 
@@ -329,7 +334,7 @@ def _render_ablation_report(
         lines.append(
             f"| {o.get('算法名称')} | {o.get('Agent与模型')} | {o.get('基础/主模型')} "
             f"| {o.get('Benchmark')} | {o.get('Case数')} | {o.get('主指标名称')} "
-            f"| {sr:.1f}% | {float(o.get('总体耗时(h)') or 0):.6f} "
+            f"| {sr:.1f}% | {format_hours(o.get('总体耗时(h)'))} "
             f"| {o.get('总体Token消耗')} | {lift if lift is not None else ''} |"
         )
     lines.extend(

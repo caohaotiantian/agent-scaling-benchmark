@@ -66,12 +66,24 @@ class CaseSink:
             self.done.add(draft)
             if row.get("status") == "written":
                 cid = str(row.get("case_id") or "")
-                # Only count cases still on disk: a resumed run must not believe it wrote
-                # something the user has since deleted.
-                if cid and (self._dir / f"{cid}.json").is_file():
+                # Only count cases still on disk *and* readable: a resumed run must not believe
+                # it wrote something the user has since deleted, nor that a file it cannot parse
+                # is a finished case. `write_json` is atomic now, so a torn file should no
+                # longer occur — but a journal written by an older build still points at ones
+                # that do, and the cost of checking is one parse per resumed case.
+                if cid and self._is_complete(cid):
                     self.written_ids.add(cid)
                     self.written += 1
                     self.resumed += 1
+
+    def _is_complete(self, case_id: str) -> bool:
+        path = self._dir / f"{case_id}.json"
+        if not path.is_file():
+            return False
+        try:
+            return isinstance(json.loads(path.read_text(encoding="utf-8")), dict)
+        except (OSError, json.JSONDecodeError):
+            return False
 
     def _append(self, row: dict[str, Any]) -> None:
         with self._journal.open("a", encoding="utf-8") as fh:

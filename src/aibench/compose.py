@@ -18,6 +18,8 @@ from typing import Any
 
 from aibench.cases import is_case_json_path
 from aibench.io_util import load_json
+from aibench.languages import spec_for_path
+from aibench.validity import case_fingerprint
 
 #: Where donor files land. A subdirectory keeps them off the import path the host's tests use.
 DISTRACTOR_DIR = "vendor"
@@ -34,13 +36,24 @@ def donor_files(case: dict[str, Any]) -> list[dict[str, str]]:
     Excluding it measured badly — a typical case has one implementation file and that file is
     what its own solution fixes, so 109 of 126 cases had nothing to donate at all.
 
-    Tests are still excluded: a donated test file would be collected and run.
+    Tests are still excluded, twice over. ``role`` is optional in ``case.schema.json`` and
+    defaults to ``impl``, so a schema-valid case may omit it on a test file — every file in all
+    four ``seed-v0`` cases does exactly that, ``test_fizzbuzz.py`` included. Filtering on the
+    label alone therefore planted ``vendor/<donor>/test_fizzbuzz.py``, and
+    ``use_whole_suite_command`` points the composed grader at the whole workspace, so pytest's
+    rootdir collection picked it up and the host's verdict depended on a donor's tests. The
+    filename check is what makes the module docstring's safety claim true.
     """
-    return [
-        {"path": str(f.get("path")), "content": str(f.get("content") or "")}
-        for f in (case.get("context") or {}).get("files") or []
-        if f.get("role") in {"impl", None}
-    ]
+    out: list[dict[str, str]] = []
+    for f in (case.get("context") or {}).get("files") or []:
+        path = str(f.get("path") or "")
+        if (f.get("role") or "impl") != "impl":
+            continue
+        spec = spec_for_path(path)
+        if spec is not None and spec.is_test_path(path):
+            continue
+        out.append({"path": path, "content": str(f.get("content") or "")})
+    return out
 
 
 def compose_case(
@@ -78,6 +91,10 @@ def compose_case(
     meta["distractors_added"] = added
     composed["metadata"] = meta
     composed["case_id"] = f"{host.get('case_id')}-retrieval"
+    # The host's fingerprint describes the host, and copying it collapsed all 27 `retrieval-v0`
+    # identities onto their unmodified hosts — so the reuse gate would hand back a p_hat
+    # measured without any distractors at all.
+    meta["fingerprint"] = case_fingerprint(composed)
     return composed
 
 
