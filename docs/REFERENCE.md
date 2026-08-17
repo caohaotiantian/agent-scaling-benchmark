@@ -1,5 +1,12 @@
 # AI-Coding-Assist Benchmark — 项目参考手册（Reference）
 
+> **`runs/` 下的路径是本地产物，未随仓库分发。** `/runs/` 在 `.gitignore` 里，
+> `git ls-files runs` 返回 0 —— 本文引用的每一个 `runs/<name>_<timestamp>/` 目录，
+> 在一个 clone 里都**不存在**。它们是原始机器上的证据指针，不是读者可以打开的路径。
+> 需要其中的数字，请看 `benchmarks/ai_coding/calibrations/`（已入库），
+> 或向 `CODEOWNERS` 里的所有者索取。
+
+
 > **注意**：[`docs/html/reference.html`](html/reference.html) 是**另一份文档**，不是本文的展示版。
 > 本文讲 CLI 与配置的参数级细节；那边讲设计论证、数据格式与门禁规则。  
 > 文档站首页：[docs/html/index.html](html/index.html) · 项目介绍：[项目介绍 overview.html](html/overview.html)
@@ -288,17 +295,50 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 
 ### 7.1 布局
 
+`configs/` 下**全部 39 个文件**，由目录列表生成（此前这张表只列了 9 个）。
+说明取自每个文件的第一行注释。
+
 | 路径 | 用途 |
 |------|------|
-| `agents/openai_compat.yaml` | 单轮 JSON 写文件（默认生产 Agent） |
-| `agents/tool_loop.yaml` | 多步 list/read/write/bash/submit |
-| `agents/shell.yaml` | 外部 CLI 包装；须配置 `command_template` |
-| `models/glm52.yaml` | 默认 `GLM-5.2`；URL/key 来自环境 |
-| `models/glm51.yaml` | 可选对照 |
-| `models/qwen37.yaml` | 可选对照 |
-| `runs/baseline.yaml` | 单次：openai_compat + glm52，`case_workers: 4` |
-| `runs/baseline-tool-loop.yaml` | 单次：tool_loop + glm52，`case_workers: 2` |
-| `runs/ablation-matrix.yaml` | 消融：openai_compat vs tool_loop |
+| `agents/bare_model.yaml` | The model with no scaffold between it and the grader. |
+| `agents/bare_model_choice.yaml` | The same adapter as `bare_model.yaml`, pointed at a judgement instead of a repair. |
+| `agents/bare_model_review.yaml` | The same adapter as `bare_model.yaml`, pointed at a judgement instead of a repair. |
+| `agents/openai_compat.yaml` | Production: single-turn OpenAI-compatible coding agent |
+| `agents/opencode-s1.yaml` | Anchor panel rung: opencode with a step budget of 1. |
+| `agents/opencode-s10.yaml` | Anchor panel rung: opencode with a step budget of 10. |
+| `agents/opencode-s3.yaml` | Anchor panel rung: opencode with a step budget of 3. |
+| `agents/opencode-s40.yaml` | Anchor panel rung: opencode with a step budget of 40. |
+| `agents/opencode.yaml` | Production: a real coding agent (opencode), driven as a subprocess. |
+| `agents/shell.yaml` | Production template: wrap an external coding CLI (e.g. mini-swe-agent / opencode) |
+| `agents/tool_loop.yaml` | Production: multi-step tool-loop agent |
+| `agents/tool_loop_frugal.yaml` | Deliberately weakened multi-step agent: the floor anchor for retrieval tiers. |
+| `models/deepseek-v4-flash.yaml` | Model slot for the model-only ablation. Same gateway, same credential. |
+| `models/glm5.yaml` | Model slot for the model-only ablation. Same gateway, same credential. |
+| `models/glm51.yaml` | Optional second model for multi-model ablation (same gateway) |
+| `models/glm52-sampling.yaml` | GLM-5.2 with stochastic sampling, for pass@k / repeated-sampling experiments. |
+| `models/glm52.yaml` | Production model: GLM-5.2 via OpenAI-compatible endpoint |
+| `models/qwen37.yaml` | Optional model slot for multi-model ablation (set OPENAI_MODEL or change model:) |
+| `runs/ablation-bare-models.yaml` | Model comparison with no scaffold, three repeats each. |
+| `runs/ablation-choice.yaml` | Forced choice between two human-written patches, over `_choice2`. |
+| `runs/ablation-hidden-discrimination.yaml` | Does the hidden-test dose buy DISCRIMINATION, or only difficulty? |
+| `runs/ablation-hidden-dose.yaml` | Does withholding the grading signal move a real coding agent off the ceiling? |
+| `runs/ablation-matrix.yaml` | Production ablation: real agents × models on session-derived auto-v0 |
+| `runs/ablation-models-toolloop.yaml` | Model-only ablation, tool-loop scaffold. |
+| `runs/ablation-models.yaml` | Model-only ablation: can this case set tell five models apart? |
+| `runs/ablation-opencode-models.yaml` | Model comparison inside a real coding agent, three repeats each. |
+| `runs/ablation-resolution-probe.yaml` | Does this case set have any resolution at all, or are the models simply equal? |
+| `runs/ablation-review.yaml` | Patch review over `_review30`, against the widest capability gap the gateway offers. |
+| `runs/ablation-two-models.yaml` | Two-model discrimination, repeated three times each. |
+| `runs/ablation-widest-gap.yaml` | The widest capability gap the gateway offers, with no scaffold, three repeats each. |
+| `runs/anchor-panel-opencode.yaml` | Calibration anchor panel that varies only the step budget. |
+| `runs/anchor-panel-retrieval.yaml` | Anchor panel for retrieval tiers (T4+). |
+| `runs/anchor-panel.yaml` | Calibration anchor panel: the reference points a case's difficulty is measured against. |
+| `runs/baseline-bare.yaml` | Production single-run defaults for the bare-model adapter. |
+| `runs/baseline-opencode.yaml` | Production single-run defaults for the opencode adapter. |
+| `runs/baseline-tool-loop-frugal.yaml` | Floor anchor for retrieval calibration: multi-step, but a tight step budget and no shell. |
+| `runs/baseline-tool-loop.yaml` | Production run: multi-step tool_loop agent + GLM-5.2 |
+| `runs/baseline.yaml` | Production single-run defaults (no mock) |
+| `runs/passk.yaml` | Repeated-sampling run: the budget axis is attempts, not steps. |
 
 ### 7.2 模型 YAML 字段
 
@@ -704,6 +744,33 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 | `--csv` | flag | **True** | 导出 CSV |
 | `--xlsx` | flag | 关 | 导出 XLSX |
 
+### 8.14 `plan-sample-size` — 反推所需题量
+
+配对检验只从「两个配置结论不同」的 case 学到东西，所以题量由**不一致率**和效应量共同决定，
+不是拍脑袋定的。此前本节缺失 —— 一个自称参数级权威的文档漏掉了一整个子命令。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--delta` | float | **必填** | 要检出的成功率差异，单位百分点（如 `10` 表示 10pp） |
+| `--discordance` | float | 无 | 预期不一致率（%）。与 `--from-ablation` 二选一 |
+| `--from-ablation` | Path | 无 | 从既有 `ablation_summary.json` 读实测不一致率 |
+| `--alpha` | float | `0.05` | 显著性水平 |
+| `--power` | float | `0.8` | 检验效能 |
+
+```bash
+uv run python -m aibench plan-sample-size --delta 10 --discordance 20
+uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablation_<ts>/ablation_summary.json
+```
+
+### 8.15 `doctor` — 环境自检
+
+把此前只写在注释里的外部版本要求变成退出码：python、node、`configs/grading-env.yaml` 的承诺、
+`opencode` 版本、沙箱可用性。任一不满足退出 1。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--json` | flag | 关 | 机器可读输出 |
+
 ---
 
 ## 9. 一键脚本参考
@@ -733,6 +800,13 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 | `--matrix` | `configs/runs/ablation-matrix.yaml` | 消融矩阵 |
 | `--output-root` | `runs/` | 输出根 |
 | `--workers` | 空 | 传给 `generate-cases --workers` |
+| `--strict-audit` | 关 | 任一用例未过错误级门禁即中止。默认只写回 `validity_ok`，由 `ablation` 排除这些用例 |
+| `--forward` | 关 | 用正向生成（模型自己编缺陷）替代默认的反向构造。**不是可选方案**：三次干预实验判定正向路线无效，保留它只为让那个否定结论可复现 |
+| `--tier` | 空 | 强制每条草稿的目标层级 |
+| `--min-tier` | 空 | 丢弃定级低于此的生成结果 |
+| `--calibrate` | 关 | 跑 `calibrate-cases` + `select-cases` 再消融所选集合 |
+| `--repeats` | `3` | 每锚点重复次数 |
+| `--anchors` | `configs/runs/anchor-panel.yaml` | 锚点面板 |
 
 真链路目录约定：
 
@@ -748,8 +822,13 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 
 | 脚本 | 作用 |
 |------|------|
-| `scripts/lint.sh` | ruff format + check --fix |
-| `scripts/install-hooks.sh` | 安装 pre-commit |
+| `scripts/lint.sh` | ruff `check --fix` + `format`。**这是修复工具，不是门禁** —— 它改写源码后再验证自己的输出，所以格式回归永远不会让它失败。门禁用 `ruff format --check` + `ruff check` |
+| `scripts/install-hooks.sh` | 安装 pre-commit（ruff + 暂存文件的 secrets 扫描） |
+| `scripts/check_doc_links.py` | 断链、失效标签、以及未声明为本地产物的 `runs/` 引用 |
+| `scripts/build_docs_html.py` | 从 `docs/html/_src/*.html` 重建四页文档站 |
+| `scripts/instrument_check.py` | 仪器自检。跳过的检查会列出并以 2 退出（INCOMPLETE），不再打印 PASS |
+| `scripts/run_cost_report.py` | 汇总 `runs/` 下的 token / 调用次数 / agent 墙钟，并写明计价口径 |
+| `scripts/discrimination_diagnostic.py` | 从既有消融读出「为什么这些用例谁都做不出」 |
 
 ---
 
@@ -870,10 +949,17 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 
 退出码 0 视为 agent 完成；修改须落在 `{workspace}` 下。
 
-**不要用它接 opencode**，尽管 `shell.yaml` 的注释里有这么一行示例。它 `usage` 恒为 0
-（成本轴的 `token_amplification` 因此无意义）、把工作区里**每个**文件都算作 written
-（`empty_patch` 因此恒 false）、且 `(proc.stdout or "")[-2000]` 是单字符索引而非切片
-（与 §12.4 开头那个让 agent 轴多年未被测量的缺陷同款）。用 `opencode` 适配器。
+**不要用它接 opencode。** 该示例已于 2026-08-17 从 `shell.yaml` 删除 —— 把本节警告过的
+调用方式写成配置自带的示例，是最容易被照抄的位置。用 `configs/agents/opencode.yaml`：
+它镜像工作区、记录 `sandboxed`、固定二进制版本，并上报真实 token 用量。
+
+本适配器剩下的边界（两个已修，一个仍在）：
+
+| 项 | 状态 |
+|---|---|
+| `(proc.stdout or "")[-2000]` 是单字符索引而非切片 | **已修**（2026-08-17）。它让任何输出不足 2000 字节的成功运行抛 `IndexError`，也就是这个适配器从来没有跑通过一次 —— 它此前没有任何测试 |
+| 把工作区里**每个**文件都算作 written，`empty_patch` 恒 false | **已修**（2026-08-17）。现在比对运行前后的内容哈希，只报真正改动过的文件 |
+| `usage` 恒为 0 | **仍在**。外部 CLI 不上报 token，本适配器也拿不到；因此成本轴的 `token_amplification` 对它无意义 |
 
 ### 12.4 `opencode` options
 

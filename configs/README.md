@@ -52,6 +52,9 @@ uv run python -m aibench run --run-config configs/runs/baseline.yaml
 ./scripts/e2e_pipeline.sh --limit 100 --max-cases 8 --calibrate --repeats 3
 
 # 并行：对网关的实际并发 ≈ parallel × case_workers，本网关实测 16 并发仍线性
+# 注意：消融矩阵里的 `parallel:` 直到 2026-08-17 才真正生效 —— 此前 CLI 的默认值 1 会短路掉
+# 它，所以 11 份声明 `parallel: 3` 的矩阵实际都是串行跑的，而 `ablation_summary.json` 记的是 1。
+# 修好之后，这些实验对网关的并发是原来的三倍，正如本行一直所写。
 uv run python -m aibench calibrate-cases --case-set auto-v0 --repeats 2 \
   --parallel 3 --workers 5
 

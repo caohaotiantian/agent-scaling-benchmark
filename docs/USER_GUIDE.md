@@ -272,16 +272,23 @@ uv run python -m aibench ablation --matrix ... --parallel 2
 
 ## 10. 文档索引
 
+四行标签修正于 2026-08-17：`reference.html` 不是参数级参考手册（那是
+`docs/REFERENCE.md`），`manual.html` 不讲生产配置（那是 `configs/README.md`），
+`reference.html` 也不是结果表设计报告或字段字典 —— 后者没有替代页，随旧站一起删除了。
+
 | 文档 | 说明 |
 |------|------|
-| [docs/html/index.html](html/index.html) | **文档站首页（HTML 归档）** |
-| [reference.html](html/reference.html) | 参数级权威参考手册 |
-| [项目介绍 overview.html](html/overview.html) | 项目介绍演示页 |
+| [docs/html/index.html](html/index.html) | 文档站首页（四页 HTML） |
+| [参考手册 docs/REFERENCE.md](REFERENCE.md) | **参数级权威参考**：CLI 全参数、配置字段、Schema、产物映射 |
+| [参考资料 reference.html](html/reference.html) | 设计论证、数据格式、门禁规则、已发布校准数据清单 |
+| [项目介绍 overview.html](html/overview.html) | 背景、流水线架构、反向构造原理、实测分布 |
 | [用户手册 manual.html](html/manual.html) | 本向导的 HTML 展示 |
-| [用户手册 manual.html](html/manual.html) | 生产配置 |
-| [参考资料 reference.html](html/reference.html) | 结果表设计报告 |
-| [参考资料 reference.html](html/reference.html) | 字段字典 |
-| [未尽事项 REMAINING_WORK.md](REMAINING_WORK.md) | 未尽事项 |
+| [生产配置 configs/README.md](../configs/README.md) | Agent / 模型 / Run / 消融矩阵的配置说明 |
+| [已发布校准数据](../benchmarks/ai_coding/calibrations/README.md) | 13 份校准文件的口径与复算方法 |
+| [未尽事项 REMAINING_WORK.md](REMAINING_WORK.md) | 已知缺口（内容截至 2026-08-04） |
+| [审计 AUDIT-2026-08-17.md](AUDIT-2026-08-17.md) | 可复现性缺口与已发布数字的核验 |
+
+> 字段字典（旧 `tables.html`）**没有替代页**。它随旧站一起删除，内容未迁移。
 
 ---
 

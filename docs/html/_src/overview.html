@@ -10,6 +10,25 @@
 
 <section class="md-body">
 
+<div class="callout warn">
+<p><strong>⚠️ 接手须知：本站的数字不是结论，读之前先看这三条。</strong>
+本站内容截至 <strong>2026-08-11</strong>，晚于它的两次会话（<code>docs/SESSION-2026-08-11.md</code>、
+<code>docs/SESSION-2026-08-14.md</code>）都推翻了这里的一部分说法。仓库的
+<code>docs/HANDOFF.md</code> §0 是权威状态。</p>
+<ol>
+<li><strong>当前所有难度数字都需要重测。</strong> 适配器有三处缺陷、系统性惩罚推理模型；
+同一模型在修复前后的四轮消融里通过率跨度 <strong>58pp</strong>（25.8% → 83.9%）。
+注意这个跨度<strong>同时含协议变更</strong>——前三轮是 <code>openai_compat</code>，
+第四轮才是 <code>tool_loop</code>，<code>runs/</code> 下没有修复前的 <code>tool_loop</code> 测量，
+无法把它单独归给某一个锚点。</li>
+<li><strong>锚点面板强弱反转</strong>（weak 85.2% &gt; strong 77.4%），重新指派之前不能做校准。</li>
+<li><strong><code>_revmixed</code> 31 条里 12 条是抄写题</strong>，
+<code>test_reads_source_text</code> 门禁上线后剩 19 条有效。</li>
+</ol>
+<p>一句话状态：<strong>harness 本身可用且经过硬化，但目前没有一个可用于下结论的用例集。</strong></p>
+</div>
+
+
 <h2 id="background">1. 背景</h2>
 
 <p>评测一个编程 Agent，需要一批<strong>能区分能力差异</strong>的题目。如果一批题目所有配置都能做对，或所有配置都做不对，那么无论运行多少次，都无法比较两个配置的强弱。</p>
@@ -394,6 +413,7 @@
 <h3>6.5 用例样例</h3>
 
 <p>一条完整用例是单个 JSON 文件。以下为真实产物的结构（内容已省略）：</p>
+<p class="note">这里的 <code>fingerprint</code> 属于<strong>带 <code>hidden_tests</code> 的那个变体</strong>。此前贴的是同一条用例在<em>测试全可见</em>时的指纹，而下面的结构里有 <code>hidden_tests</code> —— 两者不可能是同一个值，因为隐藏测试进入指纹基。指纹随内容变化，这正是它存在的理由。</p>
 
 <pre><code>{
   "case_id": "rev-1f1563e5cdce9714",
@@ -421,7 +441,7 @@
     "generation": "reverse",
     "reverse_source": "qeditor_zh_CN.ts#15710efa548a",
     "reverse_edits": 1,
-    "fingerprint": "v3:6ca25578d8d5e833",
+    "fingerprint": "v3:54785dc2e6eb12a3",
     "validity_ok": true,
     "uncollectable_stub": false,
     "uncollectable_reference": false

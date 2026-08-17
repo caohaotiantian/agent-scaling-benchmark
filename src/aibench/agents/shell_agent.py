@@ -16,6 +16,19 @@ from aibench.agents.base import AgentAdapter
 from aibench.models import AgentRunResult, Case, StepRecord, UsageRecord
 
 
+def _snapshot(workspace: Path) -> dict[str, int]:
+    """Path -> content hash, for everything but the prompt file this adapter drops in."""
+    out: dict[str, int] = {}
+    for path in workspace.rglob("*"):
+        if not path.is_file() or path.name == ".aibench_prompt.txt":
+            continue
+        try:
+            out[path.relative_to(workspace).as_posix()] = hash(path.read_bytes())
+        except OSError:
+            continue
+    return out
+
+
 class ShellAgent(AgentAdapter):
     def run(
         self,
@@ -35,6 +48,7 @@ class ShellAgent(AgentAdapter):
             )
         prompt_file = workspace / ".aibench_prompt.txt"
         prompt_file.write_text(case.prompt, encoding="utf-8")
+        before = _snapshot(workspace)
         cmd = (
             str(tmpl)
             .replace("{workspace}", str(workspace))
@@ -70,12 +84,11 @@ class ShellAgent(AgentAdapter):
                 wall_time_s=time.perf_counter() - t0,
             )
 
-        # count non-prompt files as written
-        written = [
-            p.relative_to(workspace).as_posix()
-            for p in workspace.rglob("*")
-            if p.is_file() and p.name != ".aibench_prompt.txt"
-        ]
+        # What the agent *changed*, not what the workspace contains. Listing every file made
+        # `empty_patch` permanently false — the flag exists to catch an agent that did nothing,
+        # and it could never fire because a case ships files.
+        after = _snapshot(workspace)
+        written = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
         status = "completed" if proc.returncode == 0 else "failed"
         return AgentRunResult(
             status=status,

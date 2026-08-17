@@ -6,8 +6,9 @@
 
 > ## 接手须知
 >
-> **先读 [`docs/SESSION-2026-08-11.md`](docs/SESSION-2026-08-11.md)**（最近一次会话的状态与未决问题），
-> 再读 [`docs/HANDOFF.md`](docs/HANDOFF.md) 的 §0。 那里有三条限定条件，不看会得出错误结论：
+> **先读 [`docs/SESSION-2026-08-14.md`](docs/SESSION-2026-08-14.md)**（最近一次会话），
+> 再读 [`docs/HANDOFF.md`](docs/HANDOFF.md) 的 **§0.-1**（最新的一块；§0 是最旧的三块之一，
+> 且指向一个已删除的用例集）。那里有三条限定条件，不看会得出错误结论：
 >
 > - **当前所有难度数字都需要重测。** 适配器有三处缺陷、系统性惩罚推理模型；同一模型在修复前后的四轮消融里通过率跨度 58pp（25.8% → 83.9%）。注意这个跨度**同时含协议变更**（前三轮是 `openai_compat`，第四轮才是 `tool_loop`）——`runs/` 下没有修复前的 `tool_loop` 测量，无法把它单独归给某一个锚点。
 > - **锚点面板强弱反转**（weak 85.2% > strong 77.4%），重新指派之前不能做校准。
@@ -19,8 +20,11 @@
 
 | 页面 | 说明 |
 |------|------|
-| **[会话交接 `docs/SESSION-2026-08-11.md`](docs/SESSION-2026-08-11.md)** | **接手请先读这一份**：最新状态、未决问题（不含推荐方案）、已知缺陷 |
-| [项目交接 `docs/HANDOFF.md`](docs/HANDOFF.md) | 更早的状态、限定条件与经验教训 |
+| **[会话交接 `docs/SESSION-2026-08-14.md`](docs/SESSION-2026-08-14.md)** | **接手请先读这一份**：最新状态与已知缺陷。§5.4 记录了一个会删掉 worktree 的测试（2026-08-17 已定位并加了守卫，见 `tests/conftest.py`），§5.3 记录 PII 与消毒缺口 |
+| [会话交接 `docs/SESSION-2026-08-11.md`](docs/SESSION-2026-08-11.md) | 上一次会话：未决问题（不含推荐方案）、已知缺陷 |
+| [项目交接 `docs/HANDOFF.md`](docs/HANDOFF.md) | 更早的状态、限定条件与经验教训。**从 §0.-1 读起** |
+| [审计 `docs/AUDIT-2026-08-17.md`](docs/AUDIT-2026-08-17.md) | 第三方复算审计：可复现性缺口、已发布数字的核验、修复排序 |
+| [用户手册 `docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | 端到端操作向导。**内容截至 2026-08-04，早于主线转向反向构造** |
 | [文档站首页](docs/html/index.html) | 四页 HTML 站的导航 |
 | [项目介绍](docs/html/overview.html) | 背景、流水线架构、反向构造原理、实测分布 |
 | [用户手册](docs/html/manual.html) | 环境准备、端到端流程、参数含义、故障排查 |
@@ -173,7 +177,7 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 
 配对检验只从「两个配置结论不同」的 case 学到东西，所以不一致率和效应量同样决定题量。
 
-`--limit` / `--max-cases` 有默认值，**不传也不会全库无限扫**。详见 [参考手册](docs/html/reference.html)。
+`--limit` / `--max-cases` 有默认值，**不传也不会全库无限扫**。详见 [参考手册 `docs/REFERENCE.md`](docs/REFERENCE.md) §8.5 ——参数级细节在 `.md`，不在 HTML 站，这正是上面那条规则说的。
 
 ---
 
@@ -194,9 +198,41 @@ runs/                           实验结果（本地生成，gitignore）
 ## 开发
 
 ```bash
-./scripts/lint.sh
-uv run pytest tests/ -q
-uv run python scripts/build_docs_html.py   # 文档 HTML
+uv run ruff format --check src tests scripts && uv run ruff check src tests scripts
+uv run pytest tests/ -q                    # 用例数以这条命令的输出为准，不在文档里写死
+uv run python -m aibench doctor            # python / node / opencode / 评分环境 / 沙箱自检
+uv run python scripts/build_docs_html.py   # 文档 HTML（只从 docs/html/_src/*.html 构建）
+uv run python scripts/check_doc_links.py   # 断链检查
 ```
 
-Python ≥ 3.11，推荐使用 `uv`。
+`./scripts/lint.sh` 会**改写**源码（`ruff check --fix` + `ruff format`），所以它是修复工具，
+不是门禁；门禁用上面第一行。
+
+Python **3.13**（见 `.python-version`；`uv.lock` 在不同解释器上会解析出不同的 numpy），
+Node **≥ 22.18**（见 `.nvmrc`；22.18 以下 `node --test` 发现不了 TypeScript 测试却退出 0，
+也就是**判为通过**）。
+
+---
+
+## English
+
+This repository builds machine-gradable coding-benchmark cases from real AI-assisted programming
+sessions, then swaps the agent and the model on a fixed case set to compare them. Everything a
+reader needs is in Chinese below; these are the three qualifications that decide whether a number
+here means anything, and they are the reason this section exists at all:
+
+1. **Every difficulty figure needs re-measuring.** Three adapter defects systematically penalised
+   reasoning models. The same model moved 58 points (25.8% → 83.9%) across four ablation rounds
+   with no model change — and that span also contains a protocol change, so it cannot be
+   attributed to any single fix.
+2. **The anchor panel inverted** (weak 85.2% > strong 77.4%). No calibration is meaningful until
+   the anchors are reassigned.
+3. **12 of `_revmixed`'s 31 cases graded transcription rather than behaviour**; 19 survive the
+   `test_reads_source_text` gate.
+
+In one line: **the harness works and has been hardened, but there is currently no case set fit to
+draw a conclusion from.**
+
+Licence: see `LICENSE` — this is not open source. Case sets, drafts and run directories are
+excluded from the repository on purpose and are **not** covered by any grant; ask before
+requesting them. Access is granted by the owner named in `CODEOWNERS`.
