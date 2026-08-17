@@ -10,6 +10,25 @@
 
 <section class="md-body">
 
+<div class="callout warn">
+<p><strong>⚠️ 接手须知：本站的数字不是结论，读之前先看这三条。</strong>
+本站内容截至 <strong>2026-08-11</strong>，晚于它的两次会话（<code>docs/SESSION-2026-08-11.md</code>、
+<code>docs/SESSION-2026-08-14.md</code>）都推翻了这里的一部分说法。仓库的
+<code>docs/HANDOFF.md</code> <strong>§0.-1</strong> 是权威状态（§0 记的是更早的 2026-08-10，且指向一个已删除的用例集）。</p>
+<ol>
+<li><strong>当前所有难度数字都需要重测。</strong> 适配器有三处缺陷、系统性惩罚推理模型；
+同一模型在修复前后的四轮消融里通过率跨度 <strong>58pp</strong>（25.8% → 83.9%）。
+注意这个跨度<strong>同时含协议变更</strong>——前三轮是 <code>openai_compat</code>，
+第四轮才是 <code>tool_loop</code>，<code>runs/</code> 下没有修复前的 <code>tool_loop</code> 测量，
+无法把它单独归给某一个锚点。</li>
+<li><strong>锚点面板强弱反转</strong>（weak 85.2% &gt; strong 77.4%），重新指派之前不能做校准。</li>
+<li><strong><code>_revmixed</code> 31 条里 12 条是抄写题</strong>，
+<code>test_reads_source_text</code> 门禁上线后剩 19 条有效。</li>
+</ol>
+<p>一句话状态：<strong>harness 本身可用且经过硬化，但目前没有一个可用于下结论的用例集。</strong></p>
+</div>
+
+
 <h2 id="background">1. 背景</h2>
 
 <p>评测一个编程 Agent，需要一批<strong>能区分能力差异</strong>的题目。如果一批题目所有配置都能做对，或所有配置都做不对，那么无论运行多少次，都无法比较两个配置的强弱。</p>
@@ -216,7 +235,7 @@
 <p>模型消融过程中查出三个 agent 适配器缺陷，其中两个位于 <code>tool_loop</code> ——
 而它是<strong>所有校准面板的最强锚点</strong>：截断响应时把推理正文当答案、
 <code>json.loads</code> 直吃整个回复、固定 8192 输出预算。三者共同<strong>系统性地惩罚重推理模型</strong>。</p>
-<p>影响量级：同一批用例、同一模型，<strong>仅修 harness 就使 GLM-5.2 的通过率从 25.8% 升到 83.9%</strong>，
+<p>影响量级：同一批用例、同一模型，同一批用例、同一模型，修 harness 后 GLM-5.2 从 25.8% 升到 83.9%，跨度 <strong>58pp</strong>。<strong>这个跨度同时含协议变更</strong>——前三轮是 <code>openai_compat</code>，第四轮才是 <code>tool_loop</code>，<code>runs/</code> 下没有修复前的 <code>tool_loop</code> 测量，所以无法把它单独归给「修 harness」这一件事，
 跨度 58 个百分点，期间未改动任何模型参数。</p>
 <p>因此下列数字<strong>暂不可作为结论使用</strong>：本节的难度分布、按能力档次的分类占比、
 隐藏测试剂量曲线的各测点、以及「最强锚点通过率 90.3%」。
@@ -394,6 +413,7 @@
 <h3>6.5 用例样例</h3>
 
 <p>一条完整用例是单个 JSON 文件。以下为真实产物的结构（内容已省略）：</p>
+<p class="note">这里的 <code>fingerprint</code> 属于<strong>带 <code>hidden_tests</code> 的那个变体</strong>。此前贴的是同一条用例在<em>测试全可见</em>时的指纹，而下面的结构里有 <code>hidden_tests</code> —— 两者不可能是同一个值，因为隐藏测试进入指纹基。指纹随内容变化，这正是它存在的理由。</p>
 
 <pre><code>{
   "case_id": "rev-1f1563e5cdce9714",
@@ -421,7 +441,7 @@
     "generation": "reverse",
     "reverse_source": "qeditor_zh_CN.ts#15710efa548a",
     "reverse_edits": 1,
-    "fingerprint": "v3:6ca25578d8d5e833",
+    "fingerprint": "v3:54785dc2e6eb12a3",
     "validity_ok": true,
     "uncollectable_stub": false,
     "uncollectable_reference": false
@@ -550,13 +570,13 @@ GLM-5.1 77.4% / 64.5% / 77.4%（极差 12.9pp）—— <strong>模型自身的�
     <text x="130" y="92" text-anchor="middle" font-size="12.5" fill="#5c3d00">解析失败　1,824</text>
 
     <rect x="0" y="110" width="45" height="30" rx="4" fill="#e5f4ed" stroke="#166534"/>
-    <text x="60" y="130" font-size="12.5" fill="#166534" font-weight="700">存活并可用　194</text>
+    <text x="60" y="130" font-size="12.5" fill="#166534" font-weight="700">存活并可用　192</text>
 
     <text x="0" y="168" font-size="12" fill="#667085">丢弃量约为可用量的 23 倍。语言覆盖是首要瓶颈，其次才是依赖闭包。</text>
     <text x="0" y="188" font-size="12" fill="#667085">已验证：导入过滤对文件大小中性（丢弃/通过中位数比 1.0），因此扩容不会偏向某一难度档。</text>
   </g>
 </svg>
-<figcaption>过 import 门的 192 个文件版本中，TypeScript 91、Python 55、JavaScript 46（按 <code>(pre, post)</code> 内容去重后为 95：TS 47、JS 25、Py 23）——TypeScript 居首，因 Node 24 原生支持类型擦除，无需额外构建即可运行测试。</figcaption>
+<figcaption><strong>⚠️ 这一层的数字口径不一致，别引用。</strong>本图原写 194，本说明的分项 91 + 55 + 46 = <strong>192</strong>；<code>docs/HANDOFF.md</code> §6.0 的表写 <strong>194</strong>（152 条草稿）。2026-08-17 用 <code>unsatisfiable_imports</code> 对归档的 <code>_rev_raw4</code> 重算，在「有真实 pre≠post 改动 + 过 import 门 + 语言已注册」这组条件下得到 <strong>219</strong>（来自 174 条草稿）——第三个数。三者差在过滤条件，而没有一处把条件写下来。要用这个数，得先把口径钉死再重算。<br>以下为原说明：过 import 门的文件版本中，TypeScript 91、Python 55、JavaScript 46（按 <code>(pre, post)</code> 内容去重后为 95：TS 47、JS 25、Py 23）——TypeScript 居首，因 Node 24 原生支持类型擦除，无需额外构建即可运行测试。</figcaption>
 </figure>
 
 <h3>9.3 为什么不能直接登记新语言</h3>
@@ -595,9 +615,9 @@ GLM-5.1 77.4% / 64.5% / 77.4%（极差 12.9pp）—— <strong>模型自身的�
 <thead><tr><th>方案</th><th>预期收益</th><th>代价</th><th>风险</th></tr></thead>
 <tbody>
 <tr><td><strong>A. 维持现状</strong><br>仅 Python / JS / TS</td><td>无</td><td>无</td><td>产量封顶约 200 个文件版本；语言代表性偏窄</td></tr>
-<tr><td><strong>B. 先做依赖闭包</strong><br>不新增语言</td><td>提高现有语言的可用率（当前 194 / 737）</td><td>中等，数据已具备</td><td>低。已验证对难度分布中性</td></tr>
+<tr><td><strong>B. 先做依赖闭包</strong><br>不新增语言</td><td>提高现有语言的可用率（当前 192 / 737）</td><td>中等，数据已具备</td><td>低。已验证对难度分布中性</td></tr>
 <tr><td><strong>C. 增加 C++ 支持</strong></td><td>覆盖丢弃量中的最大单一语言</td><td>高：工具链 + 构建配置生成 + 依赖闭包</td><td>工具链不可复现会污染已有的干净测量</td></tr>
-<tr><td><strong>D. 增加 Rust 支持</strong></td><td>次之</td><td>高，同上</td><td>同上；crate 依赖需联网，与评分工作区禁网冲突</td></tr>
+<tr><td><strong>D. 增加 Rust 支持</strong></td><td>次之</td><td>高，同上</td><td>同上；crate 依赖需联网。<strong>注意评分工作区并没有禁网</strong> —— <code>grading.py</code> 用 <code>subprocess.run(shell=True)</code> 在宿主机执行，无沙箱、无网络限制（<code>allow_network</code> 只管要不要 git clone 物化工作区）。所以这里的真实风险不是「与禁网冲突」，而是「本来就该禁网却没禁，再加上拉 crate 会让缺口更难收」</td></tr>
 </tbody>
 </table></div>
 
@@ -606,7 +626,7 @@ GLM-5.1 77.4% / 64.5% / 77.4%（极差 12.9pp）—— <strong>模型自身的�
 <ol>
 <li>当前 31 条用例的结论是否已足够支撑既定目标？若是，扩容优先级下降。</li>
 <li>若需扩容，方案 B 代价最低且风险已量化，是否先行验证其实际收益？</li>
-<li>若必须覆盖编译型语言，能否接受「评分工作区允许联网获取依赖」这一前提的改变？该前提目前用于保证可复现性。</li>
+<li>若必须覆盖编译型语言，依赖拉取要不要走预热的离线缓存？（此处此前写「能否接受『允许联网』这一前提的改变…该前提目前用于保证可复现性」——**那个前提不存在**：评分工作区当前就是不受限联网的，见参考资料 §6「网络」一行。按不存在的约束否掉一个选项，是这份文档里最该避免的错误。）</li>
 <li>工具链版本如何锁定，才能使他人复现结果时不因编译器差异得到不同结论？</li>
 </ol>
 

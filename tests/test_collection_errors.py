@@ -9,13 +9,12 @@ output: every false positive and false negative worth catching here lives in the
 what a runner actually prints and what one imagines it prints.
 """
 
-import shutil
 import subprocess
 import sys
 
 import pytest
 
-from aibench.languages import registered_spec, spec_for
+from aibench.languages import registered_spec, spec_for, unsupported_node_reason
 from aibench.models import Case
 from aibench.validity import audit_case, check_stub_fails
 
@@ -137,7 +136,10 @@ def _node_cmd(reporter: str | None) -> str:
     return "node --test" if reporter is None else f"node --test --test-reporter={reporter}"
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.skipif(
+    unsupported_node_reason() is not None,
+    reason=f"usable node absent: {unsupported_node_reason()}",
+)
 @pytest.mark.parametrize("reporter", NODE_REPORTERS)
 class TestJavaScriptAgainstRealNode:
     def test_failing_test_is_a_verdict_not_a_collection_error(self, tmp_path, reporter):

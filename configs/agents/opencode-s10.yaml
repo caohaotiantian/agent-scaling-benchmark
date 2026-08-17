@@ -15,4 +15,7 @@ description: >
   opencode capped at 10 step(s), for a calibration panel that varies only the step budget.
 capability_axes: [A1, A2, A3, A4, A5, A6]
 options:
+  # Same pin as configs/agents/opencode.yaml: a panel rung measured on a different
+  # scaffold version is not comparable with the rung beside it.
+  expected_version: "1.18.15"
   max_steps: 10

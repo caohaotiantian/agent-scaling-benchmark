@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from aibench.io_util import load_json
+from aibench.io_util import atomic_write, load_json
 
 
 def export_ablation_csv(ablation_dir: Path, out_csv: Path | None = None) -> Path:
@@ -22,16 +22,27 @@ def export_ablation_csv(ablation_dir: Path, out_csv: Path | None = None) -> Path
         "success_rate",
         "success_count",
         "total_tokens",
-        "total_cost",
+        # Named for what it is: `total_cost` is a token count times a rate that is a built-in
+        # fallback unless `AIBENCH_USD_PER_MTOK*` was set, and the per-run markdown has always
+        # said 估 while this column did not.
+        "total_cost_usd_estimate",
+        "cost_rate_source",
         "total_wall_time_h",
+        "selection_is_oracle",
         "relative_success_lift",
         "run_dir",
     ]
-    with out.open("w", encoding="utf-8", newline="") as f:
+    with atomic_write(out, newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         for r in rows:
-            w.writerow(r)
+            w.writerow(
+                {
+                    **r,
+                    "total_cost_usd_estimate": r.get("total_cost"),
+                    "cost_rate_source": (r.get("cost_rate") or {}).get("source"),
+                }
+            )
     return out
 
 

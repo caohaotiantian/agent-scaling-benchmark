@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,74 @@ from aibench.stats import mcnemar_sample_size, observed_discordance
 from aibench.tiers import TIER_ORDER
 
 
+def _draft_query_params(paths: list[Path]) -> dict[str, Any] | None:
+    """The DB query window the drafts came from, read off the drafts themselves.
+
+    Recorded rather than made mandatory. Requiring `--since`/`--until` would be the stronger
+    fix, but it breaks every existing invocation and does not help the sets already on disk;
+    recording what the query actually was identifies the slice just as well and can be applied
+    retroactively by whoever holds the drafts.
+
+    Returns ``None`` when the drafts disagree. Taking the *first* draft's window and stamping it
+    on every case in the run is worse than recording nothing: an `--input-dir` holding drafts
+    from two extractions would label all of them with one of the two windows, and the label is
+    the thing a reader would use to identify the slice. Silence is honest; a confident wrong
+    answer is not.
+    """
+    seen: list[dict[str, Any]] = []
+    for path in paths:
+        try:
+            meta = (load_json(path).get("metadata") or {}).get("db_query")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if meta and dict(meta) not in seen:
+            seen.append(dict(meta))
+    if len(seen) == 1:
+        return seen[0]
+    if len(seen) > 1:
+        print(
+            f"[warn] drafts carry {len(seen)} different `db_query` windows; "
+            f"recording none rather than labelling every case with one of them"
+        )
+    return None
+
+
+def _stamp_generation_provenance(
+    case: dict[str, Any],
+    *,
+    draft_query: dict[str, Any] | None,
+    model_called: bool,
+) -> None:
+    """Record what produced this case, in the one object the schema leaves open.
+
+    Cases are LLM-written at `temperature: 0` with no seed and no pinned generator model,
+    against a table read `ORDER BY start_time DESC LIMIT n`. Nothing stamped the generator, the
+    harness or the query window, so every regenerated case got a new fingerprint and no tracked
+    calibration was reusable or comparable — and there was no way to tell *why* two runs of the
+    same command produced different corpora.
+
+    Does not restore identity retroactively. It stops the drift going forward and makes the
+    next divergence attributable.
+    """
+    from aibench.provenance import git_revision, harness_digest
+
+    meta = case.setdefault("metadata", {})
+    settings = openai_settings()
+    meta["generator"] = {
+        # What actually wrote this case, not what the environment could have written it with.
+        # `OPENAI_MODEL` is set on any machine configured to generate, so reading it here
+        # stamped `--heuristic-only` output — and every LLM-failure fallback — with the name of
+        # a model that was never called.
+        "model": settings.get("model") if model_called else "heuristic",
+        "temperature": 0,
+        "seed": None,  # the gateway takes none; stated so its absence is not read as unrecorded
+        "code_version": git_revision(),
+        "harness_digest": harness_digest(),
+    }
+    if draft_query:
+        meta["db_query"] = draft_query
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     parser = argparse.ArgumentParser(prog="aibench", description="AI Coding Assist Benchmark")
@@ -64,6 +133,14 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         help="Parallel case workers (default: run-config case_workers or 1)",
+    )
+    p_run.add_argument(
+        "--require-grading-env",
+        action="store_true",
+        help="Abort if `configs/grading-env.yaml` promises a package this interpreter cannot "
+        "import. Default is to warn and record `grading_env_unsatisfied` in the manifest: a "
+        "case importing an absent package fails at grading and reads as difficulty, so the "
+        "number is worth flagging even when the run is worth having.",
     )
 
     p_val = sub.add_parser("validate-cases", help="Validate a case set against schema")
@@ -168,6 +245,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Force a target tier for every draft (default: the tier its trace suggests)",
     )
     p_gen.add_argument(
+        "--no-deduplicate",
+        action="store_true",
+        help="Keep cases whose (stub, reference solution) pair was already written. Off by "
+        "default: reverse construction draws from a trace, different rows of one session replay "
+        "the same edit, and the model writes a different prompt and different tests for each — "
+        "so `duplicate_fingerprint` sees nothing while n is inflated and paired outcomes are "
+        "correlated. Measured on `_rev2026`: 134 cases collapse to 66 unique pairs.",
+    )
+    p_gen.add_argument(
         "--reverse",
         action="store_true",
         help="Reverse-construct: the stub is the file as the trace found it and the reference "
@@ -220,6 +306,21 @@ def main(argv: list[str] | None = None) -> int:
         "line against them; over a 575-case build the LLM path overlapped 1.7%% and the "
         "heuristic fallback 100%%, because it deep-copies the draft.",
     )
+    p_exp.add_argument(
+        "--allow-secrets",
+        action="store_true",
+        help="Export cases the secrets scan flags. Five gates bear on a bundle and this was the "
+        "only one with no escape, while the same gate on `promote` has had one all along — so a "
+        "maintainer willing to hand the data over shipped a smaller, differently-composed set "
+        "than every published N was computed on. Off by default; the MANIFEST records the use.",
+    )
+    p_exp.add_argument(
+        "--allow-review-choice",
+        action="store_true",
+        help="Also export cases whose `metadata.generation` is `review-choice`. All 167 of "
+        "`_choice2` are rejected on `provenance` without it, because the gate admitted only "
+        "`llm` and `reverse`. Whether that path may ship is policy, so it defaults to no.",
+    )
     p_exp.add_argument("--max-verbatim", type=float, default=DEFAULT_MAX_VERBATIM)
     p_exp.add_argument(
         "--no-require-audit",
@@ -237,7 +338,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Do not strip weak_grader=true cases (default: strip)",
     )
-    p_abl.add_argument("--parallel", type=int, default=1, help="Parallel run workers")
+    p_abl.add_argument(
+        "--allow-invalid-cases",
+        action="store_true",
+        help="Do not strip cases whose audit failed (`metadata.validity_ok: false`). The "
+        "default is to strip: `audit-cases` writes that verdict back and nothing on the run "
+        "path used to read it, so 64 of 133 `_rev2026` cases sat in the denominator of every "
+        "ablation. A case that was never audited has no verdict and is kept either way.",
+    )
+    p_abl.add_argument(
+        "--parallel",
+        type=int,
+        default=None,
+        help="Parallel run workers (default: the matrix's own `parallel:` key, else 1)",
+    )
     p_abl.add_argument(
         "--baseline-experiment",
         type=str,
@@ -300,10 +414,30 @@ def main(argv: list[str] | None = None) -> int:
         help="Exit 2 if any case fails error-level gates",
     )
 
+    p_doc = sub.add_parser(
+        "doctor",
+        help="Check that this machine can produce a comparable measurement (python, node, "
+        "opencode, grading env, sandbox)",
+    )
+    p_doc.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Machine-readable output",
+    )
+
     p_sec = sub.add_parser("secrets-scan", help="Scan a case directory for likely secrets")
     p_sec.add_argument("--case-set", type=str, default=None)
     p_sec.add_argument("--input-dir", type=Path, default=None)
     p_sec.add_argument("--report", type=Path, default=None)
+    p_sec.add_argument(
+        "--files",
+        nargs="*",
+        type=Path,
+        default=None,
+        help="Scan these files instead of a case directory. This is the pre-commit shape: the "
+        "hook passes the staged paths, and a finding exits 2 before the content enters history.",
+    )
 
     p_snap = sub.add_parser(
         "snapshot-skeleton",
@@ -429,15 +563,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
-        run_dir = run_benchmark(
-            run_config_path=args.run_config,
-            agent_config_path=args.agent,
-            model_config_path=args.model,
-            case_set=args.case_set,
-            run_id=args.run_id,
-            output_root=args.output_root,
-            case_workers=args.workers,
-        )
+        try:
+            run_dir = run_benchmark(
+                run_config_path=args.run_config,
+                agent_config_path=args.agent,
+                model_config_path=args.model,
+                case_set=args.case_set,
+                run_id=args.run_id,
+                output_root=args.output_root,
+                case_workers=args.workers,
+                require_grading_env=args.require_grading_env,
+            )
+        except (FileNotFoundError, RuntimeError, ValueError) as e:
+            # A missing case set is the *expected* state in a fresh clone, an unusable node is a
+            # machine problem, and a name that exists both as a fixture and as a generated set is
+            # a `ValueError` carrying the two paths and the way out — none is worth a traceback
+            # the reader has to decode.
+            print(str(e))
+            return 1
         summary = load_json(run_dir / "summary.json")
         print(f"run_dir={run_dir}")
         print(
@@ -445,6 +588,16 @@ def main(argv: list[str] | None = None) -> int:
             f"({summary['success_count']}/{summary['effective_case_count']}) "
             f"tokens={summary['total_tokens']} cost={summary.get('total_cost')}"
         )
+        if not summary["effective_case_count"]:
+            # A run where every case died on the harness exited 0 and wrote a complete report
+            # reading `success_rate: 0.0` — which a script, or a reader in a hurry, takes as a
+            # capability result. The artifacts are still written: the failure is worth keeping.
+            print(
+                f"FAILED: no case executed. All {summary['case_count']} died on infrastructure "
+                f"({summary['infra_error_count']} infra errors) — this is not a 0% pass rate. "
+                f"Check credentials, the gateway and `aibench doctor`; see {run_dir}/report.md."
+            )
+            return 1
         return 0
 
     if args.cmd == "validate-cases":
@@ -499,11 +652,29 @@ def main(argv: list[str] | None = None) -> int:
         out.mkdir(parents=True, exist_ok=True)
         written = 0
 
+        # `ORDER BY start_time DESC LIMIT n` with `--since`/`--until` defaulting to None means
+        # "the last n rows", which is a different n rows every day. Stamped on every draft so a
+        # case built from it can say which slice of the table it came from.
+        db_query = {
+            "limit": args.limit,
+            "max_cases": args.max_cases,
+            "since": args.since,
+            "until": args.until,
+            "min_messages": args.min_messages,
+            "max_messages": args.max_messages,
+            "only_opencode": not args.all_agents,
+            "require_gold": args.require_gold,
+            "require_edits": args.require_edits,
+            "require_usable_pair": args.require_usable_pair,
+            "extracted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+
         def _persist(d: dict[str, Any]) -> None:
             # Written as each draft is built rather than after the whole scan: a pull of
             # several thousand traces runs for many minutes, and a run killed part-way used to
             # leave an empty directory with nothing to show for the time.
             nonlocal written
+            d.setdefault("metadata", {})["db_query"] = db_query
             write_json(out / f"{d['case_id']}.json", d)
             written += 1
             if written % 100 == 0:
@@ -607,7 +778,12 @@ def main(argv: list[str] | None = None) -> int:
 
         min_tier_rank = TIER_ORDER.index(args.min_tier) if args.min_tier else -1
 
-        sink = CaseSink(out, max_cases=args.max_cases, resume=args.resume)
+        sink = CaseSink(
+            out,
+            max_cases=args.max_cases,
+            resume=args.resume,
+            deduplicate=not args.no_deduplicate,
+        )
         if sink.resumed:
             print(
                 f"resuming: {sink.resumed} case(s) already written and "
@@ -638,14 +814,29 @@ def main(argv: list[str] | None = None) -> int:
             reverse_chat = chat_json(settings)
 
         tier_counts_seen: dict[str, int] = {}
+        # The query window a draft came from, carried forward so a case says which slice of the
+        # table produced it. `extract-from-db` reads `ORDER BY start_time DESC LIMIT n` with
+        # `--since`/`--until` defaulting to None, so "the last 100 rows" means a different 100
+        # every day and nothing recorded which.
+        draft_query = _draft_query_params(paths)
 
-        def _keep(path: Path, case: dict[str, Any], label: str) -> dict[str, Any] | None:
+        def _keep(
+            path: Path, case: dict[str, Any], label: str, *, model_called: bool = True
+        ) -> dict[str, Any] | None:
             """Write the case now. A run killed later keeps everything it already paid for."""
+            _stamp_generation_provenance(case, draft_query=draft_query, model_called=model_called)
             status = sink.emit(path.name, case)
             if status == "full":
                 return None
             if status == "collision":
                 print(f"skip {path.name}: case_id {case['case_id']} already written", flush=True)
+                return None
+            if status == "duplicate":
+                print(
+                    f"skip {path.name}: same (stub, reference solution) as a case already "
+                    f"written — different trace rows replaying one edit",
+                    flush=True,
+                )
                 return None
             settled = (case.get("metadata") or {}).get("tier") or "unset"
             tier_counts_seen[settled] = tier_counts_seen.get(settled, 0) + 1
@@ -682,9 +873,11 @@ def main(argv: list[str] | None = None) -> int:
                 # Not journalled: the last failure may have been a timeout, and a resumed run
                 # should try again rather than inherit a verdict a retry might overturn.
                 return None
+            heuristic_used = False
             try:
                 if args.heuristic_only:
                     case = heuristic_case_from_draft(draft, tier=args.tier)
+                    heuristic_used = True
                 else:
                     last_err: Exception | None = None
                     case = None
@@ -697,6 +890,7 @@ def main(argv: list[str] | None = None) -> int:
                     if case is None:
                         print(f"fallback heuristic for {path.name}: {last_err}")
                         case = heuristic_case_from_draft(draft, tier=args.tier)
+                        heuristic_used = True
                 errors = sorted(validator.iter_errors(case), key=lambda e: list(e.path))
                 if errors:
                     print(f"skip invalid {path.name}: {errors[0].message}")
@@ -718,7 +912,9 @@ def main(argv: list[str] | None = None) -> int:
                     sink.note_skip(path.name, "below_min_tier")
                     return None
                 # LLM generation can take minutes per draft; without this the command looks hung.
-                return _keep(path, case, f"[{settled or 'untiered'}]")
+                return _keep(
+                    path, case, f"[{settled or 'untiered'}]", model_called=not heuristic_used
+                )
             except Exception as e:
                 print(f"skip {path.name}: {e}")
                 return None
@@ -734,6 +930,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"WARNING: dropped {len(collisions)} case(s) whose case_id was already taken "
                 f"({len(set(collisions))} distinct: {shown}...). The generator produced the "
                 "same id for different drafts; the first one written wins."
+            )
+        if sink.duplicates:
+            print(
+                f"deduplicated {len(sink.duplicates)} case(s) carrying a (stub, reference "
+                "solution) pair already written. Different rows of one trace session replay the "
+                "same edit; the model then writes a different prompt and different tests for "
+                "each, so `duplicate_fingerprint` never sees them. Measured on `_rev2026`: 134 "
+                "cases, 66 unique pairs. Pass --no-deduplicate to keep them."
             )
         if tier_counts:
             print(
@@ -771,6 +975,7 @@ def main(argv: list[str] | None = None) -> int:
             output_root=args.output_root,
             case_set_override=args.case_set,
             allow_weak_grader=args.allow_weak_grader,
+            allow_invalid_cases=args.allow_invalid_cases,
             parallel=args.parallel,
             baseline_experiment=args.baseline_experiment,
         )
@@ -860,6 +1065,8 @@ def main(argv: list[str] | None = None) -> int:
                 require_audit=not args.no_require_audit,
                 dry_run=args.dry_run,
                 allow_production_derived=args.allow_production_derived,
+                allow_secrets=args.allow_secrets,
+                allow_review_choice=args.allow_review_choice,
             )
         except (FileNotFoundError, ValueError) as e:
             print(str(e))
@@ -873,7 +1080,26 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
+    if args.cmd == "doctor":
+        from aibench.preflight import render, run_checks
+
+        checks = run_checks()
+        if args.as_json:
+            print(json.dumps([c.to_dict() for c in checks], ensure_ascii=False, indent=2))
+        else:
+            print(render(checks))
+        return 0 if all(c.ok for c in checks if c.blocking) else 1
+
     if args.cmd == "secrets-scan":
+        if args.files is not None:
+            from aibench.secrets_scan import scan_paths
+
+            rep = scan_paths(list(args.files))
+            if args.report:
+                write_json(args.report, rep)
+            if not rep["clean"]:
+                print(json.dumps(rep, ensure_ascii=False, indent=2))
+            return 0 if rep["clean"] else 2
         if args.input_dir:
             directory = args.input_dir
         elif args.case_set:

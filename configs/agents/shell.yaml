@@ -11,6 +11,14 @@ capability_axes: [A1, A2, A3, A4, A5, A6]
 options:
   # Example (uncomment and adapt):
   # command_template: "mini-swe-agent --workspace {workspace} --prompt-file {prompt_file}"
-  # command_template: "opencode run --dir {workspace} \"$(cat {prompt_file})\""
+  #
+  # There used to be an `opencode run --dir ...` example here. It is gone on purpose:
+  # `docs/REFERENCE.md` §12.3 warns against driving opencode through this adapter, and shipping
+  # the warned-against invocation as the config's own example is the worst place to put it.
+  # Use `configs/agents/opencode.yaml`, which mirrors the workspace, records `sandboxed`,
+  # pins the binary version, and reports real token usage.
+  #
+  # Empty means unusable, deliberately: this file is a template, not a runnable config. The
+  # adapter refuses rather than running an empty command.
   command_template: ""
   env: {}

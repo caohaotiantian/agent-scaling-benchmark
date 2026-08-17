@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from typing import Any
@@ -58,6 +59,11 @@ CODING_TOOLS = {
     "file_fetch",
     "exec",
 }
+
+
+#: How much of an absolute path survives extraction. Everything above this is discarded, so no
+#: later comparison may treat a difference above it as evidence about file identity.
+PATH_TAIL_COMPONENTS = 3
 
 
 def parse_jsonish(value: Any) -> Any:
@@ -191,32 +197,80 @@ def split_read_footer(content: str) -> tuple[str, str]:
     return body, (READ_COMPLETE if int(m.group("n")) == len(body_lines) else READ_PARTIAL)
 
 
+_NUMBERED_LINE = re.compile(r"^\s*(?P<n>\d+):\s?")
+
+
+def _strip_line_numbers(lines: list[str]) -> list[str]:
+    """Remove a read tool's ``12: `` gutter, and only that.
+
+    The strip used to run per line, unconditionally, so any *source* line beginning with digits
+    and a colon lost its leading token. That is not a rare shape — ``404: "not found",`` in a
+    dict, ``8080: {`` in a config, a YAML mapping keyed by number — and the damage is silent:
+    the reconstructed file is subtly wrong, and it becomes the stub or the reference solution of
+    a case.
+
+    A gutter is recognisable by being a *gutter*: every non-blank line carries one and the
+    numbers run consecutively. One line matching proves nothing, which is exactly the case the
+    old rule got wrong.
+    """
+    numbers: list[int] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        match = _NUMBERED_LINE.match(line)
+        if not match:
+            return lines
+        numbers.append(int(match.group("n")))
+    if len(numbers) < 2:
+        # A one-line block gives no evidence either way, and mangling it costs more than
+        # leaving a stray gutter on it.
+        return lines
+    if numbers[0] < 1:
+        # Every read tool here numbers from 1 — its own footers say "Showing lines 1-40 of 190".
+        # A block starting at 0 is source: `{0: "Sun", 1: "Mon", 2: "Tue"}` is otherwise
+        # indistinguishable from a gutter.
+        return lines
+    if any(b - a != 1 for a, b in itertools.pairwise(numbers)):
+        return lines
+    return [_NUMBERED_LINE.sub("", line) if line.strip() else line for line in lines]
+
+
 def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
     files: list[dict[str, str]] = []
     for m in _PATH_CONTENT.finditer(text or ""):
-        path = m.group("path").strip().replace("\\", "/")
+        original = m.group("path").strip()
+        path = original.replace("\\", "/")
         # keep basename-ish relative path when absolute
         if ":" in path and len(path) > 2 and path[1] == ":":
             # Windows absolute
             path = path.split("/")[-1] if "/" in path else path.split("\\")[-1]
         elif path.startswith("/"):
-            path = "/".join(path.split("/")[-3:])
-        body = m.group("body")
-        # strip line-number prefixes like "12: code"
-        cleaned_lines = []
-        for line in body.splitlines():
-            if re.match(r"^\s*\d+:", line):
-                cleaned_lines.append(re.sub(r"^\s*\d+:\s?", "", line))
-            else:
-                cleaned_lines.append(line)
+            path = "/".join(path.split("/")[-PATH_TAIL_COMPONENTS:])
         # The footer is split off before any trimming. Trimming first ate the blank lines a file
         # genuinely ends with, and the line count then came up short — a whole file refused as a
         # window for ending in whitespace. Only newlines are trimmed, never indentation: the old
         # `.strip()` dedented the first line of every file it touched.
-        content, origin = split_read_footer("\n".join(cleaned_lines).strip("\n"))
-        content = content.strip("\n")
+        #
+        # It is also split off *before* the gutter test, and that ordering is load-bearing. The
+        # gutter rule asks whether every non-blank line is numbered; the footer is a line and it
+        # is not numbered, so testing the un-split body answered "no" for the 98.0% of files
+        # that carry one — the gutter then survived into `pre` and `post`, became a stub and a
+        # reference solution, and was stamped `read_complete`.
+        content, origin = split_read_footer(m.group("body").strip("\n"))
+        content = "\n".join(_strip_line_numbers(content.splitlines())).strip("\n")
         if path and content.strip():
-            files.append({"path": path, "content": content[:200_000] + "\n", "origin": origin})
+            files.append(
+                {
+                    "path": path,
+                    # The path before truncation. A Windows path is reduced to its basename
+                    # here, so two genuinely different files under one name collapse to a
+                    # single entry and the replay's ambiguity check has nothing left to
+                    # compare. Keeping the original is what lets it see the collision.
+                    "source_path": original,
+                    "content": content[:200_000] + "\n",
+                    "origin": origin,
+                }
+            )
     return files
 
 

@@ -57,6 +57,18 @@ MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
 HTML_LINK = re.compile(r"""<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>(.*?)</a>""", re.S | re.I)
 HTML_ID = re.compile(r"""\bid=["']([^"']+)["']""")
 
+#: A run directory cited inside a code span: `runs/ablation_20260814_111227`. These resolve to
+#: nothing in a clone — `/runs/` is gitignored and `git ls-files runs` returns 0 — and the link
+#: checker above cannot see them, because they are code spans rather than links and `runs` is in
+#: SKIP_DIRS. Sixteen such citations sat in tracked documents, each reading like a path the
+#: reader could open.
+RUN_CITATION = re.compile(r"`(runs/[A-Za-z0-9_.\-]*_\d{8}_\d{6}[A-Za-z0-9_.\-/]*)`")
+
+#: What a document must say once for its run citations to be honest. Checked per document rather
+#: than per citation: the reader needs the convention stated where they are reading, and
+#: annotating all sixteen inline would be unreadable.
+LOCAL_ARTIFACT_NOTE = "本地产物，未随仓库分发"
+
 
 def ids_of(path: Path) -> set[str]:
     if path.suffix.lower() not in {".html", ".htm"}:
@@ -92,6 +104,15 @@ def check(path: Path) -> list[str]:
         stale = sorted(p for p in DELETED_PAGES if p in plain)
         if stale:
             problems.append(f"[{plain}] -> {target}  (label names deleted page {stale[0]})")
+
+    cited_runs = sorted(set(RUN_CITATION.findall(text)))
+    if cited_runs and LOCAL_ARTIFACT_NOTE not in text:
+        shown = ", ".join(cited_runs[:3]) + ("…" if len(cited_runs) > 3 else "")
+        problems.append(
+            f"cites {len(cited_runs)} run director{'y' if len(cited_runs) == 1 else 'ies'} "
+            f"({shown}) but never says they are local: `/runs/` is gitignored, so none of these "
+            f"exists in a clone. Add the note “{LOCAL_ARTIFACT_NOTE}” to this document."
+        )
     return problems
 
 

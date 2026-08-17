@@ -36,11 +36,20 @@ def _draft(cid: str, body: str = "def thing():\n    return 0\n") -> dict:
     }
 
 
-def _run(tmp_path, n_drafts, argv_extra, cid=lambda i: f"draft-{i}"):
+def _run(tmp_path, n_drafts, argv_extra, cid=lambda i: f"draft-{i}", *, distinct_bodies=True):
+    """Drafts carry distinct bodies by default.
+
+    Identical bodies mean an identical (stub, reference solution) pair, which `CaseSink` now
+    drops as a duplicate — the right verdict, and not what these tests are about. `_rev2026`
+    is 51% redundant by exactly that measure, so the deduplication has to stay on while these
+    tests exercise the *id* collision path beside it.
+    """
     inp, out = tmp_path / "in", tmp_path / "out"
     inp.mkdir()
     for i in range(n_drafts):
-        (inp / f"d{i}.json").write_text(json.dumps(_draft(cid(i))), encoding="utf-8")
+        body = f"def thing():\n    return {i}\n" if distinct_bodies else None
+        draft = _draft(cid(i), body) if body else _draft(cid(i))
+        (inp / f"d{i}.json").write_text(json.dumps(draft), encoding="utf-8")
     rc = main(
         [
             "generate-cases",

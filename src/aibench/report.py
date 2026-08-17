@@ -35,17 +35,30 @@ def build_summary(
     run_id: str,
     run_manifest: dict[str, Any],
     case_results: list[dict[str, Any]],
+    elapsed_wall_s: float | None = None,
 ) -> dict[str, Any]:
+    """Fold per-case rows into the run summary.
+
+    ``elapsed_wall_s`` is the run's real duration, measured by the caller. Without it the only
+    time available is the sum of the agents' own clocks, which is not elapsed time: cases run
+    ``case_workers`` at a time, so at the shipped default of 4 the sum overstates by up to 4x
+    and throughput understates by the same factor. It is kept as ``total_agent_wall_time_h``
+    under a name that does not claim to be elapsed, and ``total_wall_time_h`` is left ``None``
+    rather than filled with it.
+    """
     case_count = len(case_results)
     infra = [r for r in case_results if r.get("infra_error")]
     effective = [r for r in case_results if not r.get("infra_error")]
     successes = [r for r in effective if r.get("passed")]
     effective_n = len(effective)
     success_n = len(successes)
-    success_rate = (success_n / effective_n) if effective_n else 0.0
+    # `None`, not 0.0. A run in which every case failed on infrastructure measured nothing, and
+    # 0.0 is a claim that everything was attempted and everything failed — the reading a machine
+    # that cannot grade the corpus at all would otherwise publish as a headline.
+    success_rate = (success_n / effective_n) if effective_n else None
 
     total_tokens = sum(int(r.get("total_tokens") or 0) for r in case_results)
-    total_wall_s = sum(float(r.get("wall_time_s") or 0.0) for r in case_results)
+    agent_wall_s = sum(float(r.get("wall_time_s") or 0.0) for r in case_results)
     total_steps = sum(int(r.get("step_count") or 0) for r in case_results)
     total_model_calls = sum(int(r.get("model_calls") or 0) for r in case_results)
     empty_patch = sum(1 for r in case_results if r.get("empty_patch"))
@@ -56,8 +69,9 @@ def build_summary(
 
     avg_tokens = (total_tokens / effective_n) if effective_n else 0.0
     avg_tokens_success = (total_tokens / success_n) if success_n else None
-    avg_wall_min = (total_wall_s / 60.0 / effective_n) if effective_n else 0.0
-    throughput = (case_count / (total_wall_s / 3600.0)) if total_wall_s > 0 else None
+    avg_wall_min = (agent_wall_s / 60.0 / effective_n) if effective_n else 0.0
+    elapsed_h = (elapsed_wall_s / 3600.0) if elapsed_wall_s is not None else None
+    throughput = (case_count / elapsed_h) if elapsed_h else None
 
     m = run_manifest
     summary: dict[str, Any] = {
@@ -81,6 +95,10 @@ def build_summary(
         "max_attempts": m.get("max_attempts"),
         "max_steps": m.get("max_steps"),
         "selection_strategy": m.get("selection_strategy"),
+        # `best-of-k` submits the attempt the grader passed. `success_rate` is then an upper
+        # bound identical to `pass_at_k`, and `selection_hit_rate` is identically 1.0 wherever
+        # defined — a legitimate quantity, but not one comparable with a submitted rate.
+        "selection_is_oracle": bool(m.get("selection_is_oracle")),
         # Agent 与模型
         "agent_name": m.get("agent_name"),
         "agent_version": m.get("agent_version"),
@@ -122,11 +140,18 @@ def build_summary(
         "avg_tokens_per_case": avg_tokens,
         "avg_tokens_per_success": avg_tokens_success,
         "total_cost": _estimate_cost_usd(total_tokens),
+        "cost_rate": resolved_usd_rate(),
         "avg_cost_per_case": None,
         "token_amplification": None,
         "cost_curve": cost_curve(effective, budgets=budget_quantiles(effective)),
         # 时间效率
-        "total_wall_time_h": total_wall_s / 3600.0,
+        "total_wall_time_h": elapsed_h,
+        # The sum of the agents' own clocks. Kept because it is the only cost figure comparable
+        # across runs that used different `case_workers`, and named so it cannot be read as
+        # elapsed time.
+        "total_agent_wall_time_h": agent_wall_s / 3600.0,
+        "started_at": m.get("started_at"),
+        "finished_at": m.get("finished_at"),
         "throughput_cases_per_h": throughput,
         "avg_wall_min_per_case": avg_wall_min,
         # Agent 行为
@@ -175,24 +200,58 @@ def _scaling_metrics(effective: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+#: Used when no `AIBENCH_USD_PER_MTOK*` variable is set. `total_cost` is then an invented number
+#: at an invented rate, and the published `total_cost: 5.303278` is exactly that — the (0.5+1.5)/2
+#: fallback applied to 5,303,278 tokens. Recording the rate and its source is what lets a reader
+#: tell the two apart without re-deriving them.
+_FALLBACK_USD_PER_MTOK_INPUT = 0.5
+_FALLBACK_USD_PER_MTOK_OUTPUT = 1.5
+
+
+def resolved_usd_rate() -> dict[str, Any]:
+    """The USD-per-million-tokens rate a cost estimate would use, and where it came from."""
+    blended = os.environ.get("AIBENCH_USD_PER_MTOK")
+    if blended:
+        try:
+            return {"usd_per_mtok": float(blended), "source": "AIBENCH_USD_PER_MTOK"}
+        except ValueError:
+            return {"usd_per_mtok": None, "source": f"AIBENCH_USD_PER_MTOK={blended!r} unparseable"}
+    raw_in = os.environ.get("AIBENCH_USD_PER_MTOK_INPUT")
+    raw_out = os.environ.get("AIBENCH_USD_PER_MTOK_OUTPUT")
+    try:
+        pin = float(raw_in) if raw_in is not None else _FALLBACK_USD_PER_MTOK_INPUT
+        pout = float(raw_out) if raw_out is not None else _FALLBACK_USD_PER_MTOK_OUTPUT
+    except ValueError:
+        return {"usd_per_mtok": None, "source": "AIBENCH_USD_PER_MTOK_INPUT/OUTPUT unparseable"}
+    configured = raw_in is not None or raw_out is not None
+    return {
+        "usd_per_mtok": (pin + pout) / 2.0,
+        "usd_per_mtok_input": pin,
+        "usd_per_mtok_output": pout,
+        # The token split is not recorded per call, so the average of the two is the best this
+        # can do even when both rates are real.
+        "source": (
+            "AIBENCH_USD_PER_MTOK_INPUT/OUTPUT, averaged (token split not recorded)"
+            if configured
+            else "built-in fallback, no rate configured — this is not a price"
+        ),
+    }
+
+
 def _estimate_cost_usd(total_tokens: int) -> float | None:
     """Rough USD estimate from env rates (per 1M tokens)."""
-    try:
-        # blended rate if only one set; else (in+out)/2
-        blended = os.environ.get("AIBENCH_USD_PER_MTOK")
-        if blended:
-            return total_tokens / 1_000_000.0 * float(blended)
-        pin = float(os.environ.get("AIBENCH_USD_PER_MTOK_INPUT", "0.5"))
-        pout = float(os.environ.get("AIBENCH_USD_PER_MTOK_OUTPUT", "1.5"))
-        # unknown split → use average
-        return total_tokens / 1_000_000.0 * ((pin + pout) / 2.0)
-    except Exception:
-        return None
+    rate = resolved_usd_rate()["usd_per_mtok"]
+    return None if rate is None else total_tokens / 1_000_000.0 * rate
 
 
 def format_pct(value: Any) -> str:
     """Percent for report tables; missing data prints as "-" rather than 0%."""
     return "-" if value is None else f"{float(value) * 100:.1f}%"
+
+
+def format_hours(value: Any) -> str:
+    """Hours for report tables. Unmeasured elapsed time prints as "-", never as 0.000000."""
+    return "-" if value is None else f"{float(value):.6f}"
 
 
 def _render_scaling_md(summary: dict[str, Any]) -> list[str]:
@@ -256,11 +315,20 @@ def _render_cost_curve_md(summary: dict[str, Any]) -> list[str]:
     ]
 
 
+ORACLE_CAVEAT = (
+    "> **本次 `success_rate` 是 oracle 上界，不是提交结果。**"
+    "`selection_strategy` 依据判分结果挑选尝试，"
+    "而真实系统在提交时看不到判分结果——因此它恒等于 `pass@k`，"
+    "`选择命中率` 恒为 100%。**不要**与「诚实提交」的配置并列比较。"
+)
+
+
 def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]) -> str:
     sr = summary.get("success_rate") or 0.0
     lines = [
         f"# Benchmark Report: {summary.get('run_id')}",
         "",
+        *([ORACLE_CAVEAT, ""] if summary.get("selection_is_oracle") else []),
         f"- Experiment: {summary.get('experiment_name')}",
         f"- Benchmark: {summary.get('benchmark_name')}",
         f"- Case set: {summary.get('case_set')}",
@@ -280,7 +348,7 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
             f"| {summary.get('case_count')} "
             f"| {summary.get('primary_metric_name')} "
             f"| {sr * 100:.1f}% "
-            f"| {float(summary.get('total_wall_time_h') or 0):.6f} "
+            f"| {format_hours(summary.get('total_wall_time_h'))} "
             f"| {summary.get('total_tokens')} "
             f"|  |"
         ),
@@ -305,7 +373,8 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         f"| 分支数 | {summary.get('branches')} |",
         f"| 最大 Attempt 数 | {summary.get('max_attempts')} |",
         f"| 最大 Step 数 | {summary.get('max_steps')} |",
-        f"| 选择策略 | {summary.get('selection_strategy')} |",
+        f"| 选择策略 | {summary.get('selection_strategy')}"
+        f"{'（oracle，非提交口径）' if summary.get('selection_is_oracle') else ''} |",
         f"| Agent 名称 | {summary.get('agent_name')} |",
         f"| Agent 版本 | {summary.get('agent_version')} |",
         f"| 主模型 | {summary.get('main_model')} |",
@@ -322,12 +391,15 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         f"| 总 Token | {summary.get('total_tokens')} |",
         f"| 平均 Token/Case | {float(summary.get('avg_tokens_per_case') or 0):.1f} |",
         f"| 平均 Token/成功 Case | {summary.get('avg_tokens_per_success')} |",
-        f"| 总墙钟(h) | {float(summary.get('total_wall_time_h') or 0):.6f} |",
+        f"| 总墙钟(h)（实际经过） | {format_hours(summary.get('total_wall_time_h'))} |",
+        f"| Agent 累计耗时(h)（并发下会超过墙钟） | "
+        f"{format_hours(summary.get('total_agent_wall_time_h'))} |",
         f"| 平均耗时/Case(min) | {float(summary.get('avg_wall_min_per_case') or 0):.4f} |",
         f"| 总 Step 数 | {summary.get('total_steps')} |",
         f"| 平均 Step/Case | {float(summary.get('avg_steps_per_case') or 0):.2f} |",
         f"| 总模型调用次数 | {summary.get('total_model_calls')} |",
         f"| 总成本(USD估) | {summary.get('total_cost')} |",
+        f"| 计价口径 | {(summary.get('cost_rate') or {}).get('source')} |",
         f"| 成功率 95% CI | {summary.get('confidence_interval')} |",
         f"| Case set fingerprint | {summary.get('case_set_fingerprint')} |",
         "",
@@ -343,6 +415,16 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         strata = summary.get(key) or {}
         lines.append(f"### by {title}")
         lines.append("")
+        if title == "difficulty":
+            # `easy`/`medium`/`hard` here come from `estimate_difficulty` — lines of code and a
+            # count of `def test_`, which `tiers.py` records as discredited (it put 93.8% of the
+            # first generated set into one band). `select-cases` uses `easy`/`mid`/`hard` banded
+            # from measured `p_hat`. The two share two of three words and are not the same axis.
+            lines.append(
+                "> 口径：`estimate_difficulty` 的**体量启发式**（行数 + `def test_` 个数），"
+                "不是校准测出的 `p_hat` 分档。二者共用 `easy`/`hard` 两个词，不可横比。"
+            )
+            lines.append("")
         lines.append("| 分层 | n | 成功 | 成功率 | 95% CI |")
         lines.append("| --- | ---: | ---: | ---: | --- |")
         for label, st in strata.items():
@@ -407,6 +489,7 @@ def render_summary_tables_json(summary: dict[str, Any]) -> dict[str, Any]:
         "最大Attempt数": summary.get("max_attempts"),
         "最大Step数": summary.get("max_steps"),
         "选择策略": summary.get("selection_strategy"),
+        "选择口径为oracle": summary.get("selection_is_oracle"),
         "Agent名称": summary.get("agent_name"),
         "Agent版本": summary.get("agent_version"),
         "主模型": summary.get("main_model"),
@@ -431,6 +514,7 @@ def render_summary_tables_json(summary: dict[str, Any]) -> dict[str, Any]:
         "平均Token/Case": summary.get("avg_tokens_per_case"),
         "平均Token/成功Case": summary.get("avg_tokens_per_success"),
         "总墙钟": summary.get("total_wall_time_h"),
+        "Agent累计耗时": summary.get("total_agent_wall_time_h"),
         "吞吐": summary.get("throughput_cases_per_h"),
         "平均耗时/Case": summary.get("avg_wall_min_per_case"),
         "总Step数": summary.get("total_steps"),

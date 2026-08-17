@@ -4,6 +4,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+# Left behind by a coverage run. Untracked, so `git status --porcelain` is non-empty and
+# `provenance.git_revision()` stamps every later manifest `-dirty`.
+.coverage
+.coverage.*
+htmlcov/
 dist/
 *.egg-info/
 /runs/

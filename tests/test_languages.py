@@ -1,6 +1,5 @@
 """The language registry, and a JavaScript case graded end to end."""
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -9,6 +8,7 @@ from aibench import languages
 from aibench.extract.generate_case import is_safe_grader_command
 from aibench.extract.tier_shaping import infer_role, settle_tier
 from aibench.grading import grade_case
+from aibench.languages import unsupported_node_reason
 from aibench.models import Case
 
 JS_STUB = "export function clamp(x, lo, hi) {\n  return x;\n}\n"
@@ -116,7 +116,10 @@ def test_hidden_test_file_keeps_the_source_suffix():
     assert case["grader"]["command"] == "node --test"
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.skipif(
+    unsupported_node_reason() is not None,
+    reason=f"usable node absent: {unsupported_node_reason()}",
+)
 def test_a_javascript_case_grades_end_to_end(tmp_path: Path):
     """The stub satisfies the visible smoke test and must still fail the hidden ones."""
     case_dict = {

@@ -24,7 +24,7 @@ from aibench.extract.sessions import (
     redact_source_path,
     task_fingerprint,
 )
-from aibench.extract.tier_shaping import protect_visible_tests, split_tests_for_hiding
+from aibench.extract.tier_shaping import label_tier, protect_visible_tests, split_tests_for_hiding
 from aibench.languages import LanguageSpec, spec_for_path
 
 #: Enough of each version for the model to see the change without paying for whole large files.
@@ -327,11 +327,22 @@ def _assemble_case(
     if hide_tests:
         split_tests_for_hiding(case, keep_visible=1)
     # Without this the visible test file is the whole grading signal on the 24 of 31 cases that
-    # end up with nothing hidden, and it is writable: `detect_grading_interference` is only
-    # armed for cases that declare protected paths (`grading.py`), so dropping in a conftest or
-    # deleting the failing test both pass. Every reverse case built so far shipped with
+    # end up with nothing hidden, and it is writable: dropping in a conftest or deleting the
+    # failing test both pass. Every reverse case built before this line shipped with
     # `protected_paths` empty, because this path never went through `settle_tier`.
     protect_visible_tests(case)
+    # Labelled, not reshaped. `settle_tier` would run `strip_defect_markers` over the stub and
+    # not over `gold_files`, breaking the property this construction rests on — that both sides
+    # are the real file. But leaving the tier unset is not free either: `audit_case` skips
+    # `check_tier_invariants` *and* the prompt-disclosure verdict whenever it is falsy, so "the
+    # prompt gives the defect away" was never checked on a single reverse case.
+    settled, notes = label_tier(case)
+    case["metadata"]["tier_settled_from"] = tier
+    if notes:
+        case["metadata"]["tier_notes"] = notes
+    if not settled:
+        # Honest, and rare: two files with a symptom-only prompt and no defect marker meets T2.
+        case["metadata"].pop("tier", None)
     return case
 
 

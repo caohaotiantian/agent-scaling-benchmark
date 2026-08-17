@@ -1,0 +1,124 @@
+# 对 `docs/AUDIT-2026-08-17.md` 的回应
+
+**分支** `fix/audit-2026-08-17`，基线 `982a9c41af9877ae3ac637c7a471de655278d76a`。
+测试从基线的 **713** 条增至 **943** 条，全部门禁绿。
+（这两个数会随后续提交变化。要现算：`uv run pytest tests/ -q` 的最后一行，以及 `git log --oneline 982a9c4..HEAD | wc -l`。）
+
+> **关于分母。** 下表里对 `runs/` 的计数是在 2026-08-17 某一刻量的，而 `runs/` 是本地工作目录，
+> 每跑一次就长大 —— 写这份文件的过程本身就让 `run_manifest.json` 从 242 份涨到 251 份。
+> 所以**分子**（74 份带本机路径、0 次 `grader timeout`、15/16 无 manifest）是稳定的事实，
+> **分母**要现算。一个数如果依赖一棵会长大的树，就必须连量它的命令一起写下来，
+> 这正是本分支在纠正的那种毛病。
+>
+> 本文引用的 `runs/*` 目录都是**本地产物，未随仓库分发**（`runs/` 已 gitignore），
+clone 里不存在；写出目录名是为了让还留着这些产物的机器可以复核。
+
+这份文件是**跟踪入库**的，理由和审计本身入库的理由一样：完整计划与证据在
+`.agent/audit-2026-08-17-fixes/plan.md`，而 `.agent/` 是 gitignore 的 —— 那正是 RP-24
+指出的毛病。凡是 clone 的人需要知道的结论，都在这里，不在那里。
+
+---
+
+## 一、对已发布提交信息中数字的更正
+
+提交信息改不了，所以更正记在这里。每一条都重新量过。
+
+| 出处 | 原文 | 实测 |
+|---|---|---|
+| `ede822f` | `python_executable` / `working_directory` 在**全部 148 份** manifest 里 | **74 份**带这两个字段。148 = 74 × 2 个字段 |
+| `ede822f` | RP-11「**全部 68 份**已发布 manifest」记着那个字面量 | 数量级不对，方向也不对：带 `python_version` 的比 68 多 |
+| `4e0d054` | 「`grader timeout` 在 218 份 `results.jsonl` 里出现 0 次，对比 **1,454** 次 agent 侧 infra 错误」 | 0 次是准的。1,454 是对**整棵 `runs/` 树**grep 出来的 —— 但**具体用的是哪个 pattern 没有写下来**，
+所以这个数复现不出来（`grep -ro infra_error runs` 今天给出 45,438，
+`grep -roh '\"infra_error\": *true' runs/` 给出 1,446）。一个不写下命令的数就是这个下场。
+可复现的是这一半：那些文件里是 **482** 条 case 行 / 479 次 attempt 带 `infra_error`。一句话里两个分母 |
+| `4e0d054` | RP-13「**全部 16 次** `calibration_*`」记着那个字面量 | **16 次里的 15 次**。`runs/calibration_20260805_144042` 底下一份 manifest 都没有 |
+| `6f2980b` | RP-23「复现了审计的数字」 | token 总数吻合到 0.001%（244,933,739 对 244,931,819）。**文件数不吻合**：234 对审计的 218，今天是 238 —— 多出来的是本分支自己跑的 e2e dry-run。同一分支在两处对同一类产物写了 218 和 234 |
+| `6f2980b` | RP-22「在三份文档共 11 处变红，**与审计预测完全一致**」 | 11 处 / 3 份是准的。审计预测的是 **16**；门禁找到 15 处（含审计文档自身的 4 处）。「完全一致」不是事实 |
+
+## 二、审计非目标（需要 owner 决定，本分支不动）
+
+RP-01、RP-02、RP-03、RP-06、RP-08、RP-14、RP-15（公开发布的取舍）·
+RP-05 的策略半边 · RP-13 的回填 · RP-24 的 `.gitignore` 决定 · RP-54 的重算 ·
+RP-57（`git gc --prune=now` 重写对象库）· RP-04 的许可证**选择**（已放 `LICENSE`，保留全部权利）。
+
+**RP-19 / RP-48 只做了向前生效，这是有意的。** 审计说回填「纯元数据、无代码、约 15 分钟」。
+在这里做不到可验证：`auto-v0_3anchor_20260805.json` 指向的用例集是 gitignore 的、本机没有，
+`has_reference` 与 `by_anchor_attempts` 只能**断言**而不能**测量**。把一个无法核实的值写进
+已发布的测量文件，正是这份审计通篇在讲的那个失败。`calibrations/README.md` 已写明旧导出没有
+这两个字段。还留着 `auto-v0` 的机器上可以补。
+
+**RP-57 的现状**：`git fsck --unreachable --no-reflogs` 仍能看到重写前那两个 451 字节、
+匹配 `openai_sk` 的 blob（**必须带 `--no-reflogs`**：不带的话 reflog 被当作根，输出里混进
+一个 12,106 字节的无关 blob，反而看不出要点）。**不可达，未发布** —— 但那把 key 无论如何都应按已泄露处理，那是轮换决定，不是仓库决定。
+
+## 三、每个 ID 都能查到处置
+
+审计里共出现 **118** 个不同编号（RP-/NF-/B/H/M）。其中 **94 个**在本分支某次提交的信息里被点名，
+查法：
+
+```bash
+git log 982a9c4..HEAD --grep='RP-17'      # 换成任意编号
+```
+
+剩下 **24 个**此前只写在 gitignore 的 `.agent/` 计划里 —— 也就是 clone 的人看不到。
+它们全部列在下面（§三、§四），不再有「只存在于本机」的处置。
+
+**为什么专门讲这件事**：本文开头说「凡是 clone 的人需要知道的结论，都在这里」。
+第一版没做到 —— 它只点名了 33 个编号，其余靠一份 gitignore 的文件兜底，而 RP-24 指的正是这个毛病。
+`tests/test_second_review_round.py::TestEveryAuditIdHasATrackedDisposition` 现在会核对这句话。
+
+| 只在本文有处置的 24 个 | 处置 |
+|---|---|
+| RP-01、RP-02、RP-03、RP-08、RP-14、RP-15 | 非目标：是否公开发布语料/PII 治理，属 owner 决定（见 §二） |
+| RP-31 | 已修（`tests/conftest.py` 的 session fixture，缺 `python` 时明确失败），但当时没在提交信息里点名。审计给的另一条路——从 `sys.executable` 解析判分器——**没有采纳**：判分命令是用例自带的字符串，改写它会改变这条用例测的东西 |
+| RP-49 | 已修：`overview.html` 现在引的是 `v3:54785dc2e6eb12a3`，与 `cases_archive/2026-08-12/_revhide2/rev-1f1563e5cdce9714.json` 核对一致 |
+| RP-57 | 非目标：`git gc --prune=now` 重写对象库是 owner 的决定（见 §二末） |
+| NF-11 | **审计自身的悬空引用** —— 它引了一个自己没有定义的编号。无从处置 |
+| H4 | 审计 §D.3 列为可安全忽略 |
+| M3、M7、M9、M12、M13、M15、M17、M18、M21、M22、M23、M26、M27 | 见下节：审计判为 low 且实测无暴露面，收窄结论本身就是处置 |
+
+## 四、审计判为 low 且实测无暴露面的条目
+
+以下按审计自己的收窄结论记为「不改」，收窄本身就是处置：
+
+M3（零条已发布用例受影响）· M7（13 次校准里全部 236 条 null-`r_pb` 用例都已被丢弃，触发条件不可达）·
+M9（回填不是被修的那个 bug；顺序依赖不复现；默认路径不传配额）· M12（默认值不静默，`load_yaml`
+会指名报错，且都写进 manifest）· M13（`grouping` 有两处渲染，所有配置都设 `task_type`）·
+M17（tier 遗漏已被补偿；role 遗漏在任何已发布锚点面板下都产生不了过期 `p_hat`）·
+M18（`sess-`/`db-` 前缀不可能碰撞，磁盘上零次）· M21（每份草稿只有一个 worker 访问，无竞态）·
+M22（空 patch 行照判、照失败、留在分母里，这是正确的 T5 处理）· M23（3,900 条已发布用例里零条
+设置这些字段）· M26（`key_alias` 到不了导出包）· M27（生产矩阵是 3 组比较不是 4 组，族误差 ≈0.14）。
+
+M15 的收窄版本成立（`llm_judge` 是 env-only）。判分结果现在会写出 `judge=<model>` —— 让这条
+环境侧信道在产物里看得见。把 judge 改成配置优先是评测契约的变更，属于 owner。
+
+## 五、审计没发现、写测试时发现的两个缺陷
+
+* `ShellAgent` 的 `(proc.stdout or "")[-2000]` 是**下标不是切片**。任何输出短于 2000 字节的
+  CLI 都会让它抛 `IndexError` —— 这个适配器从来没有成功完成过一次跑测。
+* 同一适配器的 `empty_patch` 永远不可能为真：它把工作区里每个文件都算作「被写过」。
+
+## 六、`SESSION-2026-08-14.md` §5.4 那个会删 worktree 的测试：已定位
+
+病因是 `materialize_workspace` 一上来就删除目标目录。用 `git archive` 导出 `982a9c4` 后削到
+只剩一个 `clamp.py` 复现，已加 `assert_disposable` 守卫。`tests/conftest.py::guard_the_checkout`
+抓的是**复发**，不是病因 —— 两者不要混为一谈。
+
+## 七、一处非计划内的改动，交给 owner 决定
+
+`uv.lock` 的包索引从 `pypi.tuna.tsinghua.edu.cn` 变成了 `pypi.org` / `files.pythonhosted.org`
+（2,214 行）。这是固定环境那次提交里 `uv` 重新求解的副作用，不是任何一条审计发现要求的。
+
+**实测：只有索引地址变了。** 包名、版本、**哈希**三者在两个方向上完全一致；只有 `cycler`
+多出 `size` 与 `upload-time` 两个字段——镜像没提供它们。也就是说装出来的字节完全相同。
+
+保留的理由是审计 Part A 本身：它问的是「另一个人能不能 clone 到一个干净环境里复现」，而锁文件
+里写着一个区域镜像，对那张网之外的人答案是不能。但这动到的是 owner 的基础设施选择，所以写在这里
+而不是等人发现。要退回：`git checkout 982a9c4 -- uv.lock`。
+
+## 八、门禁
+
+每次提交都跑：`ruff format --check` + `ruff check`（src / tests / scripts）·`pytest` ·
+`scripts/e2e_pipeline.sh --dry-run` ·`scripts/check_doc_links.py`（0 问题）·
+`scripts/build_docs_html.py` 后 `git diff --exit-code docs/html` ·`aibench doctor` ·
+`scripts/instrument_check.py`（现已上 CI）· 对全部入库文件的 secrets 扫描。

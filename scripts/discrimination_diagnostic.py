@@ -57,7 +57,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from aibench.cases import load_cases
 from aibench.models import Case
-from aibench.validity import _defines, required_hidden_symbols
+from aibench.validity import (
+    _calls_into_impl,
+    _defines,
+    _impl_modules as _impl_module_names,
+    hidden_call_keywords,
+    required_hidden_symbols,
+    visible_surface,
+)
 
 #: Published in `HANDOFF §0.-1` from this run, before this script existed. They are the only
 #: independent check available on the parsing below: a grouping bug that miscounts a case would
@@ -249,95 +256,9 @@ def failing_tests(row: dict[str, Any]) -> frozenset[str]:
 # --------------------------------------------------------------------------------------
 
 
-def _impl_module_names(case: Case) -> set[str]:
-    names = set()
-    for fb in case.files:
-        if fb.role == "impl":
-            base = fb.path.replace("\\", "/").rsplit("/", 1)[-1]
-            names.add(base.rsplit(".", 1)[0])
-    return names
-
-
-def _calls_into_impl(tree: ast.AST, modules: set[str]) -> list[ast.Call]:
-    """Calls that reach the implementation, however the test spells the path to it.
-
-    Resolving the callee rather than matching text is what keeps `os.makedirs(p,
-    exist_ok=True)` in a fixture helper out of the interface — `exist_ok` is the standard
-    library's parameter, not the case's.
-
-    Four spellings reach it, and a first version of this function saw only two:
-
-    * `impl.f(...)` after `import impl`, including under an alias;
-    * `f(...)` after `from impl import f`;
-    * `obj.method(...)` where `obj` came from an implementation constructor —
-      `r = rank.Rank({}); r.score(..., iteration_no=5)` is how `rev-a60dac9e85e808bf` demands
-      `iteration_no`, and the first version returned nothing for it;
-    * `impl.Cls().method(...)`, with no intermediate name.
-
-    Only a CapWords callee binds an object. `result = impl.discover(...)` followed by
-    `result.get(x, default=1)` would otherwise put `dict.get`'s parameter into the case's
-    interface, and a check that reports the standard library reports everything.
-    """
-    roots: set[str] = set(modules)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            roots.update(a.asname or a.name for a in node.names if a.name in modules)
-        elif (
-            isinstance(node, ast.ImportFrom)
-            and node.module
-            and node.module.rsplit(".", 1)[-1] in modules
-        ):
-            roots.update(a.asname or a.name for a in node.names)
-
-    def rooted(node: ast.expr) -> bool:
-        if isinstance(node, ast.Name):
-            return node.id in roots
-        if isinstance(node, ast.Attribute):
-            return rooted(node.value)
-        if isinstance(node, ast.Call):
-            return rooted(node.func)
-        return False
-
-    def constructs(node: ast.expr) -> bool:
-        if not isinstance(node, ast.Call) or not rooted(node.func):
-            return False
-        func = node.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-        return bool(name[:1].isupper())
-
-    # Two passes: an object bound on one line is called on a later one, and `ast.walk` makes no
-    # promise about source order.
-    for _ in range(2):
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and constructs(node.value):
-                roots.update(t.id for t in node.targets if isinstance(t, ast.Name))
-
-    return [n for n in ast.walk(tree) if isinstance(n, ast.Call) and rooted(n.func)]
-
-
-def hidden_call_keywords(case: Case) -> dict[str, set[str]]:
-    """Keyword argument names each hidden test passes to the implementation, by test path.
-
-    Python only. JavaScript has no keyword arguments, so there is nothing to miss there; a
-    parse failure is recorded rather than dropped.
-    """
-    modules = _impl_module_names(case)
-    out: dict[str, set[str]] = {}
-    for fb in case.grader.hidden_tests:
-        if not fb.path.endswith(".py"):
-            continue
-        try:
-            tree = ast.parse(fb.content or "")
-        except SyntaxError:
-            out.setdefault(fb.path, set())
-            continue
-        found = {
-            kw.arg for call in _calls_into_impl(tree, modules) for kw in call.keywords if kw.arg
-        }
-        if found:
-            out[fb.path] = found
-    return out
-
+# `_calls_into_impl` / `hidden_call_keywords` used to live here, unwired to any gate. They
+# are now `aibench.validity`'s, imported above, and `check_hidden_tests_are_inferable`
+# enforces them — so this script reports on the same rule the audit applies.
 
 #: Short or purely structural literals carry no specification — `""`, `"/"`, `"a"` are fixture
 #: plumbing, and flagging them would drown the signal this is looking for.
@@ -410,16 +331,6 @@ def hidden_assert_literals(case: Case) -> dict[str, set[str]]:
         if remaining:
             out[fb.path] = remaining
     return out
-
-
-def visible_surface(case: Case) -> str:
-    """Everything the solver can read: shipped files, visible tests, and the prompt.
-
-    Deliberately excludes the gold files. They are where the missing name is guaranteed to
-    appear — that is what makes the case pass its solvability gate — and they are exactly what
-    the solver never sees.
-    """
-    return "\n".join([fb.content or "" for fb in case.files] + [case.prompt or ""])
 
 
 def _gold_changes(case: Case) -> tuple[list[ast.AST], bool] | None:

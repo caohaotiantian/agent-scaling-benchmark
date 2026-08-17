@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,11 @@ HARNESS_SOURCES = (
     "retry.py",
     "models.py",
     "env_config.py",
+    # `calibrate.py` decides which cases are kept and what `p_hat` means; `stats.py` owns
+    # `point_biserial`, `wilson_ci` and `cost_curve`. Omitting them let `--reuse-from` carry a
+    # `r_pb` across a change to the estimator that produced it.
+    "calibrate.py",
+    "stats.py",
 )
 
 
@@ -89,14 +95,22 @@ def git_revision() -> str:
     return f"{sha}-dirty" if dirty else sha
 
 
-@functools.lru_cache(maxsize=1)
-def harness_digest() -> str:
+# Four entries. `harness_digest()` and `harness_digest(None)` are distinct cache keys and
+# both occur in normal use, so a 2-entry cache is already full before any probe runs and
+# each probe evicts a live entry. Correctness is unaffected; this is re-hashing cost.
+@functools.lru_cache(maxsize=4)
+def harness_digest(source_root: Path | None = None) -> str:
     """Content hash of the code that decides what a run means.
 
     Sorted by path so the digest does not depend on filesystem order, and computed from bytes
     rather than mtimes so a checkout does not change it.
+
+    ``source_root`` points the hash at a copy of `src/`. It exists so the instrument check can
+    prove that editing an adapter moves this digest without editing the adapter it is running
+    from — the probe used to write into the live file and restore it in a `finally`, which
+    leaves a corrupted working tree if the process dies in between.
     """
-    root = repo_root() / "src" / "aibench"
+    root = (source_root or repo_root() / "src") / "aibench"
     parts: list[bytes] = []
     for entry in HARNESS_SOURCES:
         target = root / entry
@@ -127,22 +141,50 @@ def node_version() -> str | None:
     return out.stdout.strip() or None
 
 
+def venv_digest() -> str | None:
+    """Identity of the interpreter's installed packages, without naming this machine.
+
+    Replaces ``python_executable``, which was a home directory in every manifest and told a
+    reader nothing they could act on. What matters is *which* packages were importable, and
+    that is the same question `dependency_digest` answers for the lock file — but a venv can
+    drift from its lock, which is exactly what `uv sync` pruning the grading extra does.
+    """
+    site = Path(sys.prefix) / "lib"
+    if not site.is_dir():
+        return None
+    names = sorted(
+        p.name
+        for candidate in site.glob("python*/site-packages")
+        for p in candidate.iterdir()
+        if p.name.endswith((".dist-info", ".egg-info"))
+    )
+    if not names:
+        return None
+    return hashlib.sha256("\n".join(names).encode()).hexdigest()[:16]
+
+
 def environment() -> dict[str, str | None]:
     """The execution identity to stamp into a manifest.
 
     ``base_url`` is the gateway a run talked to, and is deliberately the only network detail
-    recorded — the API key never enters an artifact.
+    recorded — the API key never enters an artifact. ``python_executable`` and
+    ``working_directory`` are gone: both were absolute paths naming an engineer's home
+    directory in all 148 manifests, and neither is something a reader can act on.
     """
     from aibench.env_config import openai_settings
+    from aibench.preflight import opencode_version
 
     settings = openai_settings()
     return {
         "code_version": git_revision(),
         "harness_digest": harness_digest(),
         "dependency_digest": dependency_digest(),
-        "python_executable": sys.executable,
+        "venv_digest": venv_digest(),
         "python_version": sys.version.split()[0],
         "node_version": node_version(),
-        "working_directory": str(Path.cwd()),
+        # The adapter the project recommends for every model comparison, whose version left no
+        # trace in any artifact until now.
+        "opencode_version": opencode_version(),
+        "platform": platform.platform(terse=True),
         "gateway_base_url": settings.get("base_url") or None,
     }

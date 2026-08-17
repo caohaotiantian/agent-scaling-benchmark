@@ -1,5 +1,8 @@
 """What the scanner must catch, pinned by shape rather than by the corpus of the day.
 
+aibench: synthetic-secrets — every credential below is fabricated bait for this scanner, and the pre-commit hook
+skips this file because of that line.
+
 This file exists because a real OpenAI key, a GitHub personal access token and a database URL
 carrying a password reached a draft pool that every gate reported as clean. The two failures
 were different in kind and neither was covered by the other:

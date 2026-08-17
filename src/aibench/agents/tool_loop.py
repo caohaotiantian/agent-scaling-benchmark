@@ -103,8 +103,15 @@ class ToolLoopAgent(AgentAdapter):
                 error_message=f"missing API key: {api_key_env}",
                 wall_time_s=time.perf_counter() - t0,
             )
+        # `AIBENCH_BASE_URL` is documented as an alias of `OPENAI_BASE_URL` in `.env.example`
+        # and `REFERENCE.md:269`, and this was the one adapter that never read it — so an
+        # operator who set only the alias got `https://api.openai.com/v1` and a per-case HTTP
+        # error rather than a message saying the gateway was not configured.
         base_url = (
-            model.base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+            model.base_url
+            or os.environ.get("OPENAI_BASE_URL")
+            or os.environ.get("AIBENCH_BASE_URL")
+            or "https://api.openai.com/v1"
         ).rstrip("/")
         # Config wins over env, same precedence as base_url above (see openai_compat).
         model_name = model.model or os.environ.get("OPENAI_MODEL")

@@ -18,14 +18,20 @@ uv run python scripts/build_docs_html.py
 1. **改 `docs/*.md` 不会改变站点内容。** 早期版本从 Markdown 生成，现在不是了。
    要改站点就改 `_src/*.html`。
 2. **构建会删除 7 个旧页面**（`project-overview` / `user-guide` / `configs` / `tables` /
-   `agentic-scaling-benchmark` / `remaining-work` / `handoff`）。它们的内容已并入上面四页。
-   不要再链接它们 —— `scripts/check_doc_links.py` 会拦住。
+   `agentic-scaling-benchmark` / `remaining-work` / `handoff`）。不要再链接它们 ——
+   `scripts/check_doc_links.py` 会拦住，连标签里写了这些名字也会拦。
+
+   **它们的内容并没有全部并入上面四页。** 此前这里写「已并入」，
+   而同一份文件下一节又说 `reference.html` 与 `docs/REFERENCE.md` 是两份不同的文档 ——
+   两句不能同时成立。实际去向：`user-guide` 的参数细节在 `docs/REFERENCE.md`（**不在本站**），
+   `configs` 的内容在 `configs/README.md`，`tables` 的字段字典没有替代页，
+   `remaining-work` / `handoff` 仍是 `docs/` 下的 Markdown。
 
 ## 与 `docs/REFERENCE.md` 的关系
 
 **是两份不同的文档，不是同一份的两种形态。**
 `reference.html`（约 300 行）讲设计论证与数据格式；
-`docs/REFERENCE.md`（约 1600 行）讲 CLI 全参数、配置字段、Schema、产物映射、FAQ。
+`docs/REFERENCE.md`（约 1,970 行）讲 CLI 全参数、配置字段、Schema、产物映射、FAQ。
 查参数去 `.md`，查「为什么这么设计」去这里。
 
 ## `_src/` 里的孤儿

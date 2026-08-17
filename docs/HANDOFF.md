@@ -1,5 +1,12 @@
 # 交接文档：分层区分度 Benchmark
 
+> **`runs/` 下的路径是本地产物，未随仓库分发。** `/runs/` 在 `.gitignore` 里，
+> `git ls-files runs` 返回 0 —— 本文引用的每一个 `runs/<name>_<timestamp>/` 目录，
+> 在一个 clone 里都**不存在**。它们是原始机器上的证据指针，不是读者可以打开的路径。
+> 需要其中的数字，请看 `benchmarks/ai_coding/calibrations/`（已入库），
+> 或向 `CODEOWNERS` 里的所有者索取。
+
+
 > **2026-08-14：`_clean2026` 45 条取代 `_revclean` 19 条（实为 17）；
 > 但实测这 45 条在最宽能力差上区分度为零。** 见 §0.-1 与
 > [`docs/SESSION-2026-08-14.md`](SESSION-2026-08-14.md)。
@@ -180,7 +187,8 @@ harness 支持这个形态**不用改 `src/aibench/` 一行**（`audit-cases` 48
 
 ### 已知未决
 
-- **去重后 29 条仍不足 §0.0c 要求的 53 条。** 重复因子是硬约束，靠这套语料补不上。
+- **去重后 45 条仍不足 §0.0c 要求的 53 条。** 重复因子是硬约束，靠这套语料补不上。
+  （此处此前写 29 —— 那是**按源文件**去重的旧数，本节上方的表已改用 `(pre, post)` 去重，是 45。）
 - **所有用例仍是单文件。** 来源可背书的 254 个 pair 里 **199 个（78%）死在 import 门**，
   其中 157 个只缺同仓库兄弟文件。三处构造强制了这一点（工作区写死两文件 / import 门 / T5 恒为 0）。
   兄弟闭包重测：157 → 一层闭包 36 → 二层闭包 19 → 够 T4（≥5 文件）**仅 2 条**。
@@ -329,17 +337,39 @@ s1 与 s3 之间不单调（详见该文件注释）。
 
 ### 0.2 立刻可用的产物
 
+> **2026-08-17 路径修正。** 下面三个集合已在 2026-08-12 全量重建时移入
+> `benchmarks/ai_coding/cases_archive/2026-08-12/`，**不在 `benchmarks/ai_coding/cases/`**。
+> §0.3 写的恢复步骤（对 `_revmixed` 跑 `audit-cases` 再 `calibrate-cases`）照字面执行在任何机器上
+> 都跑不通 —— `--case-set _revmixed` 解析不到目录。要么先把归档目录拷回去，要么把命令里的
+> 集合名换成 `benchmarks/ai_coding/cases/` 下现有的（`_clean2026`、`_rev2026` 等）。
+
 | 产物 | 位置 | 入库 | 说明 |
 |---|---|---|---|
-| **`_revmixed`** | `benchmarks/ai_coding/cases/_revmixed/` | 否 | **当前最优集合**：31 条，易档已按 `hide_count=2` 处理。**新门禁后 19/31**，被拒的 12 条是抄写题（§0.7），刻意保留作回归样本 |
-| `_revfinal2` | 同目录 | 否 | 同 31 条，测试全可见（未隐藏） |
-| `_rev_raw4` | 同目录 | 否 | 3,312 条草稿，重跑生成的输入 |
+| **`_revmixed`** | `cases_archive/2026-08-12/_revmixed/` | 否 | **当时的最优集合**：31 条，易档已按 `hide_count=2` 处理。**新门禁后 19/31**，被拒的 12 条是抄写题（§0.7），刻意保留作回归样本。指纹已漂移，见 §0.2b |
+| `_revfinal2` | `cases_archive/2026-08-12/_revfinal2/` | 否 | 同 31 条，测试全可见（未隐藏） |
+| `_rev_raw4` | `cases_archive/2026-08-12/_rev_raw4/` | 否 | 3,312 条草稿，重跑生成的输入 |
+| `_clean2026` / `_rev2026` | `benchmarks/ai_coding/cases/` | 否 | 2026-08-12 重建后的当前物料（45 条 / 133 条） |
 | 校准数据 | `benchmarks/ai_coding/calibrations/` | **是** | 13 份 JSON + README；其中 10 份是校准、2 份消融、1 份 bare-model，可独立复算 |
 | HTML 文档 | `docs/html/index.html` | 是 | 三板块：项目介绍 / 用户手册 / 参考资料 |
 
 **用例不入库**（含 0%–91.2% 逐字生产代码），交付走 `export-bundle --allow-production-derived`。
 
 ### 0.2b 两套命名的对应关系
+
+> **⚠️ `_revmixed` 的内容已经不是当初测的那批（2026-08-17 复算）。**
+>
+> 归档里的 `_revmixed` 集合哈希是 `1d703ce5c97bbdae`，而当初测出
+> `reverse-v2-mixed` 那批的哈希是 `75f5656b3b08c88c` —— **31 条指纹一条都对不上**。
+> 原因不是内容丢了：31 条题面在测量之后被整体译成了中文。
+> 恢复是无损的 —— 把 `metadata.prompt_en` 写回 `prompt` 就能 31/31 复现原指纹 ——
+> 但 `src/`、`docs/`、`scripts/` 里**没有任何地方提到 `prompt_en`**，
+> 所以照文档走到 `_revmixed` 的人，量的是另一个语料，而且不会收到任何提示。
+>
+> 被测的那 31 条的构成：**24 条来自 `_revfinal2` + 7 条来自 `_revhide2` 的隐藏变体**，
+> `set_fingerprint` = `75f5656b3b08c88c`。
+>
+> 2026-08-17 起 run config 可以写 `expected_case_set_fingerprint`，
+> 对不上就直接拒跑 —— 此前 manifest 一直只记录不比较。
 
 HTML 站与校准数据用 `reverse-v*`，case 目录用 `_rev*`，指的是同一批东西：
 
@@ -350,6 +380,61 @@ HTML 站与校准数据用 `reverse-v*`，case 目录用 `_rev*`，指的是同�
 | `reverse-v2-mixed_3anchor_20260809.json` | **`_revmixed`** | 当前最优集合，仅易档隐藏 |
 
 §0.3 与 overview §6.4 的头条数字（16.1 / 77.4 / 6.5）来自 `reverse-v2-mixed_3anchor_20260809.json`。
+
+### 0.2c 两条只存在于 `.agent/` 里的结论（2026-08-17 抄回）
+
+`.agent/` 是 gitignored 的，clone 的人看不到；本文件有五处引用指向那里 —— §0「三条被推翻的
+结论」一处、§0.7 两处、§0.9 一处、§7 一处（按小节记，不按行号：行号一改就错，这一段原来写的
+就是已经失效的行号）。其中两条是接手者最需要的推理，抄在这里，这样即使那 26 个任务目录永远
+不入库，结论也不会只剩一条断链。
+
+**一、「确定性差分验收」被自己的产量数据否掉（原 `HANDOFF:459` →
+`.agent/deterministic-acceptance/plan.md`）。**
+
+提案是把判据从模型手里拿走：不让 LLM 写断言，而是**执行 `post` 得到期望值**，
+自动生成差分测试。评审结论是「前提 B 不成立，暂缓执行」——
+
+* **前提 A 成立**（现有反向 case 的判据不可信），两名评审独立复现。
+* **前提 B 不成立**，误差约两个数量级。实测漏斗（`_rev_raw4` 全量 3,312 份草稿，
+  按 `sha1(pre+post)` 去重）：含 `file_versions` 的草稿 335 → pre/post 条目 737
+  （去重后 360）→ 其中 `.py` **198**（`.ts` 463 / `.js` 64 / `.mjs` 12，JS/TS 占 **73.1%**）
+  → Python 去重后 91 → 过 `unsatisfiable_imports` **24**（整个方案的绝对天花板）⚠️
+  → 有纯函数改动 9 → 排除测试文件本身 **7** → 评审实跑真正可用 **1**。
+
+  原推算「737 × 29% ≈ 214」错在两处且方向一致：29.4% 是在 `_revmixed`
+  （**已过全部门禁的幸存者**）的 Python 子集上量的条件概率，却被乘到未过滤的全语种池上；
+  正确基数是 91，而最大的一层衰减（import 门，141/198 = 71.2%）恰好被幸存者偏差抹掉。
+
+  ⚠️ **import 门那一层的数字用现在的代码复现不出来**，因为门本身变了：`configs/grading-env.yaml`
+  此后开始承诺 numpy/pandas/requests/matplotlib，`_PY_IMPORT` 也补上了相对导入。同一份
+  `_rev_raw4` 今天量到的是 198 条 Python 里拦 116（58.6%）、过 82；去重后 91 条里拦 54、过 37。
+  **结论不受影响**（前提 B 的证伪靠的是量级，不是这一位数），但要再引用这几个数，得先说清楚是在
+  哪一版清单下量的。
+
+* 两名评审对「仓库有没有 JS AST 能力」表面相反，实则可调和：**对差分机器成立**
+  （确无 JS AST 能力），**对任务边界不成立**（`test_reads_source_text` 是纯静态扫描，
+  不需要 AST，对 JS 立刻可用）。而源码文本断言的分布是 **JavaScript 11/14、Python 1/17** ——
+  计划为「几乎没这个病」的语言建造昂贵机器，把「病得最重」的语言推迟了。
+
+**可迁移的教训**：那条「D 类低于 120 就停」的止损门设计正确且会正确触发，只是位置晚了。
+决定要不要建房的数应该在打地基之前拿到 —— 作者用 40 行离线脚本拿到了，它说：停。
+
+**二、扩量的瓶颈是抽取口径，不是扫描量（原 `HANDOFF:78` →
+`.agent/trace-yield-expansion/plan.md`）。**
+
+页脚门禁上线后，在**已落盘**的存量池 `_rev_raw4` 上：草稿 153 → **50（1.5%）**、
+去重可用对 92 → **26**、**Python 32 → 0**。最后一行必须和产量表并排读：存量池里活下来的
+Python 恰恰**全部**是无页脚、无从证明来源的那一类，因为带页脚的 Python 在存盘前就被
+`require_parse` 杀掉了。
+
+所以这次改动对**已落盘草稿**是净减少 —— 它删掉的是建在片段、或建在模型自己写的内容上的素材。
+**但结论不是「扩量无望」**：92 → 153 → 269 的增量只能靠**重跑一次 `extract-from-db`** 兑现，
+而那不花模型钱。因此「是否跑付费建集」的前置条件是**先重跑抽取**，
+否则送进生成的是 50 条、0 条 Python。（本文件 §0.-1 记录的重跑实际拿到 137 条草稿 / 79 对。）
+
+同一份文档里另一条常被误引的：**§0.9 的「write 杠杆 +73%」不成立，但「收益为零」也没有被证明。**
+`ORDER BY start_time DESC LIMIT 400` 只覆盖 18,548 行语料最后 **0.4%** 的时间线，
+所以那个 0 分不开「杠杆为零」与「取样取错片」。
 
 ### 0.3 必须先做的一件事：重新校准
 
@@ -1006,10 +1091,21 @@ harness 缺陷，而非模型：
 |---|---|---:|---|
 | 1 | 单轮 JSON | 25.8% | — |
 | 2 | 单轮 JSON | 48.4% | `content or reasoning_content` 跨语义边界 |
-| 3 | 单轮 JSON | 67.7% | 固定 8192 输出预算 |
+| 3 | 单轮 JSON | 67.7%（见下） | 固定 8192 输出预算 |
 | 4 | 工具循环 | 83.9% | 换掉整个协议 |
 
-**同一模型、同一批用例，仅修 harness 跨度 58 个百分点。** 而模型之间的真实差距只有个位数。
+**同一模型、同一批用例，四轮跨度 58 个百分点。** 而模型之间的真实差距只有个位数。
+
+> **不要把这 58pp 读成「仅修 harness」。** 上表第 4 行自己写着「换掉整个协议」：
+> 前三轮是 `openai_compat`，第四轮才是 `tool_loop`。`runs/` 下**没有**修复前的 `tool_loop`
+> 测量，所以适配器修复与协议变更这两件事在这批数据里分不开。能说的是「仪器变动的量级压过模型
+> 差异」，不能说「其中多少来自修 bug」。
+
+> **第 3 轮那格的口径（2026-08-17 补）。** 它对应的 run 目录里 `success_rate` 是 **70.0%**；
+> 67.7% 是把同一轮的分子除以 31（集合全量）算出来的，而 `success_rate` 的分母是
+> `effective_case_count`（剔除 infra 失败后的 30）。两个数都对，是两个分母。
+> 上表其余各格取的是 `success_rate`，所以这一格与它们**不同口径** ——
+> 引用时请直接引 `success_rate`，或写明分母。58pp 的跨度用哪一个都成立。
 
 三个缺陷两个同时存在于 `tool_loop` —— **所有校准面板的最强锚点** ——
 所以此前发布的每一份难度校准都建立在一个系统性惩罚推理模型的测量上。
@@ -1090,7 +1186,7 @@ GLM-5.1 的翻转率降到 **0.0%**（三轮 31 条逐条一致）。
 | 语料（放开后，任意 agent） | **4,687** | 3.8× |
 | 抽出草稿 | 3,312 | |
 | 带 pre/post 对的 file-version | 737 | |
-| 过 import 满足性过滤 | 194（152 条草稿） | 该谓词是**完美预测器**：16/16 不满足的全部被门禁拒 |
+| 过 import 满足性过滤 | 194（152 条草稿）⚠️ | 该谓词是**完美预测器**：16/16 不满足的全部被门禁拒。**但 194 这个数不要引用**：`overview.html` 同一层写 192（其分项 91+55+46 自洽），2026-08-17 重算又得 219——三者差在过滤条件，而没有一处写下条件。「完美预测器」那半句不受影响，它是 16/16 的独立观察 |
 | 已构建 → 有效 | 45%（`_rev5` 实测 5/11） | 预期总产出约 65 条 |
 
 **当前阻塞：网关 key 预算耗尽**（`Current cost: 100,741,139 / Max: 100,000,000`）。
@@ -1274,16 +1370,20 @@ uv run aibench generate-cases --input-dir benchmarks/ai_coding/cases/_drafts \
 uv run aibench audit-cases --case-set _cases --annotate
 
 # 模型比较：用无脚手架口径，且内置 3 次重复
+# `_revmixed` 现在在归档里，`--case-set _revmixed` 解析不到（见 §0.2b）。先指向归档根：
+export AIBENCH_CASE_ROOT=benchmarks/ai_coding/cases_archive/2026-08-12
 uv run aibench ablation --matrix configs/runs/ablation-bare-models.yaml \
   --case-set _revmixed --parallel 3
 
 # 交付（不加 --allow-production-derived 会全部拒绝，理由 production_derived）
 uv run aibench export-bundle --from-set _revmixed --output-dir <交付路径> \
-  --drafts-dir benchmarks/ai_coding/cases/_rev_raw4 --allow-production-derived
+  --drafts-dir benchmarks/ai_coding/cases_archive/2026-08-12/_rev_raw4 \
+  --allow-production-derived
 
 # 网关抖动时提高 infra 重试预算（默认仅 2）
 AIBENCH_CASE_RETRY=4 uv run aibench calibrate-cases --case-set _revmixed --repeats 3 \
   --anchors configs/runs/anchor-panel.yaml --parallel 3 --workers 3
+# 同上：`_revmixed` 需要 AIBENCH_CASE_ROOT 指向归档根，否则这一条也解析不到
 ```
 
 ### 8.1 历史命令（2026-08-07 及以前）

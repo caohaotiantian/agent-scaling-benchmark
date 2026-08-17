@@ -14,7 +14,9 @@ fi
 
 if command -v uv >/dev/null 2>&1; then
   UV=(uv run)
-  uv sync --quiet 2>/dev/null || true
+  # Not a bare `uv sync`: that removes the grading extra before every production run, and
+  # `configs/grading-env.yaml` promises those packages to the grader.
+  uv sync --extra dev --extra grading --quiet 2>/dev/null || true
 else
   UV=(python)
   export PYTHONPATH="${ROOT}/src${PYTHONPATH:+:$PYTHONPATH}"

@@ -15,7 +15,7 @@
    },
    "experiment_name": "tl-model-glm52",
    "run_id": "tlabl-glm52",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm52",
+   "run_dir": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm52",
    "algorithm_name": "GLM-5.2",
    "agent_name": "tool_loop",
    "main_model": "GLM-5.2",
@@ -118,7 +118,7 @@
     "平均Step/Case": 50.03225806451613,
     "总模型调用次数": 810,
     "平均模型调用/Case": 26.129032258064516,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm52"
+    "结果目录": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm52"
    },
    "failure_diagnostics": {
     "failed_count": 5,
@@ -188,7 +188,7 @@
    },
    "experiment_name": "tl-model-glm51",
    "run_id": "tlabl-glm51",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm51",
+   "run_dir": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm51",
    "algorithm_name": "GLM-5.1",
    "agent_name": "tool_loop",
    "main_model": "GLM-5.1",
@@ -291,7 +291,7 @@
     "平均Step/Case": 42.61290322580645,
     "总模型调用次数": 863,
     "平均模型调用/Case": 27.838709677419356,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm51"
+    "结果目录": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm51"
    },
    "failure_diagnostics": {
     "failed_count": 9,
@@ -381,7 +381,7 @@
    },
    "experiment_name": "tl-model-glm5",
    "run_id": "tlabl-glm5",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm5",
+   "run_dir": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm5",
    "algorithm_name": "GLM-5",
    "agent_name": "tool_loop",
    "main_model": "GLM-5",
@@ -484,7 +484,7 @@
     "平均Step/Case": 31.93548387096774,
     "总模型调用次数": 527,
     "平均模型调用/Case": 17.0,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm5"
+    "结果目录": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_213102_tlabl-glm5"
    },
    "failure_diagnostics": {
     "failed_count": 3,
@@ -538,7 +538,7 @@
    },
    "experiment_name": "tl-model-qwen37",
    "run_id": "tlabl-qwen37",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_220010_tlabl-qwen37",
+   "run_dir": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_220010_tlabl-qwen37",
    "algorithm_name": "Qwen3.7-Plus",
    "agent_name": "tool_loop",
    "main_model": "Qwen3.7-Plus",
@@ -641,7 +641,7 @@
     "平均Step/Case": 34.903225806451616,
     "总模型调用次数": 544,
     "平均模型调用/Case": 17.548387096774192,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_220010_tlabl-qwen37"
+    "结果目录": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_220010_tlabl-qwen37"
    },
    "failure_diagnostics": {
     "failed_count": 3,
@@ -695,7 +695,7 @@
    },
    "experiment_name": "tl-model-deepseek-v4-flash",
    "run_id": "tlabl-deepseek-v4-flash",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_221109_tlabl-deepseek-v4-flash",
+   "run_dir": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_221109_tlabl-deepseek-v4-flash",
    "algorithm_name": "Deepseek-V4-Flash",
    "agent_name": "tool_loop",
    "main_model": "Deepseek-V4-Flash-0731",
@@ -798,7 +798,7 @@
     "平均Step/Case": 45.54838709677419,
     "总模型调用次数": 749,
     "平均模型调用/Case": 24.161290322580644,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260809_213102/AI-Coding-Assist__20260809_221109_tlabl-deepseek-v4-flash"
+    "结果目录": "runs/ablation_20260809_213102/AI-Coding-Assist__20260809_221109_tlabl-deepseek-v4-flash"
    },
    "failure_diagnostics": {
     "failed_count": 3,

@@ -26,13 +26,17 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from aibench.cases import case_set_dir, is_case_json_path
-from aibench.io_util import load_json, load_yaml, repo_root, write_json
+from aibench.cases import case_set_dir, case_set_root, is_case_json_path
+from aibench.io_util import load_json, load_yaml, repo_root, write_json, write_text
 from aibench.stats import item_rest_correlation, wilson_ci
 
 DEFAULT_P_MAX = 0.9
 DEFAULT_P_MIN = 0.05
 DEFAULT_MIN_RPB = 0.15
+
+#: Verdict for a case whose every attempt failed on infrastructure. Distinct from any
+#: difficulty verdict: `p_hat` is 0.0 because nothing ran, not because nothing passed.
+ALL_ATTEMPTS_INFRA = "all_attempts_infra"
 
 
 @dataclass
@@ -75,6 +79,16 @@ class CaseCalibration:
     #: Content hash of the case as measured; a later run reuses this result only if it matches.
     fingerprint: str | None = None
     by_anchor: dict[str, float] = field(default_factory=dict)
+    #: How many attempts each anchor actually contributed. `by_anchor` alone is a rate with no
+    #: denominator, so a published Δ between two anchors could not be recomputed under the
+    #: convention the calibrations README promises — an anchor that produced 3 of 9 attempts and
+    #: one that produced 9 read identically.
+    by_anchor_attempts: dict[str, int] = field(default_factory=dict)
+    #: Whether the case ships a reference solution. `auto-v0`'s published row requires
+    #: "只取有参考解的 105 条" and no field in the file identified which 105, so the recompute
+    #: recipe failed on its own first and most-cited example: following it naively lands on
+    #: 62.7 / 13.5 / 23.8 against a published 75.2 / 16.2 / 8.6.
+    has_reference: bool | None = None
     spread: float = 0.0
     point_biserial: float | None = None
     flaky: bool = False
@@ -91,7 +105,7 @@ class CaseCalibration:
 ANCHOR_FINGERPRINT_VERSION = "v2"
 
 
-def anchor_fingerprint(anchors: list[AnchorSpec]) -> str:
+def anchor_fingerprint(anchors: list[AnchorSpec], *, source_root: Path | None = None) -> str:
     """Identity of the panel a calibration was measured against.
 
     Includes the *contents* of each referenced config, not just its path: swapping the model
@@ -107,7 +121,7 @@ def anchor_fingerprint(anchors: list[AnchorSpec]) -> str:
     from aibench.provenance import harness_digest
 
     root = repo_root()
-    parts: list[str] = [harness_digest()]
+    parts: list[str] = [harness_digest(source_root)]
     for a in sorted(anchors, key=lambda x: x.name):
         parts.append(a.name)
         for rel in (a.agent_config, a.model_config, a.run_config):
@@ -303,10 +317,27 @@ def aggregate_calibration(
     outcomes: dict[str, dict[int, list[bool]]] = {}
     tiers: dict[str, str | None] = {}
     fingerprints: dict[str, str | None] = {}
+    has_reference: dict[str, bool | None] = {}
+    #: Every case id any pass produced a row for, whether or not that row was usable. A case
+    #: whose every attempt was an infra error has no entry in `outcomes` and used to disappear
+    #: from the report entirely — not even counted as `incomplete_panel`. `total_cases` then
+    #: silently described a smaller set than the one that was run, and the reader had no way to
+    #: see that a case had been measured at all.
+    seen_any: dict[str, dict[str, Any]] = {}
     anchor_of: list[str] = []
     for i, run in enumerate(runs):
         anchor_of.append(str(run.get("anchor", "anchor")))
         for row in run.get("rows") or []:
+            cid_any = str(row.get("case_id") or "")
+            if cid_any:
+                seen_any.setdefault(
+                    cid_any,
+                    {
+                        "tier": row.get("tier"),
+                        "fingerprint": row.get("fingerprint"),
+                        "has_reference": row.get("has_reference"),
+                    },
+                )
             if row.get("infra_error"):
                 continue
             cid = str(row.get("case_id") or "")
@@ -314,6 +345,7 @@ def aggregate_calibration(
                 continue
             tiers.setdefault(cid, row.get("tier"))
             fingerprints.setdefault(cid, row.get("fingerprint"))
+            has_reference.setdefault(cid, row.get("has_reference"))
             outcomes.setdefault(cid, {}).setdefault(i, []).append(bool(row.get("passed")))
 
     run_indices = list(range(len(runs)))
@@ -342,6 +374,7 @@ def aggregate_calibration(
         # Group across an anchor's repeats: an anchor that solves a case only sometimes is the
         # signal that the case itself is unstable, and one run per anchor can never show it.
         by_anchor: dict[str, float] = {}
+        by_anchor_attempts: dict[str, int] = {}
         flaky = False
         for name, indices in runs_of_anchor.items():
             hits = [ok for i in indices for ok in per_run.get(i, [])]
@@ -349,6 +382,7 @@ def aggregate_calibration(
                 continue
             rate = sum(1 for ok in hits if ok) / len(hits)
             by_anchor[name] = rate
+            by_anchor_attempts[name] = len(hits)
             flaky = flaky or 0.0 < rate < 1.0
         spread = (max(by_anchor.values()) - min(by_anchor.values())) if by_anchor else 0.0
 
@@ -382,6 +416,8 @@ def aggregate_calibration(
                 p_hat=p_hat,
                 confidence_interval=f"[{ci[0] * 100:.1f}%, {ci[1] * 100:.1f}%]" if ci else None,
                 by_anchor=by_anchor,
+                by_anchor_attempts=by_anchor_attempts,
+                has_reference=has_reference.get(cid),
                 spread=spread,
                 point_biserial=r_pb,
                 flaky=flaky,
@@ -389,6 +425,27 @@ def aggregate_calibration(
                 reasons=reasons,
             )
         )
+
+    # The cases every pass lost to infrastructure. Reported, not dropped: 0 usable attempts is
+    # a fact about the run, and a case that vanishes cannot be re-run deliberately.
+    unmeasured = sorted(set(seen_any) - set(outcomes))
+    for cid in unmeasured:
+        meta = seen_any[cid]
+        reports.append(
+            CaseCalibration(
+                case_id=cid,
+                tier=meta["tier"],
+                fingerprint=meta["fingerprint"],
+                has_reference=meta["has_reference"],
+                attempts=0,
+                passes=0,
+                p_hat=0.0,
+                confidence_interval=None,
+                keep=False,
+                reasons=[f"{ALL_ATTEMPTS_INFRA} — 0 usable attempts, not a difficulty verdict"],
+            )
+        )
+    reports.sort(key=lambda r: r.case_id)
 
     kept = [r for r in reports if r.keep]
     return {
@@ -398,7 +455,11 @@ def aggregate_calibration(
         "total_cases": len(reports),
         "kept_count": len(kept),
         "dropped_count": len(reports) - len(kept),
-        "p_hat_distribution": _p_buckets(reports),
+        # Measured cases only. A case every pass lost to infrastructure carries `p_hat=0.0` as
+        # a placeholder for "unknown", and bucketing it lands it in `0.0-0.2` next to genuinely
+        # unsolved cases — so an outage reads as a harder corpus. `all_attempts_infra_count`
+        # below is where those cases are counted.
+        "p_hat_distribution": _p_buckets([r for r in reports if r.attempts]),
         "kept_p_hat_distribution": _p_buckets(kept),
         "tier_distribution": _tier_counts(kept),
         # Coverage is reported next to the verdicts, not inferred from them. A sweep that lost
@@ -408,6 +469,7 @@ def aggregate_calibration(
             1 for r in reports if any(x.startswith(INCOMPLETE_PANEL) for x in r.reasons)
         ),
         "rows_dropped_by_anchor": _dropped_by_anchor(runs),
+        "all_attempts_infra_count": len(unmeasured),
         "cases": [r.to_dict() for r in reports],
     }
 
@@ -558,9 +620,23 @@ def calibrate_case_set(
             tiers={c.case_id: c.tier for c in cases},
             anchors_expected=len(anchors),
         )
+    from aibench.provenance import environment
+    from aibench.validity import set_fingerprint
+
     report["case_set"] = case_set
     report["repeats"] = repeats
     report["anchor_fingerprint"] = panel
+    # None of the 13 published calibrations records what produced it, and the 24 run directories
+    # behind them stamp the literal `aibench@0.1.0 / agent@1.0.0` — a constant that
+    # `provenance.py` now calls "worse than no field", because it reads as an answer. The
+    # README warns that adapter defects moved one model's pass rate 58 points; a reader holding
+    # these numbers could not tell which side of which fix any of them sat on. The numbers were
+    # arithmetically checkable and not attributable.
+    report["provenance"] = environment()
+    try:
+        report["case_set_fingerprint"] = set_fingerprint(cases)
+    except Exception:
+        report["case_set_fingerprint"] = None
     report["unfit_anchors"] = [{"anchor": n, "tier": t, "missing_axes": m} for n, t, m in unfit]
     report["reused_case_count"] = len(reused)
     report["recalibrated_case_count"] = len(todo)
@@ -574,7 +650,7 @@ def calibrate_case_set(
             "against a full-panel calibration."
         )
     write_json(cal_dir / "calibration.json", report)
-    (cal_dir / "calibration_report.md").write_text(render_calibration_md(report), encoding="utf-8")
+    write_text(cal_dir / "calibration_report.md", render_calibration_md(report))
     return cal_dir, report
 
 
@@ -582,7 +658,7 @@ def _materialize_subset(case_set: str, case_ids: list[str]) -> str:
     """Write a temporary case set holding only ``case_ids`` so a run can cover just those."""
     src = case_set_dir(case_set)
     dest_name = f".calibrating-{case_set}"
-    dest = repo_root() / "benchmarks/ai_coding/cases" / dest_name
+    dest = case_set_root() / dest_name
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
@@ -645,7 +721,17 @@ def _merge_reused(
             "total_cases": len(cases),
             "kept_count": len(kept),
             "dropped_count": len(cases) - len(kept),
-            "p_hat_distribution": _p_buckets_from_rows(cases),
+            # Measured cases only, matching `aggregate_calibration`. A case whose every pass
+            # failed on infrastructure carries `p_hat=0.0` as a placeholder for "unknown", and
+            # this path recomputed the histogram without that filter — so `--reuse-from` put the
+            # exclusion back and an outage read as a harder corpus again.
+            #
+            # `!= 0`, not truthiness: a row reused from an export predating the field has no
+            # `attempts` at all, and dropping those would lose real measurements — the same
+            # mistake in the other direction.
+            "p_hat_distribution": _p_buckets_from_rows(
+                [c for c in cases if c.get("attempts") != 0]
+            ),
             "kept_p_hat_distribution": _p_buckets_from_rows(kept),
             "tier_distribution": _count_by_tier(kept),
             # Recomputed for the same reason as the counts above: a reused row can be judged

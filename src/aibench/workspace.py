@@ -21,7 +21,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aibench.io_util import repo_root
 from aibench.models import Case, FileBlob
+
+
+def assert_disposable(path: Path) -> None:
+    """Refuse to wipe anything that is, or contains, the checkout.
+
+    ``materialize_workspace`` starts by deleting its target, and the mirroring in the opencode
+    adapter empties its target the same way. Neither ever needs to touch the repository, so a
+    caller that hands one of them a repo-root-shaped path is a bug — and an expensive one:
+    ``docs/SESSION-2026-08-14.md`` §5.4 records a worktree losing every tracked directory
+    except ``benchmarks/`` to something in this shape, never located and never fixed.
+    """
+    target = path.resolve()
+    root = repo_root().resolve()
+    if target == root or target in root.parents:
+        raise ValueError(f"refusing to wipe {target}: it is or contains the checkout at {root}")
 
 
 @dataclass
@@ -112,6 +128,7 @@ def materialize_workspace(
     warnings: list[str] = []
     setup_logs: list[str] = []
 
+    assert_disposable(workspace)
     if workspace.exists():
         shutil.rmtree(workspace)
     workspace.mkdir(parents=True, exist_ok=True)
@@ -249,11 +266,24 @@ _safe_relpath = safe_relpath
 
 
 def _safe_extract_tar(tf: tarfile.TarFile, dest: Path) -> None:
+    """Extract, refusing any member that could write outside ``dest``.
+
+    Checking resolved member paths is not enough on its own. A tar may carry a symlink or a
+    hard link whose *target* points outside the destination; the link's own path passes the
+    prefix test, and a later member written through it lands wherever the link points. Python
+    only started refusing that by default in 3.14, and this project's floor is 3.11.
+    """
     dest = dest.resolve()
     for member in tf.getmembers():
         member_path = (dest / member.name).resolve()
         if not str(member_path).startswith(str(dest)):
             raise RuntimeError(f"tar member escapes workspace: {member.name}")
+        if member.issym() or member.islnk():
+            target = (member_path.parent / member.linkname).resolve()
+            if not str(target).startswith(str(dest)):
+                raise RuntimeError(
+                    f"tar member links outside workspace: {member.name} -> {member.linkname}"
+                )
     tf.extractall(dest)
 
 

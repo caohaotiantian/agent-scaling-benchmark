@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
-from aibench.languages import pass_ratio, registered_spec
+from aibench.languages import (
+    case_language_is_javascript,
+    pass_ratio,
+    registered_spec,
+    unsupported_node_reason,
+)
 from aibench.models import Case, GradeResult
 from aibench.workspace import safe_relpath as _safe_relpath
 
@@ -55,56 +62,197 @@ _COLLECTION_CONTROL_FILES = frozenset(
         "usercustomize.py",
     }
 )
+#: Wall-clock ceiling on one grader invocation. Named so the timeout message can quote it.
+_GRADER_TIMEOUT_S = 120
+
 _SKIP_MARKERS = re.compile(
-    r"@(?:pytest\.mark\.(?:skip|skipif|xfail)|unittest\.skip)\b|\bpytest\.skip\s*\(|"
+    # `unittest.skip\b` matched neither `skipIf` nor `skipUnless` — the two forms an agent
+    # would actually reach for, because they take a condition and read as legitimate.
+    r"@(?:pytest\.mark\.(?:skip|skipif|xfail)|unittest\.skip(?:If|Unless)?)\b|"
+    r"\bpytest\.skip\s*\(|"
     r"\bpytest\.exit\s*\(|\braise\s+unittest\.SkipTest\b"
 )
 
 
-def detect_grading_interference(case: Case, workspace: Path) -> str | None:
+def workspace_inventory(workspace: Path) -> dict[str, str]:
+    """Path -> content digest for everything in the workspace, as materialization left it.
+
+    Taken *before* the agent runs, and handed back to :func:`grade_case`. It is what makes the
+    interference check able to distinguish "the case shipped this" from "the submission added
+    it": `context.files` is only the inline overlay, and `materialize_workspace` also lays down
+    a snapshot, a git checkout and whatever `setup_commands` produced. Judging against
+    `context.files` alone accused a submission of tampering for a `pytest.ini` that came with
+    the project — and, because the audit gates grade through this same function, wrote
+    `validity_ok: false` into the case on disk for it.
+    """
+    out: dict[str, str] = {}
+    for path in workspace.rglob("*"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            out[path.relative_to(workspace).as_posix()] = hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+        except OSError:
+            continue
+    return out
+
+
+def detect_grading_interference(
+    case: Case,
+    workspace: Path,
+    *,
+    baseline: dict[str, str] | None = None,
+) -> str | None:
     """Catch attempts to pass by changing how tests run rather than what the code does.
 
     ``protected_paths`` covers editing the visible tests. This covers the routes around them:
     dropping in a ``conftest.py`` that patches the module under test, adding a ``pytest.ini``
     whose addopts deselect the failing cases, or sprinkling skip markers into files the case
     never shipped.
+
+    A *shipped* file used to be exempt outright, on the argument that ``protected_paths``
+    already covered it. That is only true for the paths ``protect_visible_tests`` names, and it
+    names ``role == "test"`` files only — so a ``conftest.py`` carrying ``role: impl`` was
+    neither protected nor scanned, and the case set on disk contains exactly that shape. A
+    shipped collection-control file is therefore exempt only while it still holds the bytes the
+    case shipped. The single exception is a collection-control file that *is* the reference
+    solution's target: the case cannot be solved without editing it, and
+    :func:`aibench.validity.check_gold_is_not_collection_control` rejects that shape at audit
+    time instead.
+
+    ``baseline`` is :func:`workspace_inventory` taken after materialization and before the agent
+    ran. Judging against ``context.files`` alone is wrong for any case whose workspace has a
+    base layer — a snapshot, a git checkout, `setup_commands` — because none of those files are
+    in ``context.files``, and a `pytest.ini` or a `@pytest.mark.skipif` that came with the
+    project would then be reported as tampering by the submission that never touched it. A
+    symlink is followed rather than skipped: `Path.is_file()` follows, and skipping it let a
+    planted `conftest.py -> /tmp/evil.py` through the gate pytest imports it through.
     """
-    shipped = {fb.path for fb in case.files}
+    shipped: dict[str, str] = {}
+    for fb in case.files:
+        try:
+            shipped[_safe_relpath(fb.path)] = fb.content
+        except ValueError:
+            continue
+    gold_targets: set[str] = set()
+    for gf in case.grader.gold_files:
+        try:
+            gold_targets.add(_safe_relpath(gf.path))
+        except ValueError:
+            continue
+    baseline = baseline or {}
+
+    def _unchanged_since_materialization(rel: str, path: Path) -> bool:
+        digest = baseline.get(rel)
+        if digest is None:
+            return False
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest() == digest
+        except OSError:
+            return False
+
     for path in sorted(workspace.rglob("*")):
+        # Symlinks are resolved, not skipped: `is_file()` follows one, and a link is the
+        # cheapest way to put content pytest will import somewhere this loop does not read.
         if not path.is_file():
             continue
         rel = path.relative_to(workspace).as_posix()
-        if rel in shipped:
-            continue  # covered by protected_paths, or legitimately editable
         if path.name in _COLLECTION_CONTROL_FILES:
-            return f"grading_interference_file: {rel}"
-        if path.suffix == ".py" and _SKIP_MARKERS.search(
-            path.read_text(encoding="utf-8", errors="replace")
-        ):
-            return f"grading_interference_skip_marker: {rel}"
+            if path.is_symlink():
+                # Nothing legitimate needs one, and its target is outside what the case ships.
+                return f"grading_interference_symlink: {rel}"
+            if _unchanged_since_materialization(rel, path):
+                continue
+            if rel not in shipped:
+                return f"grading_interference_file: {rel}"
+            if rel in gold_targets:
+                continue
+            try:
+                current = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                return f"grading_interference_unreadable: {rel} ({e})"
+            if current != shipped[rel]:
+                return f"grading_interference_file_modified: {rel}"
+            continue
+        if rel in shipped or _unchanged_since_materialization(rel, path):
+            continue  # covered by protected_paths, or came with the workspace
+        if path.suffix == ".py":
+            try:
+                body = path.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                return f"grading_interference_unreadable: {rel} ({e})"
+            if _SKIP_MARKERS.search(body):
+                return f"grading_interference_skip_marker: {rel}"
     return None
 
 
 def inject_hidden_tests(case: Case, workspace: Path) -> list[str]:
-    """Write the grader's hidden tests into the workspace. Call only after the agent stops."""
+    """Write the grader's hidden tests into the workspace. Call only after the agent stops.
+
+    Anything already sitting at a hidden test's path is removed first. The names are
+    predictable (``*_spec.py`` at the workspace root), so an agent can plant a symlink or a
+    directory there: a symlink makes ``write_text`` follow it and write the hidden test
+    *outside* the workspace, and a directory makes it raise ``IsADirectoryError`` out of
+    ``grade_case``.
+    """
     written: list[str] = []
     for fb in case.grader.hidden_tests:
         rel = _safe_relpath(fb.path)
         path = workspace / rel
         path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
         path.write_text(fb.content, encoding="utf-8")
         written.append(rel)
     return written
 
 
-def grade_case(case: Case, workspace: Path) -> GradeResult:
+def grade_case(
+    case: Case,
+    workspace: Path,
+    *,
+    baseline: dict[str, str] | None = None,
+) -> GradeResult:
+    """Grade one submission.
+
+    ``baseline`` is :func:`workspace_inventory` taken right after materialization. Without
+    it the interference check cannot tell a file the workspace was built with from one the
+    submission added, so without a baseline it falls back to arming only for cases that declared
+    `protected_paths`.
+
+    That fallback is *narrower* than what callers had before this parameter existed — then the
+    gate was armed for every `script` and `composite` case. Both callers in this repository pass
+    a baseline, so nothing in-tree lost coverage; a caller that does not pass one gets the
+    conservative gate and should pass one.
+    """
     mode = case.grader.mode
 
+    # Above the mode dispatch, not inside `_grade_script`. A `gold` JavaScript case was graded
+    # anyway on a machine with no usable node — `_grade_gold` compares files and never runs the
+    # suite, so it returned a verdict about a case whose tests could not execute.
+    if case_language_is_javascript(case.language) and (reason := unsupported_node_reason()):
+        return GradeResult(
+            passed=False,
+            mode=mode,
+            detail=f"javascript grading unavailable: {reason}",
+            infra_error=True,
+        )
+
     violation = check_protected_paths(case, workspace)
-    if violation is None and case.grader.protected_paths:
-        # Only enforced for cases that opted into anti-tampering; a plain case may legitimately
-        # ship whatever files it likes.
-        violation = detect_grading_interference(case, workspace)
+    arm_interference = bool(case.grader.protected_paths) or (
+        baseline is not None and mode in {"script", "composite"}
+    )
+    if violation is None and arm_interference:
+        # Armed for every case whose verdict comes from running a suite, not only for cases
+        # that declared `protected_paths`. The old condition left the gate off for every case
+        # with none — 90 `_raw2026` and 12 `_geninput` cases among them — which is precisely
+        # where a planted `conftest.py` costs the most, because there is no other anti-tampering
+        # check at all. Files the case shipped are still exempt (see the function's docstring),
+        # so this cannot fail a case for its own contents.
+        violation = detect_grading_interference(case, workspace, baseline=baseline)
     if violation:
         return GradeResult(
             passed=False,
@@ -138,10 +286,43 @@ def grade_case(case: Case, workspace: Path) -> GradeResult:
     return GradeResult(passed=False, mode=mode, detail=f"unknown grader mode: {mode}")
 
 
+def _grader_env() -> dict[str, str]:
+    """The environment a grader runs under, with the sources of run-to-run drift pinned.
+
+    The grader inherited the caller's environment whole. Three of those variables decide
+    whether the same code produces the same verdict:
+
+    * ``PYTHONHASHSEED`` — set randomly per interpreter, so any test that iterates a set or a
+      dict built from one and asserts an order passes or fails by luck. Pinned to 0.
+    * ``PYTHONDONTWRITEBYTECODE`` — a workspace is thrown away after grading, and writing
+      ``__pycache__`` into it makes the post-grading inventory differ from the pre-grading one
+      for reasons the submission had nothing to do with.
+    * ``PYTHONWARNINGS`` — a deprecation warning on stderr is not a failure, and leaving the
+      caller's ``error`` setting in place turns it into one.
+    """
+    import os
+
+    env = dict(os.environ)
+    env["PYTHONHASHSEED"] = "0"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("PYTHONWARNINGS", None)
+    return env
+
+
 def _grade_script(case: Case, workspace: Path) -> GradeResult:
     cmd = case.grader.command
     if not cmd:
         return GradeResult(passed=False, mode="script", detail="missing grader.command")
+    if case_language_is_javascript(case.language) and (reason := unsupported_node_reason()):
+        # An unusable runner is a harness failure, not a verdict about the submission. Left
+        # unchecked it is worse than a crash: `node --test` below 22.18 exits 0 having
+        # discovered nothing, and 0 is a pass.
+        return GradeResult(
+            passed=False,
+            mode="script",
+            detail=f"javascript grading unavailable: {reason}",
+            infra_error=True,
+        )
     try:
         proc = subprocess.run(
             cmd,
@@ -149,14 +330,21 @@ def _grade_script(case: Case, workspace: Path) -> GradeResult:
             cwd=workspace,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=_GRADER_TIMEOUT_S,
             check=False,
+            env=_grader_env(),
         )
     except subprocess.TimeoutExpired:
+        # Kept as `infra_error` — the harness cannot tell an agent-authored hang from a slow
+        # machine, and charging the model for the second is worse than excusing it the first.
+        # But the two are not the same event and the artifact now says which one this was, so
+        # the classification is auditable rather than assumed: `grader timeout` appears 0 times
+        # across the 218 `results.jsonl` files on disk, against 1,454 agent-side infra errors,
+        # which is the evidence that this branch is latent rather than a live distortion.
         return GradeResult(
             passed=False,
             mode="script",
-            detail="grader timeout",
+            detail=f"grader timeout after {_GRADER_TIMEOUT_S}s: {cmd}",
             infra_error=True,
         )
     except OSError as e:
@@ -199,7 +387,10 @@ def _grade_gold(case: Case, workspace: Path) -> GradeResult:
         for rel in targets:
             p = workspace / rel
             if p.is_file():
-                blobs.append(p.read_text(encoding="utf-8"))
+                # `errors="replace"`, like every other read in this module: a non-UTF-8 byte the
+                # agent wrote to a gold path used to raise out of `grade_case` and take the
+                # whole run's results with it.
+                blobs.append(p.read_text(encoding="utf-8", errors="replace"))
         if not blobs:
             # Hidden tests were injected into this workspace; scanning them would let a
             # key_line match against the specification instead of against the solution.
@@ -231,7 +422,7 @@ def _grade_gold(case: Case, workspace: Path) -> GradeResult:
         if not p.is_file():
             mismatches.append(f"missing file {gold.path}")
             continue
-        actual = p.read_text(encoding="utf-8")
+        actual = p.read_text(encoding="utf-8", errors="replace")
         expected = gold.content
         if g.match == "exact":
             if actual != expected:
@@ -353,5 +544,9 @@ def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
         passed=passed,
         mode="llm_judge",
         score=score,
-        detail=f"score={score} thr={thr} {reason}".strip(),
+        # The judge model is taken from the environment and used to be recorded nowhere, so a
+        # judged result could not say what judged it — the same hole `code_version` had, on the
+        # grading side. Every other adapter resolves its model config-first; this one cannot,
+        # so naming it in the detail is the least that keeps the verdict attributable.
+        detail=f"judge={settings['model']} score={score} thr={thr} {reason}".strip(),
     )

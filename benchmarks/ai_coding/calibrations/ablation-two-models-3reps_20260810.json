@@ -15,7 +15,7 @@
    },
    "experiment_name": "two-deepseek-r1",
    "run_id": "two-deepseek-r1",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r1",
+   "run_dir": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r1",
    "algorithm_name": "Deepseek-V4-Flash",
    "agent_name": "tool_loop",
    "main_model": "Deepseek-V4-Flash-0731",
@@ -118,7 +118,7 @@
     "平均Step/Case": 46.67741935483871,
     "总模型调用次数": 766,
     "平均模型调用/Case": 24.70967741935484,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r1"
+    "结果目录": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r1"
    },
    "failure_diagnostics": {
     "failed_count": 9,
@@ -208,7 +208,7 @@
    },
    "experiment_name": "two-glm51-r1",
    "run_id": "two-glm51-r1",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-glm51-r1",
+   "run_dir": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-glm51-r1",
    "algorithm_name": "GLM-5.1",
    "agent_name": "tool_loop",
    "main_model": "GLM-5.1",
@@ -311,7 +311,7 @@
     "平均Step/Case": 41.774193548387096,
     "总模型调用次数": 809,
     "平均模型调用/Case": 26.096774193548388,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-glm51-r1"
+    "结果目录": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-glm51-r1"
    },
    "failure_diagnostics": {
     "failed_count": 7,
@@ -389,7 +389,7 @@
    },
    "experiment_name": "two-deepseek-r2",
    "run_id": "two-deepseek-r2",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r2",
+   "run_dir": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r2",
    "algorithm_name": "Deepseek-V4-Flash",
    "agent_name": "tool_loop",
    "main_model": "Deepseek-V4-Flash-0731",
@@ -492,7 +492,7 @@
     "平均Step/Case": 44.064516129032256,
     "总模型调用次数": 711,
     "平均模型调用/Case": 22.93548387096774,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r2"
+    "结果目录": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_005659_two-deepseek-r2"
    },
    "failure_diagnostics": {
     "failed_count": 5,
@@ -558,7 +558,7 @@
    },
    "experiment_name": "two-glm51-r2",
    "run_id": "two-glm51-r2",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_011924_two-glm51-r2",
+   "run_dir": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_011924_two-glm51-r2",
    "algorithm_name": "GLM-5.1",
    "agent_name": "tool_loop",
    "main_model": "GLM-5.1",
@@ -661,7 +661,7 @@
     "平均Step/Case": 42.25806451612903,
     "总模型调用次数": 832,
     "平均模型调用/Case": 26.838709677419356,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_011924_two-glm51-r2"
+    "结果目录": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_011924_two-glm51-r2"
    },
    "failure_diagnostics": {
     "failed_count": 11,
@@ -767,7 +767,7 @@
    },
    "experiment_name": "two-deepseek-r3",
    "run_id": "two-deepseek-r3",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_012345_two-deepseek-r3",
+   "run_dir": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_012345_two-deepseek-r3",
    "algorithm_name": "Deepseek-V4-Flash",
    "agent_name": "tool_loop",
    "main_model": "Deepseek-V4-Flash-0731",
@@ -870,7 +870,7 @@
     "平均Step/Case": 45.806451612903224,
     "总模型调用次数": 739,
     "平均模型调用/Case": 23.838709677419356,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_012345_two-deepseek-r3"
+    "结果目录": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_012345_two-deepseek-r3"
    },
    "failure_diagnostics": {
     "failed_count": 4,
@@ -930,7 +930,7 @@
    },
    "experiment_name": "two-glm51-r3",
    "run_id": "two-glm51-r3",
-   "run_dir": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_014129_two-glm51-r3",
+   "run_dir": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_014129_two-glm51-r3",
    "algorithm_name": "GLM-5.1",
    "agent_name": "tool_loop",
    "main_model": "GLM-5.1",
@@ -1033,7 +1033,7 @@
     "平均Step/Case": 44.096774193548384,
     "总模型调用次数": 884,
     "平均模型调用/Case": 28.516129032258064,
-    "结果目录": "/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/ablation_20260810_005658/AI-Coding-Assist__20260810_014129_two-glm51-r3"
+    "结果目录": "runs/ablation_20260810_005658/AI-Coding-Assist__20260810_014129_two-glm51-r3"
    },
    "failure_diagnostics": {
     "failed_count": 7,

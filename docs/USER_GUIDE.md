@@ -1,6 +1,6 @@
 # AI-Coding-Assist Benchmark — 用户使用手册
 
-> **⚠️ 本文内容早于 2026-08-10 的主线转向**，描述的是已被否决的「正向生成」路线，且未提及 `bare_model` 适配器。当前状态以 [`docs/HANDOFF.md`](HANDOFF.md) §0 为准，操作步骤以 [用户手册 manual.html](html/manual.html) 为准。
+> **⚠️ 本文内容早于 2026-08-10 的主线转向**，描述的是已被否决的「正向生成」路线，且未提及 `bare_model` 适配器。当前状态以 [`docs/HANDOFF.md`](HANDOFF.md) **§0.-1**（最新的一块；§0 记的是 2026-08-10 的状态，且指向一个已删除的用例集）为准，操作步骤以 [用户手册 manual.html](html/manual.html) 为准。
 > 文档站首页：[docs/html/index.html](html/index.html)
 
 面向：从真实会话构建候选测评集、一键跑测、Agent/模型消融，并产出对齐 Agentic Scaling 结果表的报告。
@@ -48,7 +48,7 @@ MySQL llm_chat_records（或 JSON 导出）
 
 ```bash
 cd agent-scaling-benchmark
-uv sync --extra dev
+uv sync --extra dev --extra grading
 cp .env.example .env   # 按需填写
 ./scripts/install-hooks.sh   # 提交前 ruff format + import + lint
 ```
@@ -67,7 +67,7 @@ set -a && source .env && set +a
 | LLM 生成 case / 真 Agent 跑测 | `OPENAI_API_KEY` + `OPENAI_BASE_URL`（建议再设 `OPENAI_MODEL`） |
 | 离线 dry-run | 可不填 |
 
-完整变量表见 [REFERENCE §6](html/reference.html)（Markdown 源见 `REFERENCE.md`）。
+完整变量表见 [`REFERENCE.md` §6 环境变量完整参考](REFERENCE.md#6-环境变量完整参考)。
 
 **不要把 `.env` 提交到 git。**
 
@@ -95,7 +95,9 @@ set -a && source .env && set +a
 
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
@@ -104,7 +106,7 @@ uv run python -m aibench filter-drafts \
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 
 uv run python -m aibench validate-cases --case-set auto-v0
 ```
@@ -160,7 +162,7 @@ uv run python -m aibench ablation \
 | 包外部 CLI | `configs/agents/shell.yaml`（填 `command_template`） |
 | 单测 / dry-run mock | **仅** `tests/fixtures/configs/` |
 
-说明见 [用户手册 manual.html](html/manual.html) 与 [REFERENCE §7](html/reference.html)。
+说明见 [用户手册 manual.html](html/manual.html) 与 [`REFERENCE.md` §7 生产配置体系](REFERENCE.md#7-生产配置体系-configs)。
 
 ---
 
@@ -186,7 +188,7 @@ uv run python -m aibench ablation \
 | `scripts/e2e_pipeline.sh` | DB→case→消融；`--dry-run` 仅 fixture |
 
 **完整参数清单（每个 flag 的默认值与作用）**：  
-[REFERENCE HTML](html/reference.html) · 演示页 [§七](html/overview.html#modules)。
+[`docs/REFERENCE.md` §8 CLI 命令完整参考](REFERENCE.md#8-cli-命令完整参考参数清单--作用)；模块背景见演示页 [§五 关键模块技术细节](html/overview.html#modules)。
 
 ---
 
@@ -217,14 +219,14 @@ uv run python -m aibench ablation \
 | 查失败原因 | `report.md` + `cases/<id>/result.json` |
 | 复现 | `run_manifest.json` 中的 fingerprint 与配置路径 |
 
-字段与设计表的对应关系见 [REFERENCE HTML](html/reference.html) §16–18。
+字段与设计表的对应关系见 [`REFERENCE.md` §16 运行产物与结果表映射](REFERENCE.md#16-运行产物与结果表映射)（至 §18）。
 
 ---
 
 ## 8. 科学效度与并行（实用）
 
 **科学效度** = 可自动执行的 case 质量门禁（实现于 `validity.py`），保证指标差异尽量来自 Agent/模型，而非坏题/答案泄漏。  
-完整门禁列表与算法逻辑见 [REFERENCE HTML](html/reference.html) §14 与演示页 [§八](html/overview.html#ablation)。
+完整门禁列表与算法逻辑见 [`REFERENCE.md` §14 科学效度](REFERENCE.md#14-科学效度scientific-validity定义门禁与逻辑)；设计论证见 [参考资料 HTML](html/reference.html) 的「效度门禁」一节，演示页见 [§八](html/overview.html#ablation)。
 
 | 级别 | 门禁示例 | 是否阻断 `validity_ok` |
 |------|----------|------------------------|
@@ -272,35 +274,44 @@ uv run python -m aibench ablation --matrix ... --parallel 2
 
 ## 10. 文档索引
 
+四行标签修正于 2026-08-17：`reference.html` 不是参数级参考手册（那是
+`docs/REFERENCE.md`），`manual.html` 不讲生产配置（那是 `configs/README.md`），
+`reference.html` 也不是结果表设计报告或字段字典 —— 后者没有替代页，随旧站一起删除了。
+
 | 文档 | 说明 |
 |------|------|
-| [docs/html/index.html](html/index.html) | **文档站首页（HTML 归档）** |
-| [reference.html](html/reference.html) | 参数级权威参考手册 |
-| [项目介绍 overview.html](html/overview.html) | 项目介绍演示页 |
+| [docs/html/index.html](html/index.html) | 文档站首页（四页 HTML） |
+| [参考手册 docs/REFERENCE.md](REFERENCE.md) | **参数级权威参考**：CLI 全参数、配置字段、Schema、产物映射 |
+| [参考资料 reference.html](html/reference.html) | 设计论证、数据格式、门禁规则、已发布校准数据清单 |
+| [项目介绍 overview.html](html/overview.html) | 背景、流水线架构、反向构造原理、实测分布 |
 | [用户手册 manual.html](html/manual.html) | 本向导的 HTML 展示 |
-| [用户手册 manual.html](html/manual.html) | 生产配置 |
-| [参考资料 reference.html](html/reference.html) | 结果表设计报告 |
-| [参考资料 reference.html](html/reference.html) | 字段字典 |
-| [未尽事项 REMAINING_WORK.md](REMAINING_WORK.md) | 未尽事项 |
+| [生产配置 configs/README.md](../configs/README.md) | Agent / 模型 / Run / 消融矩阵的配置说明 |
+| [已发布校准数据](../benchmarks/ai_coding/calibrations/README.md) | 13 份 JSON（其中 10 份是校准、2 份消融、1 份 bare-model）的口径与复算方法 |
+| [未尽事项 REMAINING_WORK.md](REMAINING_WORK.md) | 已知缺口（内容截至 2026-08-04） |
+| [审计 AUDIT-2026-08-17.md](AUDIT-2026-08-17.md) | 可复现性缺口与已发布数字的核验 |
+
+> 字段字典（旧 `tables.html`）**没有替代页**。它随旧站一起删除，内容未迁移。
 
 ---
 
 ## 11. 命令速查
 
 ```bash
-uv sync --extra dev && set -a && source .env && set +a
+uv sync --extra dev --extra grading && set -a && source .env && set +a
 
 # 生成用例
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-kept
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 uv run python -m aibench validate-cases --case-set auto-v0
 
 # 跑测 / 消融

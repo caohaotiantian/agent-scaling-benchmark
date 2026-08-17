@@ -1,5 +1,12 @@
 # AI-Coding-Assist Benchmark — 项目参考手册（Reference）
 
+> **`runs/` 下的路径是本地产物，未随仓库分发。** `/runs/` 在 `.gitignore` 里，
+> `git ls-files runs` 返回 0 —— 本文引用的每一个 `runs/<name>_<timestamp>/` 目录，
+> 在一个 clone 里都**不存在**。它们是原始机器上的证据指针，不是读者可以打开的路径。
+> 需要其中的数字，请看 `benchmarks/ai_coding/calibrations/`（已入库），
+> 或向 `CODEOWNERS` 里的所有者索取。
+
+
 > **注意**：[`docs/html/reference.html`](html/reference.html) 是**另一份文档**，不是本文的展示版。
 > 本文讲 CLI 与配置的参数级细节；那边讲设计论证、数据格式与门禁规则。  
 > 文档站首页：[docs/html/index.html](html/index.html) · 项目介绍：[项目介绍 overview.html](html/overview.html)
@@ -11,8 +18,8 @@
 | 入口 | `uv run python -m aibench` · 安装后 `aibench` |
 | 读者 | 使用者、评测工程师、对接 Agentic Scaling 汇报的同学 |
 | 演示页 | [`docs/html/overview.html`](html/overview.html) |
-| 结果表设计源 | [`docs/html/reference.html`](html/reference.html)、[`docs/html/reference.html`](html/reference.html)（字段字典源 `_src/tables.md`） |
-| 本文 HTML | [`docs/html/reference.html`](html/reference.html) |
+| 结果表设计源 | [`docs/html/reference.html`](html/reference.html)；字段字典源 `docs/html/_src/tables.md`（未渲染成页面） |
+| 本文 HTML | 无。`docs/html/reference.html` 是另写的一页，不是本文的渲染结果 |
 
 本文是 **可执行系统** 的权威参考：概念、架构、Case 协议、配置、CLI、脚本、产物、设计表映射、操作规程与故障排查。  
 快速上手见 [用户手册 HTML](html/manual.html)（由 `docs/html/_src/manual.html` 手写构建，与 `USER_GUIDE.md` 无关）；设计决策见 `docs/design/*`。运行时以 `aibench <cmd> -h` 与仓库现行 `configs/` 为准。  
@@ -128,7 +135,7 @@ Agentic Scaling 需要在统一 Benchmark 协议下比较不同 **算法 / Agent
 | 包 / 路径 | 职责 |
 |-----------|------|
 | `src/aibench/extract/` | 抽库、规则筛选、LLM 软过滤、生成、snapshot 骨架 |
-| `src/aibench/agents/` | `mock` / `openai_compat` / `tool_loop` / `shell` |
+| `src/aibench/agents/` | `mock` / `openai_compat` / `tool_loop` / `shell` / `bare_model` / `opencode`（六个，§12 逐个讲）|
 | `src/aibench/runner.py` | 单次 run、case 并行、manifest |
 | `src/aibench/grading.py` | script / gold / llm_judge / composite |
 | `src/aibench/workspace.py` | workspace 物化（inline/snapshot/git/mixed） |
@@ -154,7 +161,9 @@ set -a && source .env && set +a
 
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
@@ -165,7 +174,7 @@ uv run python -m aibench filter-drafts \
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 
 uv run python -m aibench validate-cases --case-set auto-v0
 uv run python -m aibench audit-cases --case-set auto-v0 --annotate
@@ -233,7 +242,7 @@ uv run python -m aibench promote \
 
 | 项 | 要求 |
 |----|------|
-| Python | ≥ 3.11 |
+| Python | **3.13**（`.python-version` 固定）。`pyproject.toml` 的 `requires-python` 写的是 `>=3.11`，那是**安装**下限；`aibench doctor` 要求与 `.python-version` **完全相等**，因为 `uv.lock` 在 3.12 前后解析出不同的 numpy。3.11/3.12 上依赖安装与 `pytest` 都能过，`doctor` 会红 |
 | 包管理 | 推荐 `uv` |
 | 可选 | MySQL 可达（抽库）、OpenAI 兼容 API（生成与真 Agent） |
 
@@ -241,8 +250,8 @@ uv run python -m aibench promote \
 
 ```bash
 cd agent-scaling-benchmark
-uv sync --extra dev
-./scripts/install-hooks.sh   # pre-commit: ruff format + import + lint
+uv sync --extra dev --extra grading
+./scripts/install-hooks.sh   # pre-commit: ruff format + import + lint + secrets
 cp .env.example .env         # 填写密钥与连接
 set -a && source .env && set +a
 ```
@@ -273,7 +282,9 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 | `AIBENCH_RETRY_BACKOFF_MAX` | `20.0` | 可选 | 退避上限（秒） |
 | `AIBENCH_REQUEST_TIMEOUT` | `240` | 可选 | Agent 单次 LLM 请求超时（秒），上限为该 case 的 `max_wall_time_s`。默认 120 时慢网关下实测 5–9% infra 错误 |
 | `AIBENCH_GENERATE_TIMEOUT` | `300` | 可选 | `generate-cases` 单次 LLM 请求超时（秒）；推理模型出整份 case JSON 常需 2 分钟以上 |
-| `AIBENCH_CASE_RETRY` | `2` | 可选 | case 因 **infra_error** 整 case 重跑次数 |
+| `AIBENCH_CASE_RETRY` | `2` | 可选 | case 因 **infra_error** 整 case 重跑次数。也可写进 run YAML 的 `case_retry:`（**优先**），这样它会落进 manifest —— 只走环境变量时，一次跑测重试了几次在任何产物里都看不出来 |
+| `AIBENCH_ALLOW_UNSANDBOXED` | 无 | 可选 | **Linux 上跑 opencode 必读**。沙箱靠 `sandbox-exec`，那是 macOS 独有的；没有它，被测 agent 能读到本 case 自己的答案。默认拒跑并把每条 case 记成 `infra_error`。设为 `1` 表示知情照跑，产物里会记 `sandboxed=false`；或在 agent 配置里写 `options.sandbox: false`（同样是一次有记录的选择） |
+| `AIBENCH_CASE_ROOT` | `benchmarks/ai_coding/cases` | 可选 | 生成用例集的根目录。指向别处即视为「刻意隔离」，`seed-v0` 这类与 fixture 同名的集合不再报冲突 |
 | `AIBENCH_USD_PER_MTOK` | 无 | 可选 | 统一 $/百万 tokens 估算成本 |
 | `AIBENCH_USD_PER_MTOK_INPUT` | `0.5` | 可选 | 分项时 input 单价 |
 | `AIBENCH_USD_PER_MTOK_OUTPUT` | `1.5` | 可选 | 分项时 output 单价；未设 blended 时用 (in+out)/2 |
@@ -288,17 +299,51 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 
 ### 7.1 布局
 
+`configs/` 下**全部 40 个 YAML**，由目录列表生成（此前这张表只列了 9 个）。写过 39 两次：第一次漏 `grading-env.yaml`，第二次改了数字没补行。
+说明取自每个文件的第一行注释。
+
 | 路径 | 用途 |
 |------|------|
-| `agents/openai_compat.yaml` | 单轮 JSON 写文件（默认生产 Agent） |
-| `agents/tool_loop.yaml` | 多步 list/read/write/bash/submit |
-| `agents/shell.yaml` | 外部 CLI 包装；须配置 `command_template` |
-| `models/glm52.yaml` | 默认 `GLM-5.2`；URL/key 来自环境 |
-| `models/glm51.yaml` | 可选对照 |
-| `models/qwen37.yaml` | 可选对照 |
-| `runs/baseline.yaml` | 单次：openai_compat + glm52，`case_workers: 4` |
-| `runs/baseline-tool-loop.yaml` | 单次：tool_loop + glm52，`case_workers: 2` |
-| `runs/ablation-matrix.yaml` | 消融：openai_compat vs tool_loop |
+| `grading-env.yaml` | What the grading environment provides beyond each runtime's standard library. |
+| `agents/bare_model.yaml` | The model with no scaffold between it and the grader. |
+| `agents/bare_model_choice.yaml` | The same adapter as `bare_model.yaml`, pointed at a judgement instead of a repair. |
+| `agents/bare_model_review.yaml` | The same adapter as `bare_model.yaml`, pointed at a judgement instead of a repair. |
+| `agents/openai_compat.yaml` | Production: single-turn OpenAI-compatible coding agent |
+| `agents/opencode-s1.yaml` | Anchor panel rung: opencode with a step budget of 1. |
+| `agents/opencode-s10.yaml` | Anchor panel rung: opencode with a step budget of 10. |
+| `agents/opencode-s3.yaml` | Anchor panel rung: opencode with a step budget of 3. |
+| `agents/opencode-s40.yaml` | Anchor panel rung: opencode with a step budget of 40. |
+| `agents/opencode.yaml` | Production: a real coding agent (opencode), driven as a subprocess. |
+| `agents/shell.yaml` | Production template: wrap an external coding CLI (e.g. mini-swe-agent / opencode) |
+| `agents/tool_loop.yaml` | Production: multi-step tool-loop agent |
+| `agents/tool_loop_frugal.yaml` | Deliberately weakened multi-step agent: the floor anchor for retrieval tiers. |
+| `models/deepseek-v4-flash.yaml` | Model slot for the model-only ablation. Same gateway, same credential. |
+| `models/glm5.yaml` | Model slot for the model-only ablation. Same gateway, same credential. |
+| `models/glm51.yaml` | Optional second model for multi-model ablation (same gateway) |
+| `models/glm52-sampling.yaml` | GLM-5.2 with stochastic sampling, for pass@k / repeated-sampling experiments. |
+| `models/glm52.yaml` | Production model: GLM-5.2 via OpenAI-compatible endpoint |
+| `models/qwen37.yaml` | Optional model slot for multi-model ablation (set OPENAI_MODEL or change model:) |
+| `runs/ablation-bare-models.yaml` | Model comparison with no scaffold, three repeats each. |
+| `runs/ablation-choice.yaml` | Forced choice between two human-written patches, over `_choice2`. |
+| `runs/ablation-hidden-discrimination.yaml` | Does the hidden-test dose buy DISCRIMINATION, or only difficulty? |
+| `runs/ablation-hidden-dose.yaml` | Does withholding the grading signal move a real coding agent off the ceiling? |
+| `runs/ablation-matrix.yaml` | Production ablation: real agents × models on session-derived auto-v0 |
+| `runs/ablation-models-toolloop.yaml` | Model-only ablation, tool-loop scaffold. |
+| `runs/ablation-models.yaml` | Model-only ablation: can this case set tell five models apart? |
+| `runs/ablation-opencode-models.yaml` | Model comparison inside a real coding agent, three repeats each. |
+| `runs/ablation-resolution-probe.yaml` | Does this case set have any resolution at all, or are the models simply equal? |
+| `runs/ablation-review.yaml` | Patch review over `_review30`, against the widest capability gap the gateway offers. |
+| `runs/ablation-two-models.yaml` | Two-model discrimination, repeated three times each. |
+| `runs/ablation-widest-gap.yaml` | The widest capability gap the gateway offers, with no scaffold, three repeats each. |
+| `runs/anchor-panel-opencode.yaml` | Calibration anchor panel that varies only the step budget. |
+| `runs/anchor-panel-retrieval.yaml` | Anchor panel for retrieval tiers (T4+). |
+| `runs/anchor-panel.yaml` | Calibration anchor panel: the reference points a case's difficulty is measured against. |
+| `runs/baseline-bare.yaml` | Production single-run defaults for the bare-model adapter. |
+| `runs/baseline-opencode.yaml` | Production single-run defaults for the opencode adapter. |
+| `runs/baseline-tool-loop-frugal.yaml` | Floor anchor for retrieval calibration: multi-step, but a tight step budget and no shell. |
+| `runs/baseline-tool-loop.yaml` | Production run: multi-step tool_loop agent + GLM-5.2 |
+| `runs/baseline.yaml` | Production single-run defaults (no mock) |
+| `runs/passk.yaml` | Repeated-sampling run: the budget axis is attempts, not steps. |
 
 ### 7.2 模型 YAML 字段
 
@@ -332,7 +377,7 @@ extra: {}
 |------|------|------|
 | `name` | string | 写入结果表的 Agent 名称 |
 | `version` | string | Agent 版本字符串 |
-| `adapter` | string | 注册表键：`openai_compat` / `tool_loop` / `shell` / `mock` |
+| `adapter` | string | 注册表键：`openai_compat` / `tool_loop` / `shell` / `mock` / `bare_model` / `opencode` |
 | `description` | string | 可选说明 |
 | `options` | object | 适配器专有选项（见 §12） |
 
@@ -493,7 +538,10 @@ runs:
 |------|------|------|----------|
 | `--input-dir` | Path | 必填 | 草稿目录 |
 | `--output-dir` | Path | 必填 | 输出 case 目录（目录名即后续 case-set 名） |
-| `--heuristic-only` | flag | 关 | 不调 LLM，仅 `heuristic_case_from_draft` |
+| `--reverse` | flag | 关 | **主线开关。** 用反向构造：缺陷取自 trace 里真实的一次编辑（`stub = pre`、`gold = post`），模型只写测试和症状式 prompt。不加此参数走的是**正向生成**——让模型自己编题——那条路线已被三次干预实验判定失效（README §「已被否决的路线」），代码保留只为回归对照 |
+| `--resume` | flag | 关 | 续跑：读 `_journal.jsonl`，跳过已写出的草稿。**长跑必带**——不带则中断后重跑会为同一批草稿二次付费 |
+| `--no-deduplicate` | flag | 关 | 关掉按 `solution_key`（stub + 参考解的哈希）去重。默认开：`_rev2026` 的 134 条实测只有 66 组不同的 (pre, post)，51% 冗余，而重复会同时虚增 n 和让配对结果相关 |
+| `--heuristic-only` | flag | 关 | 不调 LLM，仅 `heuristic_case_from_draft`。产物的 `metadata.generator.model` 记 `heuristic`，不记网关模型名 |
 | `--max-cases` | int | `50` | 成功**写出**的最大条数 |
 | `--oversample` | float | `1.5` | 每想要 1 条用例尝试多少条草稿。约 1/4 草稿会在下游被跳过（无参考解等），故需超采样；**每多一条草稿就是一次付费生成**。开跑前会打印「本次将从 N 条草稿生成」。<br>⚠️ 此前该系数写死为 `3` 且不可见：`--max-cases 600` 配 810 条草稿，会为**全部 810 次**生成付费而只写 600 条 |
 | `--filter` | flag | 关 | 生成前再跑 `rule_filter_draft`，不 keep 则跳过 |
@@ -529,7 +577,7 @@ runs:
 | `--export-csv` | flag | 关 | 写 `ablation_overview.csv` |
 | `--export-xlsx` | flag | 关 | 写 xlsx（依赖 openpyxl） |
 
-### 8.8.1 `export-bundle` — 导出可共享用例包（仓库之外）
+### 8.9 `export-bundle` — 导出可共享用例包（仓库之外）
 
 用例**不入库**。要把用例交给别人复现，用这条路径导出到仓库之外的任意目录，再走你自己的共享渠道。
 
@@ -547,10 +595,21 @@ uv run python -m aibench export-bundle --from-set <set> \
 | `--max-verbatim` | float | `0.05` | 逐行重合率上限 |
 | `--no-require-audit` | flag | 关 | 允许导出审计未通过的用例（默认必须通过） |
 | `--dry-run` | flag | 关 | 只出清单不写文件 |
+| `--allow-production-derived` | flag | 关 | 允许导出 `metadata.generation == "reverse"` 的用例。反向路径逐字复制草稿，因此这是**交付生产衍生代码**的决定，不是格式问题 |
+| `--allow-secrets` | flag | 关 | 允许导出 secrets 扫描报警的用例。2026-08-17 新增：五道门里唯有它此前没有任何出口，而同一道门在 `promote` 一直有 `--allow-secrets` —— 结果是愿意交付的人交出了一个更小、成分不同的集合，而所有已发布的 N 都是按另一个集合算的。用了会记进 `MANIFEST` |
+| `--allow-review-choice` | flag | 关 | 允许导出 `metadata.generation == "review-choice"` 的用例。不加则 `_choice2` 的 167 条全部以 `provenance` 被拒 |
 
 **五道门禁，全部机器判定，任一不过即排除**：schema、`metadata.validity_ok`、secrets 扫描干净、
-`metadata.generation == "llm"`（来源）、逐行重合 ≤ 阈值。**没有 `--force`** ——
-一个能一键绕过来源门禁的开关，迟早会在赶时间时被用掉，而那正是它要防的事。
+来源（`metadata.generation`）、逐行重合 ≤ 阈值。
+
+**没有一键 `--force`**，但**不等于没有出口**。每道门各有各的开关，都默认关、都写进 `MANIFEST`：
+`--no-require-audit`（审计）、`--allow-secrets`（密钥）、`--allow-production-derived` 与
+`--allow-review-choice`（来源）、`--max-verbatim`（重合）。这样设计是因为一个能一键放行全部门禁的
+开关迟早会在赶时间时被用掉，而**逐门开关**要求使用者说清楚放行的是哪一样、并留下痕迹。
+
+来源门放行的是 `llm` 与 `reverse`（后者需 `--allow-production-derived`），加
+`--allow-review-choice` 后再 admit `review-choice`；本文此前写的
+「`metadata.generation == "llm"`」只是其中一种。
 
 **为什么来源必须机器判**（实测 `_scaleprobe` 575 条 vs 其草稿）：
 
@@ -567,7 +626,7 @@ uv run python -m aibench export-bundle --from-set <set> \
 产物含 `MANIFEST.json`：各门禁的通过/拒绝计数、**每条被拒用例的 id 与原因**、所用阈值、
 tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程，不必选择相信我们（§5.1）。
 
-### 8.9 `promote` — 人工门控发布
+### 8.10 `promote` — 人工门控发布
 
 **作用**：把候选集中**通过门控**的 case 复制到正式集（如 `prod-v0`），并改 `review_status=published`。
 
@@ -584,7 +643,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 **门控顺序（每条 case）**：schema → script 模式（可关）→ 非 weak_grader → secrets（可关）→ 可选 validity audit → 写盘并复制 snapshots。
 
-### 8.10 `audit-cases` — 科学效度审计
+### 8.11 `audit-cases` — 科学效度审计
 
 **作用**：对 case set 跑 §14 全部门禁，输出汇总；可选回写 metadata。
 
@@ -598,7 +657,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 报告含 `tier_distribution`；每条 case 的 `checks` 含 `stub_fail`、`reference_solution`、`tier`。
 
-### 8.9.1 `compose-cases` — 合成 T4 检索用例
+### 8.12 `compose-cases` — 合成 T4 检索用例
 
 **作用**：把已验证用例的实现文件植入另一条已验证用例作为干扰文件，凑齐 T4 的广度要求。
 
@@ -617,7 +676,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 捐赠者按固定顺序轮转而非随机：集合内容每次都变的话，就无法和之前的校准结果对比。
 
-### 8.10.1 `calibrate-cases` — 经验校准（区分度实测）
+### 8.13 `calibrate-cases` — 经验校准（区分度实测）
 
 **作用**：用锚点面板跑 `anchors × repeats` 次，按 case 统计 `p_hat` / `spread` /
 `point_biserial` / `flaky`，给出 keep/drop 判定。见 §13.5.5。
@@ -638,7 +697,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 产物：`calibration.json` + `calibration_report.md`。**成本 = 锚点数 × repeats 次全量跑测**，
 按需预算。`kept_count==0` 时 exit 1。
 
-### 8.10.2 `select-cases` — 按区分度选题
+### 8.14 `select-cases` — 按区分度选题
 
 **作用**：把校准保留的 case 复制成新集合，按 `spread`、`point_biserial` 降序。
 
@@ -654,7 +713,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 写入时把 `metadata.calibration`（`p_hat` / `spread` / `point_biserial` / `attempts`）落到 case 上。
 
-### 8.11 `secrets-scan`
+### 8.15 `secrets-scan`
 
 **作用**：用正则扫描 case JSON 里**每一个字符串值**中疑似密钥。
 
@@ -690,19 +749,46 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 > **26 处命中全是误报**（README 的 `.env.example`、Rust 文档注释、测试断言）。
 > 收紧它们需要一份对抗性召回语料先落盘，否则放宽会同时漏掉真凭证 —— 单独一轮处理。
 
-### 8.12 `snapshot-skeleton`
+### 8.16 `snapshot-skeleton`
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
 | `--case-set` | str | 必填 | 将 `context.files` 落到 `snapshots/<case_id>/`，并设 `workspace.mode=mixed` |
 
-### 8.13 `export-ablation`
+### 8.17 `export-ablation`
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
 | `--ablation-dir` | Path | 必填 | 已有消融目录 |
 | `--csv` | flag | **True** | 导出 CSV |
 | `--xlsx` | flag | 关 | 导出 XLSX |
+
+### 8.18 `plan-sample-size` — 反推所需题量
+
+配对检验只从「两个配置结论不同」的 case 学到东西，所以题量由**不一致率**和效应量共同决定，
+不是拍脑袋定的。此前本节缺失 —— 一个自称参数级权威的文档漏掉了一整个子命令。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--delta` | float | **必填** | 要检出的成功率差异，单位百分点（如 `10` 表示 10pp） |
+| `--discordance` | float | 无 | 预期不一致率（%）。与 `--from-ablation` 二选一 |
+| `--from-ablation` | Path | 无 | 从既有 `ablation_summary.json` 读实测不一致率 |
+| `--alpha` | float | `0.05` | 显著性水平 |
+| `--power` | float | `0.8` | 检验效能 |
+
+```bash
+uv run python -m aibench plan-sample-size --delta 10 --discordance 20
+uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablation_<ts>/ablation_summary.json
+```
+
+### 8.19 `doctor` — 环境自检
+
+把此前只写在注释里的外部版本要求变成退出码：python、node、`configs/grading-env.yaml` 的承诺、
+`opencode` 版本、沙箱可用性。任一不满足退出 1。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--json` | flag | 关 | 机器可读输出 |
 
 ---
 
@@ -733,6 +819,13 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 | `--matrix` | `configs/runs/ablation-matrix.yaml` | 消融矩阵 |
 | `--output-root` | `runs/` | 输出根 |
 | `--workers` | 空 | 传给 `generate-cases --workers` |
+| `--strict-audit` | 关 | 任一用例未过错误级门禁即中止。默认只写回 `validity_ok`，由 `ablation` 排除这些用例 |
+| `--forward` | 关 | 用正向生成（模型自己编缺陷）替代默认的反向构造。**不是可选方案**：三次干预实验判定正向路线无效，保留它只为让那个否定结论可复现 |
+| `--tier` | 空 | 强制每条草稿的目标层级 |
+| `--min-tier` | 空 | 丢弃定级低于此的生成结果 |
+| `--calibrate` | 关 | 跑 `calibrate-cases` + `select-cases` 再消融所选集合 |
+| `--repeats` | `3` | 每锚点重复次数 |
+| `--anchors` | `configs/runs/anchor-panel.yaml` | 锚点面板 |
 
 真链路目录约定：
 
@@ -748,8 +841,13 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 
 | 脚本 | 作用 |
 |------|------|
-| `scripts/lint.sh` | ruff format + check --fix |
-| `scripts/install-hooks.sh` | 安装 pre-commit |
+| `scripts/lint.sh` | ruff `check --fix` + `format`。**这是修复工具，不是门禁** —— 它改写源码后再验证自己的输出，所以格式回归永远不会让它失败。门禁用 `ruff format --check` + `ruff check` |
+| `scripts/install-hooks.sh` | 安装 pre-commit（ruff + 暂存文件的 secrets 扫描） |
+| `scripts/check_doc_links.py` | 断链、失效标签、以及未声明为本地产物的 `runs/` 引用 |
+| `scripts/build_docs_html.py` | 从 `docs/html/_src/*.html` 重建四页文档站 |
+| `scripts/instrument_check.py` | 仪器自检。跳过的检查会列出并以 2 退出（INCOMPLETE），不再打印 PASS |
+| `scripts/run_cost_report.py` | 汇总 `runs/` 下的 token / 调用次数 / agent 墙钟，并写明计价口径 |
+| `scripts/discrimination_diagnostic.py` | 从既有消融读出「为什么这些用例谁都做不出」 |
 
 ---
 
@@ -870,10 +968,17 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 
 退出码 0 视为 agent 完成；修改须落在 `{workspace}` 下。
 
-**不要用它接 opencode**，尽管 `shell.yaml` 的注释里有这么一行示例。它 `usage` 恒为 0
-（成本轴的 `token_amplification` 因此无意义）、把工作区里**每个**文件都算作 written
-（`empty_patch` 因此恒 false）、且 `(proc.stdout or "")[-2000]` 是单字符索引而非切片
-（与 §12.4 开头那个让 agent 轴多年未被测量的缺陷同款）。用 `opencode` 适配器。
+**不要用它接 opencode。** 该示例已于 2026-08-17 从 `shell.yaml` 删除 —— 把本节警告过的
+调用方式写成配置自带的示例，是最容易被照抄的位置。用 `configs/agents/opencode.yaml`：
+它镜像工作区、记录 `sandboxed`、固定二进制版本，并上报真实 token 用量。
+
+本适配器剩下的边界（两个已修，一个仍在）：
+
+| 项 | 状态 |
+|---|---|
+| `(proc.stdout or "")[-2000]` 是单字符索引而非切片 | **已修**（2026-08-17）。它让任何输出不足 2000 字节的成功运行抛 `IndexError`，也就是这个适配器从来没有跑通过一次 —— 它此前没有任何测试 |
+| 把工作区里**每个**文件都算作 written，`empty_patch` 恒 false | **已修**（2026-08-17）。现在比对运行前后的内容哈希，只报真正改动过的文件 |
+| `usage` 恒为 0 | **仍在**。外部 CLI 不上报 token，本适配器也拿不到；因此成本轴的 `token_amplification` 对它无意义 |
 
 ### 12.4 `opencode` options
 
@@ -1228,6 +1333,9 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | 测试抄写源码 | `test_reads_source_text` | error | 是 | §14.3.7；测试 grep 实现的源码文本而非运行它 |
 | 隐藏测试索要不可知符号 | `hidden_test_requires_unknowable_symbol` | error | 是 | §14.3.8；隐藏了行为可以，隐藏了接口不行 |
+| 隐藏测试索要不可知**关键字参数** | `hidden_test_requires_unknowable_kwarg` | error | 是 | §14.3.8。上一条只看符号名，而 `f(x, mode="strict")` 里 `f` 可见、`mode=` 不可见 —— 同一个洞，参数那一侧。`docs/SESSION-2026-08-14.md` 与 `docs/HANDOFF.md` §0.2 曾写「本轮未修」，2026-08-17 已修 |
+| Gold 是集合控制文件 | `gold_is_collection_control_file` | error | 是 | 参考解落在 `conftest.py` / `pytest.ini` / `setup.cfg` 之类文件上——改的是判分环境，不是缺陷 |
+| 门禁没跑成 | `stub_fail_gate_unverified` / `solvability_gate_unverified` | **warn** | 否 | 这台机器判不了（缺 node、缺评分依赖）。**故意不是 error**：`audit-cases --annotate` 会把结论写死进 case 文件，把「本机跑不了」记成 `validity_ok: false` 等于替所有后来的读者污染语料 |
 | 判分文件带工具页脚 | `case_contains_tool_output_footer` | error | 是 | §14.3.9；stub 可能因加载不了而「失败」，不是因为缺陷 |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
@@ -1495,7 +1603,7 @@ JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走�
 | `retrieval-v0`（已发布） | **0** | 0 |
 | `_scaleprobe` | 14 | 5 |
 
-`retrieval-v0` 那 6 条命中页脚的文件全是 `role: distractor`，因此正确地不判负。
+`retrieval-v0` 那 6 条命中页脚的文件全是 `role: distractor`，因此正确地不判负 —— 所以上面两张表里 `retrieval-v0` 的 **0** 指的是「因页脚被判负的用例数」，不是「含页脚的文件数」。两个数都对，是两件事。
 
 匹配**行锚定** `^\(…\)$`：语料里有一个 `filesystem.py` 是 read 工具自身的实现，
 源码里就含 `result += f"\n\n(Showing lines {offset}-…)"`，子串匹配会误伤它。
@@ -1623,7 +1731,7 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 - 实验标识：`run_id`、`experiment_name`、`experiment_time`
 - **执行身份**（2026-08-11 新增，见下）：`code_version`、`harness_digest`、`dependency_digest`、
-  `python_executable`、`python_version`、`node_version`、`working_directory`、`gateway_base_url`
+  `venv_digest`、`python_version`、`node_version`、`opencode_version`、`platform`、`gateway_base_url`
 - Benchmark 口径：`benchmark_name`、`case_set`、`case_count`、`effective_case_count`、`grouping`
 - 算法配置：预算轴/值、分支、attempts、steps、选择策略
 - Agent 与模型：名称版本、主模型、组合摘要、采样参数
@@ -1640,14 +1748,20 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 | 字段 | 含义 |
 |------|------|
 | `code_version` | 运行时 `git rev-parse --short HEAD`，工作树脏时加 `-dirty`。仓库根与 `repo_root()` 不一致、或 git 不可用时为 `unknown-worktree`；无法判定干净与否时为 `<sha>-unknown-cleanliness` |
-| `harness_digest` | 决定「一次跑测意味着什么」的源码摘要：`agents/` + `grading.py` + `workspace.py` + `runner.py` + `languages.py` + `retry.py` + `models.py` + `env_config.py`。也并入 `anchor_fingerprint` |
+| `harness_digest` | 决定「一次跑测意味着什么」的源码摘要：`agents/` + `grading.py` + `workspace.py` + `runner.py` + `languages.py` + `retry.py` + `models.py` + `env_config.py` + `calibrate.py` + `stats.py`（**十项**；后两项 2026-08-17 补入 —— 它们决定一次校准意味着什么，漏掉会让 `--reuse-from` 把旧的点二列相关系数带过一次估计器变更）。也并入 `anchor_fingerprint` |
 | `dependency_digest` | `uv.lock` 的哈希，依赖变动可见 |
-| `python_executable` / `python_version` / `node_version` | 实际解释器与运行时 |
-| `working_directory` | 进程 cwd |
+| `python_version` / `node_version` / `opencode_version` | 实际运行时版本。`opencode_version` 记录脚手架本身——不同版本是不同的仪器 |
+| `venv_digest` | 解释器所在虚拟环境的内容哈希，取代了原来的 `python_executable`：回答「是不是同一套依赖」而不写出本机路径 |
+| `platform` | 操作系统与架构。macOS 有 `sandbox-exec`，Linux 没有，两边量的不是同一个边界 |
 | `gateway_base_url` | 环境里解析到的网关地址。**API key 从不进入产物**，有测试锁住 |
+| `grading_env_digest` | `configs/grading-env.yaml` 与它承诺的每个包的**已安装版本**的哈希。两次跑测因为一边 numpy 2.1、一边 2.3 而结论不同时，此前没有任何产物说得出来 |
+| `grading_env_unsatisfied` | 该清单里本机导入不了的名字。非空意味着导入这些包的用例会在判分时失败，读起来像难度 |
+| `case_retry` | 单条 case 因 `infra_error` 整体重跑的次数（run YAML 的 `case_retry` 优先于 `AIBENCH_CASE_RETRY`）|
+| `expected_case_set_fingerprint` | run 配置声明它应当测的语料指纹；与实测不符即拒跑。`.` 开头的派生子集跳过该比较 |
 
-> `python_executable` 与 `working_directory` 含本机路径（可能带账号名）。`runs/` 已 gitignore
-> 且没有 manifest 入库，`export-bundle` 也不携带 manifest —— 但**手工分享整个 run 目录会带出去**。
+> 2026-08-17 起 manifest 里**不再有本机路径**：`python_executable` 与 `working_directory` 已由
+> `venv_digest` 与 `platform` 取代。历史 manifest 仍带 —— `runs/` 已 gitignore 且没有 manifest
+> 入库，`export-bundle` 也不携带 manifest，但**手工分享一个旧 run 目录仍会带出去**。
 
 **无数据源的列**（Fusion 时间拆解、投机 Oracle 等）保持 `null`，不编造。
 
@@ -1671,12 +1785,17 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 ### 17.2 当前生产矩阵
 
-`configs/runs/ablation-matrix.yaml`：
+`configs/runs/ablation-matrix.yaml` 有**四行**，每行只动一个轴：
 
-1. `openai_compat` + `GLM-5.2`（基线实验名 `openai-compat-glm52`）
-2. `tool_loop` + `GLM-5.2`
+| `experiment_name` | 相对基线动了什么 |
+|---|---|
+| `openai-compat-glm52` | **基线** |
+| `openai-compat-glm51` | 模型轴：GLM-5.2 → GLM-5.1 |
+| `tool-loop-glm52` | 适配器轴：`openai_compat` → `tool_loop` |
+| `passk-glm52` | 采样轴：attempts 1 → k |
 
-可选第二模型行已在 YAML 中注释，可按网关能力解开。
+四行产生**三组**成对比较（`compare_runs_pairwise` 跳过基线自身）。
+本节此前只写了前两行，并说「可选第二模型行已在 YAML 中注释」——那两行没有被注释掉。
 
 ### 17.3 默认行为
 
@@ -1836,21 +1955,23 @@ uv run pytest tests/ -q
 
 ```bash
 # 环境
-uv sync --extra dev
+uv sync --extra dev --extra grading
 cp .env.example .env && set -a && source .env && set +a
 ./scripts/install-hooks.sh
 
 # 仅生成用例
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-kept
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 uv run python -m aibench validate-cases --case-set auto-v0
 
 # 单次跑测

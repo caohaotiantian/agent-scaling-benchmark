@@ -52,7 +52,7 @@ def check_run_identity() -> list[str]:
         actual = ""
     if actual and str(env["code_version"]).split("-")[0] != actual:
         problems.append(f"code_version {env['code_version']!r} disagrees with git {actual!r}")
-    for field in ("harness_digest", "python_executable", "python_version"):
+    for field in ("harness_digest", "venv_digest", "python_version"):
         if not env.get(field):
             problems.append(f"{field} missing from the environment stamp")
     print(f"run identity: code_version={env['code_version']} harness={env['harness_digest']}")
@@ -60,17 +60,29 @@ def check_run_identity() -> list[str]:
 
 
 def check_panel_witnesses_the_harness() -> list[str]:
-    """Editing an adapter must move the panel fingerprint."""
+    """Editing an adapter must move the panel fingerprint.
+
+    The probe edits a *copy*. Writing into `src/aibench/agents/openai_compat.py` and restoring
+    it afterwards works right up until the process is interrupted between the two writes, and
+    this script is documented as a thing to run by hand — so the failure mode was a corrupted
+    working tree on Ctrl-C, in the one file a run's identity is computed from.
+    """
+    import shutil
+    import tempfile
+
     anchors, _ = load_anchor_panel(repo_root() / "configs/runs/anchor-panel.yaml")
     before = anchor_fingerprint(anchors)
-    adapter = repo_root() / "src/aibench/agents/openai_compat.py"
-    original = adapter.read_bytes()
+
+    tmp = Path(tempfile.mkdtemp(prefix="aibench_probe_"))
     try:
-        adapter.write_bytes(original + b"\n# provenance probe\n")
+        copy = tmp / "src"
+        shutil.copytree(repo_root() / "src", copy)
+        adapter = copy / "aibench/agents/openai_compat.py"
+        adapter.write_bytes(adapter.read_bytes() + b"\n# provenance probe\n")
         harness_digest.cache_clear()
-        during = anchor_fingerprint(anchors)
+        during = anchor_fingerprint(anchors, source_root=copy)
     finally:
-        adapter.write_bytes(original)
+        shutil.rmtree(tmp, ignore_errors=True)
         harness_digest.cache_clear()
     after = anchor_fingerprint(anchors)
 
@@ -121,6 +133,10 @@ def check_noise_floor(trials: int = 4000, seed: int = 20260811) -> list[str]:
     return problems
 
 
+#: Checks that could not run. Reported separately from failures, and separately from a pass.
+_skipped: list[str] = []
+
+
 def report_keep_collapse() -> list[str]:
     """Re-judge a shipped calibration from its raw rows. Printed, never bounded.
 
@@ -131,7 +147,8 @@ def report_keep_collapse() -> list[str]:
     directory = repo_root() / REFERENCE_CALIBRATION
     stored = directory / "calibration.json"
     if not stored.is_file():
-        print(f"keep collapse: skipped, {REFERENCE_CALIBRATION} not present")
+        print(f"keep collapse: SKIPPED, {REFERENCE_CALIBRATION} not present")
+        _skipped.append(f"keep collapse ({REFERENCE_CALIBRATION} not present)")
         return []
 
     runs = []
@@ -143,7 +160,8 @@ def report_keep_collapse() -> list[str]:
         if rows:
             runs.append({"anchor": matched.group(1), "rows": rows})
     if not runs:
-        print(f"keep collapse: skipped, no result rows under {REFERENCE_CALIBRATION}")
+        print(f"keep collapse: SKIPPED, no result rows under {REFERENCE_CALIBRATION}")
+        _skipped.append(f"keep collapse (no result rows under {REFERENCE_CALIBRATION})")
         return []
 
     before = json.loads(stored.read_text(encoding="utf-8"))
@@ -178,6 +196,7 @@ def report_keep_collapse() -> list[str]:
 
 def main() -> int:
     problems: list[str] = []
+    _skipped.clear()
     for check in (
         check_run_identity,
         check_panel_witnesses_the_harness,
@@ -188,8 +207,20 @@ def main() -> int:
     print()
     for p in problems:
         print(f"  FAIL {p}")
-    print("PASS" if not problems else f"FAIL ({len(problems)} problem(s))")
-    return 0 if not problems else 1
+    for s in _skipped:
+        print(f"  SKIP {s}")
+    if problems:
+        print(f"FAIL ({len(problems)} problem(s))")
+        return 1
+    if _skipped:
+        # A check that did not run is not a check that passed. This script printed PASS in a
+        # clone while silently skipping the one assertion that needs the (gitignored) reference
+        # calibration -- demonstrated by fabricating a contradicting fixture and watching it
+        # still print PASS.
+        print(f"INCOMPLETE ({len(_skipped)} check(s) skipped; nothing failed)")
+        return 2
+    print("PASS")
+    return 0
 
 
 if __name__ == "__main__":

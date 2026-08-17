@@ -13,6 +13,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      # `node --test` below 22.18 discovers no TypeScript test file and exits 0 having run
+      # nothing, and 0 is a pass — measured, five real `.ts` cases flip from fail to pass on
+      # node 22.1. Without this step the runner's preinstalled node decided the result and the
+      # two JavaScript test classes skipped silently when it was absent.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
       # `grading` too, not just `dev`: `configs/grading-env.yaml` promises the grading
       # environment provides numpy, pandas, requests, matplotlib, flask and av, and
       # tests/test_grading_env.py holds that promise to an actual import. Installing only `dev`
@@ -20,10 +27,40 @@ jobs:
       - name: Install
         run: uv sync --extra dev --extra grading
       - name: Ruff format check
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests scripts
       - name: Ruff lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts
       - name: Unit tests
         run: uv run pytest tests/ -q
       - name: E2E dry-run
         run: ./scripts/e2e_pipeline.sh --dry-run
+      # The incident this repository is recovering from is a commit carrying a live key. The
+      # pre-commit hook catches it on the author's machine; this catches it on everyone else's.
+      - name: Secrets scan (tracked files)
+        run: git ls-files -z | xargs -0 -r uv run python -m aibench secrets-scan --files
+      # `instrument_check.py` asserts the measuring instrument itself: that a run can say which
+      # code produced it, that editing an adapter moves the panel fingerprint, and that a
+      # pure-noise case does not correlate with ability. It was on no CI, no e2e and no hook.
+      # Exit 2 is INCOMPLETE — a check skipped for want of a gitignored run directory, which is
+      # the normal state in a clone. Only exit 1 (something actually failed) is a red build.
+      - name: Instrument check
+        run: |
+          set +e
+          uv run python scripts/instrument_check.py
+          status=$?
+          set -e
+          # 0 = PASS, 2 = INCOMPLETE (a check skipped for want of a gitignored run directory).
+          # Anything else is a broken invocation — 127 for a missing `uv` used to pass silently.
+          case "$status" in
+            0|2) echo "instrument_check exited $status (0=PASS, 2=INCOMPLETE in a clone)" ;;
+            *)   echo "instrument_check exited $status — unexpected"; exit 1 ;;
+          esac
+      - name: Docs links
+        run: uv run python scripts/check_doc_links.py
+      # The site builds only from `docs/html/_src/*.html`, so a committed page can drift from
+      # its own source with nothing noticing.
+      - name: Docs site is the rebuild of its source
+        run: |
+          uv run python scripts/build_docs_html.py
+          git diff --exit-code docs/html
+          test -z "$(git status --porcelain docs/html)"

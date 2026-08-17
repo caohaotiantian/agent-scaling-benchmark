@@ -70,13 +70,13 @@
 <div class="table-wrap"><table>
 <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
 <tbody>
-<tr><td><code>case_id</code></td><td>string</td><td>唯一标识。由题面与文件名计算得出，因此内容相同的用例会得到相同标识</td></tr>
+<tr><td><code>case_id</code></td><td>string</td><td>唯一标识，由题面与实现文件名计算得出。<strong>它不是内容指纹</strong>：文件内容变了 <code>case_id</code> 不变，那是 <code>metadata.fingerprint</code> 的职责</td></tr>
 <tr><td><code>schema_version</code></td><td>string</td><td>协议版本，当前为 <code>"0.1"</code></td></tr>
 <tr><td><code>task_type</code></td><td>string</td><td>任务类型，如 <code>bugfix</code></td></tr>
 <tr><td><code>language</code></td><td>string</td><td><code>python</code> 或 <code>javascript</code>（含 TypeScript）</td></tr>
 <tr><td><code>prompt</code></td><td>string</td><td>题面。<strong>仅描述可观察症状</strong>，不提及原因、机制或被修改的函数</td></tr>
 <tr><td><code>context.files[]</code></td><td>array</td><td>工作区文件，含 <code>path</code> / <code>content</code> / <code>role</code></td></tr>
-<tr><td><code>grader.mode</code></td><td>string</td><td>评分方式，当前为 <code>script</code></td></tr>
+<tr><td><code>grader.mode</code></td><td>string</td><td>评分方式。Schema 允许 <code>script</code> / <code>gold</code> / <code>llm_judge</code> / <code>composite</code>；磁盘上 13,307 条用例里 <code>script</code> <strong>8,313</strong> 条、<code>gold</code> <strong>4,994</strong> 条（37.5%），0 条 <code>composite</code>，<code>llm_judge</code> 无人使用。本页此前写「主线只产出 <code>script</code>」——committed 的 <code>seed-v0/case_003</code> 本身就是 <code>gold</code></td></tr>
 <tr><td><code>grader.command</code></td><td>string</td><td>评分命令，如 <code>python -m pytest -q</code> 或 <code>node --test</code></td></tr>
 <tr><td><code>grader.gold_files[]</code></td><td>array</td><td>参考解。用它替换工作区文件后，测试必须全部通过</td></tr>
 <tr><td><code>grader.hidden_tests[]</code></td><td>array</td><td>隐藏测试，仅在评分时注入工作区</td></tr>
@@ -86,11 +86,20 @@
 
 <h3><code>context.files[].role</code> 取值</h3>
 
+<p>Schema 的取值就是这四个（<code>benchmarks/ai_coding/schemas/case.schema.json</code>），
+缺省为 <code>impl</code>。此前这里漏了 <code>distractor</code> —— 而 T4 检索层级正是靠它成立的。</p>
+
 <dl class="kv">
-<dt>impl</dt><dd>待修复的实现文件</dd>
+<dt>impl</dt><dd>待修复的实现文件（缺省值）</dd>
 <dt>test</dt><dd>可见测试文件</dd>
+<dt>distractor</dt><dd>干扰文件，与解无关。T4 检索用例靠它构成「在多文件中定位」的负担</dd>
 <dt>spec</dt><dd>说明性文件，不参与执行</dd>
 </dl>
+
+<p class="note"><strong>字段可缺省，不等于可以按标签筛。</strong> <code>role</code> 是可选的，
+提交到仓库里的 <code>seed-v0</code> 四条用例每个文件都没写 —— 包括
+<code>test_fizzbuzz.py</code>。任何按 <code>role</code> 判断「这是不是测试文件」的代码都必须
+同时按文件名判断，否则会把测试文件当实现文件处理。</p>
 
 <h3><code>metadata</code> 字段</h3>
 
@@ -241,20 +250,37 @@
 
 <h2 id="published">5. 已发布的校准数据</h2>
 
+<p><code>benchmarks/ai_coding/calibrations/</code> 下的 <strong>13 份</strong>文件，全部列在这里。
+此前本节只列了 7 份，缺的其中一份正是本站头条数字所依据的 <code>reverse-v2-mixed</code>。
+逐份的口径、复算方法与已知问题见该目录下的
+<a href="https://github.com/caohaotiantian/agent-scaling-benchmark/blob/main/benchmarks/ai_coding/calibrations/README.md">README</a>（仓库内路径 <code>benchmarks/ai_coding/calibrations/README.md</code>）。</p>
+
 <div class="table-wrap"><table>
-<thead><tr><th>文件</th><th>集合</th><th>面板</th><th>n</th></tr></thead>
+<thead><tr><th>文件</th><th>内容</th><th>面板</th><th>n（文件行数）</th></tr></thead>
 <tbody>
 <tr><td><code>auto-v0_3anchor_20260805.json</code></td><td>模型编题基线</td><td>三锚点，repeats=2</td><td>126</td></tr>
+<tr><td><code>disc-v0_2anchor_partial_20260805.json</code></td><td>按区分度选出的子集</td><td><strong>两</strong>锚点（进程中断，最强锚点未跑）</td><td>28</td></tr>
 <tr><td><code>retrieval-v0_3anchor_20260805.json</code></td><td>检索类用例</td><td>三锚点检索面板</td><td>27</td></tr>
-<tr><td><code>disc-v0_2anchor_partial_20260805.json</code></td><td>早期集合</td><td><strong>两锚点残缺面板</strong></td><td>28</td></tr>
 <tr><td><code>scaleprobe60_3anchor_20260807.json</code></td><td>规模探路抽样</td><td>三锚点，repeats=2</td><td>60</td></tr>
-<tr><td><code>reverse-v1_3anchor_20260808.json</code></td><td><strong>反向构造</strong></td><td>三锚点，repeats=3</td><td>31</td></tr>
-<tr><td><code>reverse-v1-keep3_3anchor_20260809.json</code></td><td>反向构造 + 隐藏测试</td><td>同上</td><td>31</td></tr>
-<tr><td><code>reverse-v1-hidden1_3anchor_20260808.json</code></td><td>反向构造 + 大量隐藏</td><td>同上</td><td>31</td></tr>
+<tr><td><code>reverse-v0_3anchor_20260807.json</code></td><td>反向构造 · 首批</td><td>三锚点，repeats=3</td><td>7</td></tr>
+<tr><td><code>reverse-v1_3anchor_20260808.json</code></td><td><strong>反向构造</strong> · 测试全可见</td><td>同上</td><td>31</td></tr>
+<tr><td><code>reverse-v1-hidden1_3anchor_20260808.json</code></td><td>反向构造 · 仅留 1 条可见</td><td>同上</td><td>31</td></tr>
+<tr><td><code>reverse-v1-hide2_3anchor_20260809.json</code></td><td>反向构造 · 全量隐藏 2 条</td><td>同上</td><td>31</td></tr>
+<tr><td><code>reverse-v1-keep3_3anchor_20260809.json</code></td><td>反向构造 · 保留 3 条可见</td><td>同上</td><td>31</td></tr>
+<tr><td><strong><code>reverse-v2-mixed_3anchor_20260809.json</code></strong></td><td><strong>最终配置 · 仅易档隐藏（本站头条数字的来源）</strong></td><td>同上</td><td>31</td></tr>
+<tr><td><code>ablation-models-toolloop_20260809.json</code></td><td>五模型消融（单次运行，已声明作废）</td><td>tool_loop</td><td>按 run 聚合，无逐例行</td></tr>
+<tr><td><code>ablation-two-models-3reps_20260810.json</code></td><td>两模型 × 3 轮重复</td><td>tool_loop</td><td>同上</td></tr>
+<tr><td><code>bare-model-two-models_20260810.json</code></td><td>裸模型 × 2 模型 × 3 轮</td><td>bare_model</td><td>逐例 <code>rows</code> 列表</td></tr>
 </tbody>
 </table></div>
 
-<p><code>disc-v0</code> 那份是进程中断后重建的，六轮只完成四轮，最强锚点从未运行。文件中的 <code>anchors_missing</code> 如实记录了这一点；<strong>它描述的是一个两锚点面板，不能与三锚点结果直接比较</strong>。</p>
+<p class="note"><strong>三份文件的用例指纹是 v3 之前的口径</strong>（<code>auto-v0</code>、
+<code>disc-v0</code>、<code>retrieval-v0</code>）：只哈希题面与文件路径，不哈希内容。
+数值仍可复算，但无法核验「这个 p_hat 是在哪份内容上测的」。</p>
+
+<p><code>disc-v0</code> 那份是进程中断后重建的，六轮只完成四轮，最强锚点从未运行。
+文件中的 <code>anchors_missing</code> 如实记录了这一点；<strong>它描述的是一个两锚点面板，
+不能与三锚点结果直接比较</strong>。</p>
 
 <h2 id="repro-env">6. 复现环境说明</h2>
 
@@ -263,8 +289,8 @@
 <div class="table-wrap"><table>
 <thead><tr><th>项</th><th>影响</th></tr></thead>
 <tbody>
-<tr><td>Node 版本</td><td>&lt; 22 无法执行 TypeScript 测试；语言规格中的发现规则按 Node 24 实测确定</td></tr>
-<tr><td>Python 第三方包</td><td>评分环境未安装 numpy、pandas 等。导入这些包的用例在生成前即被过滤</td></tr>
+<tr><td>Node 版本</td><td>下限是 <strong>22.18</strong>（<code>languages.py</code> 的 <code>MIN_NODE_VERSION</code>）。低于它 <code>node --test</code> 发现不到 TypeScript 测试文件却退出 0 —— 那是对着缺陷桩报「通过」，实测 5 条 <code>.ts</code> 用例因此翻转。语言规格中的发现规则按 Node 24 实测确定。本页此前写「&lt; 22」，比真实下限低</td></tr>
+<tr><td>Python 第三方包</td><td><strong>评分环境提供 14 个第三方包</strong>，由 <code>configs/grading-env.yaml</code> 声明（该文件是唯一权威，本页只是抄录）；导入这 14 个之外的第三方包的用例才会在生成前被过滤。两类来源不同，混为一谈会算错「卸掉 extra 会怎样」：<br>① <strong><code>grading</code> extra 装的 6 个</strong>：numpy、pandas、requests、matplotlib、flask、av —— 安装命令必须是 <code>uv sync --extra dev --extra grading</code>，<code>uv sync --extra dev</code> 会把<em>这 6 个</em>卸掉。<br>② <strong>aibench 自身运行时依赖顺带带来的 8 个</strong>：httpx、jsonschema、openpyxl、pymysql、pytest、rich、sqlalchemy、yaml —— 它们在场是因为判分进程和 harness 共用同一个解释器，不是设计如此。哪天判分被隔离出去，这 8 个要重新确认。<br>（本页此前只列了前六个，并把 14 个都说成 extra 装的；更早写的是「未安装 numpy、pandas 等」，与该清单正好相反。照那句读会得出「<code>grading</code> extra 没必要」的结论，并误判哪些草稿能过 import 门。）</td></tr>
 <tr><td>网络</td><td><strong>未隔离。</strong>评分命令以 <code>subprocess.run(shell=True)</code> 在宿主机执行，继承环境，无沙箱、无网络限制；<code>allow_network</code> 参数只控制要不要 git clone 来物化工作区，与测试运行时无关。也没有任何审计会因为测试联网而拒绝用例——相反，联网测试被<em>刻意</em>排除在 <code>test_reads_source_text</code> 的误伤之外。Docker/gVisor 隔离未做，是目前最大的安全缺口</td></tr>
 </tbody>
 </table></div>

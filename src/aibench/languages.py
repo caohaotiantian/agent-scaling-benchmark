@@ -12,7 +12,9 @@ time — on every configuration equally, which reads as a hard case rather than 
 
 from __future__ import annotations
 
+import functools
 import re
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -231,6 +233,54 @@ JAVASCRIPT = LanguageSpec(
 )
 
 LANGUAGES: tuple[LanguageSpec, ...] = (PYTHON, JAVASCRIPT)
+
+#: The real floor for `node --test`, not the documented one.
+#:
+#: Below 22.18 `node --test` does not discover TypeScript test files and exits 0 having run
+#: nothing — and an exit code of 0 is a pass. Probed across node 22.1 / 22.23.1 / 24.16.0
+#: against the five real `.ts` cases in `_clean2026` (`rev-bd78b451615c2a39`,
+#: `rev-0f878818dfebd4f3`, `rev-7ef5353e673af1af`, `rev-738db5f8753b49f2`,
+#: `rev-298ab8b9d9d05d08`, all `grader.command: node --test`): on 22.1 **all five grade
+#: `passed=True` on the defective stub**; on 24.16.0 all five fail, correctly. The documented
+#: floor of "≥ 22" is therefore not merely imprecise — it inverts the result.
+MIN_NODE_VERSION = (22, 18)
+
+
+@functools.lru_cache(maxsize=1)
+def node_version() -> tuple[int, ...] | None:
+    """The installed node's version tuple, or ``None`` when node is absent or unreadable."""
+    try:
+        out = subprocess.run(
+            ["node", "--version"], capture_output=True, text=True, timeout=10, check=True
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.match(r"v?(\d+)\.(\d+)\.(\d+)", out)
+    return tuple(int(g) for g in match.groups()) if match else None
+
+
+def unsupported_node_reason() -> str | None:
+    """Why this machine cannot grade JavaScript, or ``None`` when it can.
+
+    Consulted at run start and again in the grader, because a pin in `.nvmrc` is advisory and
+    the wrong answer here is silent: a suite that runs nothing exits 0, which is a pass.
+    """
+    found = node_version()
+    floor = ".".join(str(n) for n in MIN_NODE_VERSION)
+    if found is None:
+        return f"node is not on PATH (need >= {floor}); see .nvmrc"
+    if found[:2] < MIN_NODE_VERSION:
+        got = ".".join(str(n) for n in found)
+        return (
+            f"node {got} is below the {floor} floor: `node --test` discovers no TypeScript "
+            f"test file and exits 0 having run nothing, which grades as a pass on the "
+            f"defective stub. See .nvmrc."
+        )
+    return None
+
+
+def case_language_is_javascript(language: str | None) -> bool:
+    return registered_spec(language) is JAVASCRIPT
 
 
 def registered_spec(language: str | None) -> LanguageSpec | None:

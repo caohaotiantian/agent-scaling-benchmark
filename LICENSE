@@ -1,0 +1,42 @@
+All Rights Reserved
+===================
+
+Copyright (c) 2026 caohaotiantian <caohaotiantian@gmail.com>
+
+This is **not** an open-source licence, and it grants nothing new. It writes down the position
+that already applied: the repository is private and carried no LICENSE file, and the default for
+a work with no licence is exclusive copyright. Anyone with access was therefore holding code
+they had no stated right to run, derive cases from, or publish a replayed number from — which is
+a worse position than this notice, not a better one, because it was undefined rather than
+restrictive.
+
+Grant
+-----
+
+No permission to use, copy, modify, merge, publish, distribute, sublicense, or sell copies of
+this software is granted except by written agreement with the copyright holder.
+
+People given access to this repository by the copyright holder may run it internally for
+evaluation and development. That permission does not extend to redistribution, to publishing
+results derived from it, or to the case sets and run artifacts — see below.
+
+Data
+----
+
+The case sets, drafts, run directories and archives are **not** covered by any grant here at
+all, and are excluded from the repository on purpose. They contain verbatim source from real
+projects (measured 0%–91.2% of a reverse-constructed case's substantive lines), personal account
+names, and unsanitised filesystem paths. `docs/design/2026-07-25-ai-coding-benchmark.md` §
+forbids sharing them before desensitisation, and `docs/SESSION-2026-08-14.md` §5.3 records that
+desensitisation as incomplete. Ask before requesting any of it.
+
+Contact
+-------
+
+Repository, database and gateway access are granted by the copyright holder. See CODEOWNERS.
+
+Changing this
+-------------
+
+Replacing this file with an open-source licence is a decision for the copyright holder alone. If
+that happens, note that it settles the *code* only: the data above needs its own answer.

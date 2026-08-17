@@ -15,6 +15,32 @@ from pathlib import Path
 from aibench.agents.base import AgentAdapter
 from aibench.models import AgentRunResult, Case, StepRecord, UsageRecord
 
+#: Directories a tool writes into as a side effect of *reading* the workspace. A run that only
+#: imported the module under test appeared to have written six files, so `files_written` reported
+#: work that never happened and `empty_patch` could not fire.
+_INCIDENTAL_DIRS = frozenset(
+    {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules", ".git"}
+)
+
+
+def _snapshot(workspace: Path) -> dict[str, int]:
+    """Path -> content hash, for everything the agent could plausibly have authored.
+
+    Excludes the prompt file this adapter drops in, and anything under a cache directory: those
+    appear from running the code, not from changing it.
+    """
+    out: dict[str, int] = {}
+    for path in workspace.rglob("*"):
+        if not path.is_file() or path.name == ".aibench_prompt.txt":
+            continue
+        if _INCIDENTAL_DIRS & set(path.relative_to(workspace).parts):
+            continue
+        try:
+            out[path.relative_to(workspace).as_posix()] = hash(path.read_bytes())
+        except OSError:
+            continue
+    return out
+
 
 class ShellAgent(AgentAdapter):
     def run(
@@ -35,6 +61,7 @@ class ShellAgent(AgentAdapter):
             )
         prompt_file = workspace / ".aibench_prompt.txt"
         prompt_file.write_text(case.prompt, encoding="utf-8")
+        before = _snapshot(workspace)
         cmd = (
             str(tmpl)
             .replace("{workspace}", str(workspace))
@@ -70,19 +97,22 @@ class ShellAgent(AgentAdapter):
                 wall_time_s=time.perf_counter() - t0,
             )
 
-        # count non-prompt files as written
-        written = [
-            p.relative_to(workspace).as_posix()
-            for p in workspace.rglob("*")
-            if p.is_file() and p.name != ".aibench_prompt.txt"
-        ]
+        # What the agent *changed*, not what the workspace contains. Listing every file made
+        # `empty_patch` permanently false — the flag exists to catch an agent that did nothing,
+        # and it could never fire because a case ships files.
+        after = _snapshot(workspace)
+        written = sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
         status = "completed" if proc.returncode == 0 else "failed"
         return AgentRunResult(
             status=status,
             artifacts={
                 "files_written": written[:50],
-                "final_message": (proc.stdout or "")[-2000],
-                "stderr": (proc.stderr or "")[-1000],
+                # Slices, not indices. `(proc.stdout or "")[-2000]` reads *one character* and
+                # raises `IndexError: string index out of range` on any output shorter than
+                # 2000 bytes — which is every run of a CLI that succeeds quietly. The adapter
+                # therefore could not complete a single successful run, and had no test.
+                "final_message": (proc.stdout or "")[-2000:],
+                "stderr": (proc.stderr or "")[-1000:],
                 "exit_code": proc.returncode,
             },
             usage=UsageRecord(model_calls=1, total_tokens=0),

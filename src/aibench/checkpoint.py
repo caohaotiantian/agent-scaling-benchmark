@@ -18,6 +18,7 @@ be rejected identically next time, and re-deciding it costs a model call. Transi
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from pathlib import Path
@@ -29,6 +30,37 @@ from aibench.io_util import write_json
 JOURNAL_NAME = "_progress.jsonl"
 
 
+def solution_key(case: dict[str, Any]) -> str | None:
+    """Hash of (stub, reference solution) — the pair that decides what a case measures.
+
+    Deliberately *not* the case fingerprint. That hashes the prompt and the tests too, which is
+    right for "is this the same case" and wrong for "is this the same defect": reverse
+    construction draws its pairs from a trace, and different rows of one session replay the same
+    edit. The model then writes a different prompt and different tests for each, so every copy
+    gets a distinct fingerprint and `duplicate_fingerprint` sees nothing.
+
+    Measured on `_rev2026`: **134 cases collapse to 66 unique pairs — 68 redundant, 51%**. That
+    inflates n and correlates paired outcomes, which is exactly what a McNemar test assumes away.
+
+    Returns ``None`` when the case has no stub or no reference solution to key on; the caller
+    treats that as "cannot deduplicate", never as "no duplicates".
+    """
+    context = (case.get("context") or {}).get("files") or []
+    impls = sorted(
+        (str(f.get("path") or ""), str(f.get("content") or ""))
+        for f in context
+        if (f.get("role") or "impl") == "impl"
+    )
+    gold = sorted(
+        (str(g.get("path") or ""), str(g.get("content") or ""))
+        for g in (case.get("grader") or {}).get("gold_files") or []
+    )
+    if not impls or not gold:
+        return None
+    basis = json.dumps([impls, gold], ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
+
+
 class CaseSink:
     """Writes cases as they are produced and remembers which drafts are settled.
 
@@ -36,14 +68,24 @@ class CaseSink:
     written-count cap are shared state that decides whether a paid call happens at all.
     """
 
-    def __init__(self, out_dir: Path, *, max_cases: int, resume: bool = False) -> None:
+    def __init__(
+        self,
+        out_dir: Path,
+        *,
+        max_cases: int,
+        resume: bool = False,
+        deduplicate: bool = True,
+    ) -> None:
         self._dir = out_dir
         self._max = max_cases
         self._lock = threading.Lock()
         self._journal = out_dir / JOURNAL_NAME
+        self._deduplicate = deduplicate
         self.done: set[str] = set()
         self.written_ids: set[str] = set()
+        self.written_keys: dict[str, str] = {}
         self.collisions: list[str] = []
+        self.duplicates: list[str] = []
         self.written = 0
         self.resumed = 0
         if resume:
@@ -66,12 +108,36 @@ class CaseSink:
             self.done.add(draft)
             if row.get("status") == "written":
                 cid = str(row.get("case_id") or "")
-                # Only count cases still on disk: a resumed run must not believe it wrote
-                # something the user has since deleted.
-                if cid and (self._dir / f"{cid}.json").is_file():
+                # Only count cases still on disk *and* readable: a resumed run must not believe
+                # it wrote something the user has since deleted, nor that a file it cannot parse
+                # is a finished case. `write_json` is atomic now, so a torn file should no
+                # longer occur — but a journal written by an older build still points at ones
+                # that do, and the cost of checking is one parse per resumed case.
+                if cid and self._is_complete(cid):
                     self.written_ids.add(cid)
+                    # Recomputed from the case on disk when the journal predates the field.
+                    # Trusting the journal alone silently disabled dedup for every run resumed
+                    # from an older checkpoint — the runs most likely to hold duplicates.
+                    key = str(row.get("solution_key") or "") or (self._key_on_disk(cid) or "")
+                    if key:
+                        self.written_keys.setdefault(key, cid)
                     self.written += 1
                     self.resumed += 1
+
+    def _key_on_disk(self, case_id: str) -> str | None:
+        try:
+            return solution_key(json.loads((self._dir / f"{case_id}.json").read_text("utf-8")))
+        except (OSError, json.JSONDecodeError, TypeError, AttributeError):
+            return None
+
+    def _is_complete(self, case_id: str) -> bool:
+        path = self._dir / f"{case_id}.json"
+        if not path.is_file():
+            return False
+        try:
+            return isinstance(json.loads(path.read_text(encoding="utf-8")), dict)
+        except (OSError, json.JSONDecodeError):
+            return False
 
     def _append(self, row: dict[str, Any]) -> None:
         with self._journal.open("a", encoding="utf-8") as fh:
@@ -93,7 +159,7 @@ class CaseSink:
             self._append({"draft": draft_name, "status": "skipped", "reason": reason[:200]})
 
     def emit(self, draft_name: str, case: dict[str, Any]) -> str:
-        """Write one case now. Returns 'written', 'collision' or 'full'."""
+        """Write one case now. Returns 'written', 'collision', 'duplicate' or 'full'."""
         with self._lock:
             if self.written >= self._max:
                 return "full"
@@ -105,9 +171,27 @@ class CaseSink:
                 self._append({"draft": draft_name, "status": "collision", "case_id": cid})
                 self.done.add(draft_name)
                 return "collision"
+            key = solution_key(case) if self._deduplicate else None
+            if key and key in self.written_keys:
+                self.duplicates.append(cid)
+                self._append(
+                    {
+                        "draft": draft_name,
+                        "status": "duplicate",
+                        "case_id": cid,
+                        "duplicate_of": self.written_keys[key],
+                        "solution_key": key,
+                    }
+                )
+                self.done.add(draft_name)
+                return "duplicate"
             write_json(self._dir / f"{cid}.json", case)
             self.written_ids.add(cid)
+            if key:
+                self.written_keys[key] = cid
             self.written += 1
             self.done.add(draft_name)
-            self._append({"draft": draft_name, "status": "written", "case_id": cid})
+            self._append(
+                {"draft": draft_name, "status": "written", "case_id": cid, "solution_key": key}
+            )
             return "written"

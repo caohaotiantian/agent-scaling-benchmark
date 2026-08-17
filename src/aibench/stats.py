@@ -215,13 +215,31 @@ def mcnemar_sample_size(
 
 
 def observed_discordance(pairwise: list[dict[str, Any]]) -> float | None:
-    """Discordance rate seen in an ablation's pairwise comparisons, for planning the next run."""
+    """Discordance rate seen in an ablation's pairwise comparisons, for planning the next run.
+
+    Self-repeats are excluded. A repeat matrix McNemars every row against `*-r1`, so two runs of
+    the *same* configuration appear as a comparison — and their discordance is the harness's own
+    run-to-run noise, not a difference between configurations.
+
+    Averaging them in understates the sample size a real comparison needs, and the mechanism is
+    the opposite of the intuitive one. `required_cases` rises monotonically with discordance
+    (ψ=0.05 → 243 cases, ψ=0.30 → 1470, at δ=0.04). On this corpus's 70 published pairwise
+    comparisons, self-repeats are the **least** discordant kind, not the most: 17 self-repeat
+    pairs mean 4.8% (max 19.4%) against 53 cross-configuration pairs at 14.9% (max 64.5%). So
+    pooling them pulls ψ down, and a lower ψ asks for fewer cases than the comparison needs.
+    """
+    comparable = [p for p in pairwise if not p.get("self_repeat") and p.get("comparable", True)]
+    if not comparable:
+        # `comparable or pairwise` fell back to the full list here, which means a matrix of
+        # nothing but self-repeats planned its next run on exactly the pairs this function
+        # exists to exclude — and said nothing. No usable pair is `None`, same as no data.
+        return None
     totals = [
         (
             p.get("discordant") or 0,
             (p.get("discordant") or 0) + (p.get("both_passed") or 0) + (p.get("neither") or 0),
         )
-        for p in pairwise
+        for p in comparable
     ]
     usable = [(d, n) for d, n in totals if n]
     if not usable:

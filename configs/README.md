@@ -52,6 +52,10 @@ uv run python -m aibench run --run-config configs/runs/baseline.yaml
 ./scripts/e2e_pipeline.sh --limit 100 --max-cases 8 --calibrate --repeats 3
 
 # 并行：对网关的实际并发 ≈ parallel × case_workers，本网关实测 16 并发仍线性
+# 注意：消融矩阵里的 `parallel:` 直到 2026-08-17 才真正生效 —— 此前 CLI 的默认值 1 会短路掉它，
+# 所以**只写 YAML 而不在命令行传 `--parallel` 的人拿到的是串行**。已落盘的实验不是这一类：
+# 16 份 `ablation_summary.json` 里 13 份记着 `parallel: 3`（这 16 份不含 `runs/e2e-dry-run/` 下 CI 自己跑出来的那些；连它们一起数是 48 份），且每一份都有 3 个 run 目录共用同一
+# 秒级时间戳 —— 它们确实是三路并发跑的，因为命令行显式传了 `--parallel 3`。
 uv run python -m aibench calibrate-cases --case-set auto-v0 --repeats 2 \
   --parallel 3 --workers 5
 
@@ -72,7 +76,9 @@ uv run python -m aibench ablation \
 
 ## 本文未逐条展开的配置
 
-`configs/` 下共 23 个 YAML。上面的布局表按目录讲结构，这里按文件补齐未逐条展开的部分：
+上面的布局表按目录讲结构，这里按文件补齐未逐条展开的部分。
+（**不在这里数文件**：逐个文件的完整清单在 `docs/REFERENCE.md` §7.1，那张表由目录列表生成、有门禁核对。
+本文件此前写「共 23 个 YAML」，实际 40 个。）
 
 | 文件 | 用途 |
 |---|---|

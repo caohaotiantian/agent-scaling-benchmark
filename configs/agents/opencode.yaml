@@ -9,8 +9,10 @@
 # Everything opencode is told is generated per run from configs/models/*.yaml and .env, so the
 # measurement does not depend on the operator's ~/.config/opencode.
 #
-# Requires the `opencode` binary on PATH (measured against 1.18.15) and OPENAI_API_KEY +
-# OPENAI_BASE_URL, or the equivalents named by the model config.
+# Requires the `opencode` binary on PATH and OPENAI_API_KEY + OPENAI_BASE_URL, or the
+# equivalents named by the model config. The version is pinned below rather than named in a
+# comment: a different scaffold version is a different instrument, and the adapter refuses a
+# mismatch instead of quietly measuring one. Check with `uv run python -m aibench doctor`.
 name: opencode
 version: "1.0.0"
 adapter: opencode
@@ -21,6 +23,8 @@ description: >
 # (A2) and can react to test output (A3), so it can exercise every axis.
 capability_axes: [A1, A2, A3, A4, A5, A6]
 options:
+  # Refused at run start when `opencode --version` disagrees, and stamped into the manifest.
+  expected_version: "1.18.15"
   # Step budget comes from the run config's max_steps unless set here.
   system_prompt: |
     You are a coding agent working in the given directory. Fix the defect so the project's

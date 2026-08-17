@@ -22,28 +22,29 @@ def test_is_case_json_path_skips_sidecars():
 
 def test_validate_ignores_underscore_sidecar(tmp_path, monkeypatch):
     """generate --secrets-scan writes _secrets_scan.json next to cases; must not fail validate."""
+    import shutil
+
     from aibench import cases as cases_mod
+    from aibench.cases import CASE_ROOT_ENV
     from aibench.io_util import write_json
 
-    # Use seed-v0 dir and add a sidecar without polluting fixtures permanently
-    d = case_set_dir("seed-v0")
-    sidecar = d / "_secrets_scan.json"
-    wrote = False
-    try:
-        if not sidecar.exists():
-            write_json(
-                sidecar,
-                {
-                    "directory": str(d),
-                    "files_scanned": 1,
-                    "finding_count": 0,
-                    "clean": True,
-                    "findings": [],
-                },
-            )
-            wrote = True
-        assert validate_case_set("seed-v0") == []
-        assert all(is_case_json_path(p) for p in cases_mod.iter_case_paths("seed-v0"))
-    finally:
-        if wrote and sidecar.exists():
-            sidecar.unlink()
+    # A copy under `tmp_path`, never the committed fixture. Writing a sidecar into
+    # `tests/fixtures/case_sets/seed-v0` and unlinking it in a `finally` leaves the file behind
+    # whenever the process dies in between, and the fixture is what every `seed-v0` assertion
+    # in the suite is written against.
+    root = tmp_path / "cases"
+    shutil.copytree(case_set_dir("seed-v0"), root / "seed-v0")
+    monkeypatch.setenv(CASE_ROOT_ENV, str(root))
+
+    write_json(
+        root / "seed-v0" / "_secrets_scan.json",
+        {
+            "directory": str(root / "seed-v0"),
+            "files_scanned": 1,
+            "finding_count": 0,
+            "clean": True,
+            "findings": [],
+        },
+    )
+    assert validate_case_set("seed-v0") == []
+    assert all(is_case_json_path(p) for p in cases_mod.iter_case_paths("seed-v0"))

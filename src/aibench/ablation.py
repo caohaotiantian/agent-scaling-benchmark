@@ -9,11 +9,19 @@ from pathlib import Path
 from typing import Any
 
 from aibench.calibrate import read_result_rows
-from aibench.cases import case_set_dir
-from aibench.io_util import load_json, load_yaml, repo_root, write_json
-from aibench.report import format_pct, render_summary_tables_json
+from aibench.cases import case_set_dir, case_set_root
+from aibench.io_util import (
+    load_json,
+    load_yaml,
+    relative_to_repo,
+    repo_root,
+    write_json,
+    write_text,
+)
+from aibench.provenance import environment
+from aibench.report import format_hours, format_pct, render_summary_tables_json
 from aibench.runner import run_benchmark
-from aibench.stats import mcnemar_test, paired_outcomes
+from aibench.stats import budget_quantiles, cost_curve, mcnemar_test, paired_outcomes
 
 
 def load_matrix(path: Path) -> dict[str, Any]:
@@ -23,42 +31,80 @@ def load_matrix(path: Path) -> dict[str, Any]:
     return data
 
 
-def _filter_weak_grader_case_set(case_set: str, *, skip_weak: bool) -> str:
-    """If skip_weak, materialize a temp case set without weak_grader=true cases."""
-    if not skip_weak:
-        return case_set
+def _case_set_fingerprint(case_set: str) -> str | None:
+    """Content hash of the corpus this ablation ran on, or ``None`` when it cannot be read.
+
+    The calibration export has carried this since it was added; the ablation export did not,
+    which left the artifact that publishes the cross-configuration comparison unable to say
+    which corpus produced it.
+    """
+    from aibench.cases import load_cases
+    from aibench.validity import set_fingerprint
+
+    try:
+        return set_fingerprint(load_cases(case_set, validate=False))
+    except Exception:
+        return None
+
+
+def _filter_unusable_cases(
+    case_set: str,
+    *,
+    skip_weak: bool,
+    skip_invalid: bool,
+) -> tuple[str, dict[str, int]]:
+    """Materialize a temp case set without the cases that must not be measured.
+
+    Two exclusions, both of which used to be missing on the run path.
+
+    ``weak_grader`` was already handled. ``validity_ok: false`` was not: `audit-cases` writes
+    the verdict back into the case's own metadata and then nothing anywhere consulted it, so a
+    case whose stub passes its own grader, or whose hidden test demands an unknowable name,
+    sat in the denominator of every ablation. On disk when this was written: **64 of 133
+    `_rev2026` cases and 9 of 26 `_retryout` cases carry `validity_ok: false`**.
+
+    A case that was never audited has no `validity_ok` key at all. That is not a failed audit
+    and is left in — the alternative would silently empty every set that predates the gate.
+    """
     src = case_set_dir(case_set)
-    if not src.is_dir():
-        return case_set
-    weak_count = 0
-    strong: list[Path] = []
+    counts = {"weak_grader": 0, "validity_failed": 0}
+    if not (skip_weak or skip_invalid) or not src.is_dir():
+        return case_set, counts
+
     from aibench.cases import is_case_json_path
 
+    keep: list[Path] = []
     for p in sorted(src.glob("*.json")):
         if not is_case_json_path(p):
             continue
-        raw = load_json(p)
-        if (raw.get("metadata") or {}).get("weak_grader"):
-            weak_count += 1
+        meta = load_json(p).get("metadata") or {}
+        if skip_weak and meta.get("weak_grader"):
+            counts["weak_grader"] += 1
             continue
-        strong.append(p)
-    if weak_count == 0:
-        return case_set
+        if skip_invalid and meta.get("validity_ok") is False:
+            counts["validity_failed"] += 1
+            continue
+        keep.append(p)
+    if not any(counts.values()):
+        return case_set, counts
+    if not keep:
+        raise ValueError(
+            f"case set {case_set!r} has nothing left to ablate: "
+            f"{counts['weak_grader']} weak_grader, {counts['validity_failed']} validity_ok=false"
+        )
     # write filtered set under benchmarks/ai_coding/cases/.ablation-filtered-<set>
     dest_name = f".ablation-filtered-{case_set}"
-    dest = repo_root() / "benchmarks/ai_coding/cases" / dest_name
+    dest = case_set_root() / dest_name
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
-    for p in strong:
+    for p in keep:
         shutil.copy2(p, dest / p.name)
     # copy snapshots if any
     snap = src / "snapshots"
     if snap.is_dir():
         shutil.copytree(snap, dest / "snapshots")
-    if not strong:
-        raise ValueError(f"case set {case_set!r} has only weak_grader cases; nothing to ablate")
-    return dest_name
+    return dest_name, counts
 
 
 def run_ablation(
@@ -68,7 +114,8 @@ def run_ablation(
     case_set_override: str | None = None,
     skip_weak_grader: bool = True,
     allow_weak_grader: bool = False,
-    parallel: int = 1,
+    allow_invalid_cases: bool = False,
+    parallel: int | None = None,
     baseline_experiment: str | None = None,
 ) -> Path:
     root = repo_root()
@@ -77,13 +124,23 @@ def run_ablation(
     skip_weak = (
         skip_weak_grader and not allow_weak_grader and not matrix.get("allow_weak_grader", False)
     )
+    skip_invalid = not allow_invalid_cases and not matrix.get("allow_invalid_cases", False)
     # Every distinct case set is filtered up front, never inside a worker. Filtering rmtree's
     # and repopulates a shared `.ablation-filtered-<set>` directory, so two rows filtering the
     # same set concurrently would let one of them run against a half-copied case set — a wrong
     # result, not a crash.
     filtered: dict[str, str] = {}
+    excluded: dict[str, dict[str, int]] = {}
     for row_case in {item.get("case_set") or case_set for item in matrix["runs"]} | {case_set}:
-        filtered[row_case] = _filter_weak_grader_case_set(row_case, skip_weak=skip_weak)
+        filtered[row_case], counts = _filter_unusable_cases(
+            row_case, skip_weak=skip_weak, skip_invalid=skip_invalid
+        )
+        if any(counts.values()):
+            excluded[row_case] = counts
+            print(
+                f"[filter] {row_case}: excluded {counts['weak_grader']} weak_grader and "
+                f"{counts['validity_failed']} validity_ok=false case(s)"
+            )
 
     out_root = output_root or (root / "runs")
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -121,17 +178,25 @@ def run_ablation(
             case_set=use_set,
             run_id=run_id,
             output_root=abl_dir,
+            # The matrix row's name never reached the run, so two rows sharing `baseline.yaml`
+            # both wrote `experiment_name: prod-baseline` into their manifest and summary. The
+            # ablation summary knew which row was which; the artifacts on disk did not.
+            experiment_name=exp,
         )
         summary = load_json(run_dir / "summary.json")
         if item.get("algorithm_name"):
             summary["algorithm_name"] = item["algorithm_name"]
+        run_manifest = load_json(run_dir / "run_manifest.json")
         tables = render_summary_tables_json(summary)
         return {
             "case_rows": read_result_rows(run_dir / "results.jsonl"),
+            # Only the knobs that decide what the row measures. Everything else in the manifest
+            # is identity or provenance, and copying it whole would double the summary's size.
+            "manifest": {k: run_manifest.get(k) for k in _AXIS_KEYS},
             "stratified_by_tier": summary.get("stratified_by_tier"),
             "experiment_name": exp,
             "run_id": summary.get("run_id"),
-            "run_dir": str(run_dir),
+            "run_dir": relative_to_repo(run_dir),
             "algorithm_name": summary.get("algorithm_name"),
             "agent_name": summary.get("agent_name"),
             "main_model": summary.get("main_model"),
@@ -142,11 +207,14 @@ def run_ablation(
             "pass_at_k": summary.get("pass_at_k"),
             "attempts_per_case": summary.get("attempts_per_case"),
             "cost_curve": summary.get("cost_curve"),
+            "selection_strategy": summary.get("selection_strategy"),
+            "selection_is_oracle": summary.get("selection_is_oracle"),
             "effective_case_count": summary.get("effective_case_count"),
             "infra_error_count": summary.get("infra_error_count"),
             "infra_error_rate": summary.get("infra_error_rate"),
             "total_tokens": summary.get("total_tokens"),
             "total_cost": summary.get("total_cost"),
+            "cost_rate": summary.get("cost_rate"),
             "total_wall_time_h": summary.get("total_wall_time_h"),
             "overview_row": tables["overview_row"],
             "general_row": tables["general_row"],
@@ -179,7 +247,12 @@ def run_ablation(
             }
 
     rows: list[dict[str, Any]] = []
-    parallel = max(1, int(parallel or matrix.get("parallel") or 1))
+    # `parallel or matrix.get("parallel")` short-circuited on the first operand every time,
+    # because the CLI passed a truthy default of 1 unconditionally — so 11 of the 12 shipped
+    # matrices declared `parallel: 3` and every one of them ran serially while
+    # `ablation_summary.json` recorded `"parallel": 1`. The explicit `is None` is what lets the
+    # matrix speak when the caller did not.
+    parallel = max(1, int(parallel if parallel is not None else matrix.get("parallel") or 1))
     if parallel == 1:
         rows = [_one_guarded(job) for job in jobs]
     else:
@@ -203,17 +276,33 @@ def run_ablation(
         or (rows[0]["experiment_name"] if rows else None)
     )
     base_row = next((r for r in rows if r["experiment_name"] == base_name), None)
-    base_sr = float(base_row["success_rate"]) if base_row else None
+    # `success_rate` is `None` when the baseline measured nothing (every case infra_error), and
+    # the lift against an unmeasured baseline is not 0 — it is unknown. The `base_sr is None`
+    # branch below already says that; this used to raise before reaching it.
+    base_sr = (
+        float(base_row["success_rate"])
+        if base_row and base_row.get("success_rate") is not None
+        else None
+    )
+    base_oracle = bool((base_row or {}).get("selection_is_oracle"))
     for r in rows:
+        # A row whose selection strategy consulted the grader's verdict is an upper bound, not
+        # a submission. Every cross-run column has to say so, not only the McNemar one: the
+        # lift, the token multiple and the overview table all put an oracle rate beside three
+        # honest ones in `configs/runs/ablation-matrix.yaml` as it ships.
+        r["comparable_with_baseline"] = bool(r.get("selection_is_oracle")) == base_oracle
         if base_sr is None:
             r["relative_success_lift"] = None
             r["overview_row"]["相对基线收益"] = None
         else:
             lift = float(r["success_rate"] or 0) - base_sr
             r["relative_success_lift"] = lift
-            r["overview_row"]["相对基线收益"] = f"{lift * 100:+.1f}pp"
+            marker = "" if r["comparable_with_baseline"] else "（oracle，不可比）"
+            r["overview_row"]["相对基线收益"] = f"{lift * 100:+.1f}pp{marker}"
 
     attach_token_amplification(rows, baseline=base_name)
+    # Axes first: `compare_runs_pairwise` reads `axes_changed` to spot a self-repeat.
+    axes = diff_axes_against_baseline(rows, baseline=base_name)
     pairwise = compare_runs_pairwise(rows, baseline=base_name)
     tier_matrix = {r["experiment_name"]: r.get("stratified_by_tier") or {} for r in rows}
 
@@ -222,25 +311,98 @@ def run_ablation(
     write_json(
         abl_dir / "ablation_summary.json",
         {
-            "matrix": str(matrix_path),
+            "matrix": relative_to_repo(matrix_path),
+            # Same reason as the calibration export: an artifact that cannot say which code
+            # produced it is checkable but not attributable.
+            "provenance": environment(),
+            "case_set": case_set,
+            # Which corpus, byte for byte — of the set that was actually *run*, which is the
+            # filtered subset, not the name asked for. Fingerprinting `case_set` made two
+            # ablations match on this field while having measured different subsets, because
+            # `audit-cases --annotate` had changed `validity_ok` in between and the filter then
+            # removed different cases. That is precisely the drift the field exists to catch.
+            "case_set_fingerprint": _case_set_fingerprint(filtered.get(case_set, case_set)),
+            # Every distinct set any row ran on, so a matrix with per-row `case_set` overrides
+            # is not summarised by whichever one the top-level key happened to name.
+            "case_set_fingerprints": {
+                name: _case_set_fingerprint(materialized)
+                for name, materialized in sorted(filtered.items())
+            },
             "skip_weak_grader": skip_weak,
+            "skip_invalid_cases": skip_invalid,
+            "excluded_cases": excluded,
             "baseline_experiment": base_name,
             "parallel": parallel,
             "runs": slim_rows,
             "failed_runs": failed_rows,
             "pairwise_comparisons": pairwise,
+            "axes_changed": axes,
             "tier_matrix": tier_matrix,
         },
     )
     report = _render_ablation_report(
-        slim_rows,
+        # Full rows, not `slim_rows`: the equal-cost table recomputes every curve on one shared
+        # rung list, which needs the per-case spend. Only the summary *file* drops them.
+        rows,
+        excluded=excluded,
+        axes=axes,
         baseline=base_name,
         pairwise=pairwise,
         tier_matrix=tier_matrix,
         failed=failed_rows,
     )
-    (abl_dir / "ablation_report.md").write_text(report, encoding="utf-8")
+    write_text(abl_dir / "ablation_report.md", report)
     return abl_dir
+
+
+#: Knobs whose value decides what a row measures. A matrix row that claims to vary one axis and
+#: quietly moves three of these is not a controlled comparison, and nothing used to check:
+#: `configs/runs/ablation-matrix.yaml`'s `tool-loop-glm52` row changes the adapter,
+#: `max_wall_time_s` 300 -> 600 *and* `case_workers` 4 -> 2, because it points at a different
+#: run config. The knobs all reach `run_manifest.json`; the comparison never read them back.
+_AXIS_KEYS = (
+    "agent_adapter",
+    "agent_name",
+    "agent_version",
+    "main_model",
+    "model_config_name",
+    "max_attempts",
+    "max_steps",
+    "max_wall_time_s",
+    "case_workers",
+    "selection_strategy",
+    "sampling_params",
+    "case_set",
+    # The budget axis is the one this benchmark is named for. Omitting it made two rows that
+    # differ only in `budget_value` read as the same configuration run twice, and their
+    # difference as run-to-run noise.
+    "budget_axis",
+    "budget_value",
+    "branches",
+    "algorithm_version",
+    "grouping",
+)
+
+
+def diff_axes_against_baseline(
+    rows: list[dict[str, Any]],
+    *,
+    baseline: str | None,
+) -> dict[str, list[str]]:
+    """Which knobs each row moved relative to the baseline, by name."""
+    base = next((r for r in rows if r["experiment_name"] == baseline), None)
+    if base is None:
+        return {}
+    base_manifest = base.get("manifest") or {}
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        if r["experiment_name"] == baseline:
+            continue
+        manifest = r.get("manifest") or {}
+        moved = [key for key in _AXIS_KEYS if manifest.get(key) != base_manifest.get(key)]
+        out[r["experiment_name"]] = moved
+        r["axes_changed"] = moved
+    return out
 
 
 def attach_token_amplification(rows: list[dict[str, Any]], *, baseline: str | None) -> None:
@@ -273,12 +435,19 @@ def compare_runs_pairwise(
     if base is None:
         return []
     base_rows = base.get("case_rows") or []
+    base_oracle = bool(base.get("selection_is_oracle"))
     out: list[dict[str, Any]] = []
     for r in rows:
         if r["experiment_name"] == baseline:
             continue
         both, only_b, only_a, neither = paired_outcomes(base_rows, r.get("case_rows") or [])
         test = mcnemar_test(only_b, only_a)
+        comparable = bool(r.get("selection_is_oracle")) == base_oracle
+        # Two rows that moved no knob at all are the same configuration run twice. Their
+        # disagreement is this harness's own run-to-run noise — 4.8% of cases on this corpus,
+        # against 14.9% for pairs that did move a knob — and reporting it as a candidate result
+        # invites reading noise as a difference. It is still computed; it is labelled.
+        self_repeat = r.get("axes_changed") == []
         out.append(
             {
                 "baseline": baseline,
@@ -287,10 +456,36 @@ def compare_runs_pairwise(
                 "only_baseline": only_b,
                 "only_candidate": only_a,
                 "neither": neither,
+                # One side selected on the grader's verdict and the other did not, so the pair
+                # is an upper bound against a submission. The p-value is still computed — the
+                # arithmetic is not wrong — but it does not answer "is this model better".
+                "comparable": comparable,
+                "self_repeat": self_repeat,
+                "candidate_selection_is_oracle": bool(r.get("selection_is_oracle")),
                 **test,
             }
         )
     return out
+
+
+#: Below this share of a run's cases actually executing, the reported rate says more about the
+#: gateway than about the model. Not a hard rule — it decides whether a warning prints, never
+#: whether a number is used.
+_EFFECTIVE_SHARE_FLOOR = 0.8
+
+
+def _infra_dominated(row: dict[str, Any]) -> bool:
+    """Whether infrastructure failures ate enough of a run to make its rate unreadable.
+
+    A run with zero cases is *not* this. It used to return True, so an empty case set produced
+    "most of this run failed on infrastructure" — a diagnosis of a problem that did not happen,
+    pointing the reader at the gateway instead of at the empty set.
+    """
+    total = int(row.get("case_count") or 0)
+    effective = int(row.get("effective_case_count") or 0)
+    if not total:
+        return False
+    return effective < _EFFECTIVE_SHARE_FLOOR * total
 
 
 def _render_ablation_report(
@@ -300,12 +495,27 @@ def _render_ablation_report(
     pairwise: list[dict[str, Any]] | None = None,
     tier_matrix: dict[str, dict[str, Any]] | None = None,
     failed: list[dict[str, Any]] | None = None,
+    excluded: dict[str, dict[str, int]] | None = None,
+    axes: dict[str, list[str]] | None = None,
 ) -> str:
     lines = [
         "# Ablation Report",
         "",
         f"- Baseline experiment: `{baseline}`",
         "",
+        *(
+            [
+                "> **已排除的 case**（不进入任何分母）——",
+                *[
+                    f"> - `{cs}`：{c['weak_grader']} 条 weak_grader，"
+                    f"{c['validity_failed']} 条 `validity_ok: false`"
+                    for cs, c in sorted((excluded or {}).items())
+                ],
+                "",
+            ]
+            if excluded
+            else []
+        ),
         *(
             [
                 "> **警告**：以下实验执行失败，未计入下表——",
@@ -321,7 +531,7 @@ def _render_ablation_report(
         "| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | --- |",
     ]
     for r in rows:
-        o = r["overview_row"]
+        o = r.get("overview_row") or {}
         sr = float(r.get("success_rate") or 0) * 100
         lift = o.get("相对基线收益")
         if lift is None and r.get("relative_success_lift") is not None:
@@ -329,7 +539,7 @@ def _render_ablation_report(
         lines.append(
             f"| {o.get('算法名称')} | {o.get('Agent与模型')} | {o.get('基础/主模型')} "
             f"| {o.get('Benchmark')} | {o.get('Case数')} | {o.get('主指标名称')} "
-            f"| {sr:.1f}% | {float(o.get('总体耗时(h)') or 0):.6f} "
+            f"| {sr:.1f}% | {format_hours(o.get('总体耗时(h)'))} "
             f"| {o.get('总体Token消耗')} | {lift if lift is not None else ''} |"
         )
     lines.extend(
@@ -337,26 +547,59 @@ def _render_ablation_report(
             "",
             "## Runs",
             "",
-            "| experiment | run_id | success_rate | 有效Case | 基础设施失败 | tokens | cost | run_dir |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+            "| experiment | run_id | success_rate | 口径 | 有效Case | 基础设施失败 | tokens "
+            "| cost(USD估) | run_dir |",
+            "| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for r in rows:
+        basis = "oracle 上界" if r.get("selection_is_oracle") else "提交"
         lines.append(
             f"| {r['experiment_name']} | {r['run_id']} | {float(r['success_rate'] or 0):.3f} "
-            f"| {r.get('effective_case_count')} | {r.get('infra_error_count')} "
+            f"| {basis} | {r.get('effective_case_count')} | {r.get('infra_error_count')} "
             f"| {r['total_tokens']} | {r.get('total_cost')} | {r['run_dir']} |"
         )
 
-    # A run whose cases all failed to execute reports success_rate 0.0, which reads as "the
-    # agent could not solve anything" when it actually means the harness never ran it.
-    broken = [r for r in rows if not r.get("effective_case_count")]
+    multi_axis = {k: v for k, v in (axes or {}).items() if len(v) > 1}
+    if multi_axis:
+        lines.extend(
+            [
+                "",
+                "> **警告**：以下实验相对基线同时变动了多个旋钮，差异**不能归因到任何单一轴**：",
+            ]
+        )
+        for exp, moved in sorted(multi_axis.items()):
+            lines.append(f"> - `{exp}`：{', '.join(moved)}")
+
+    oracle_rows = [r for r in rows if r.get("selection_is_oracle")]
+    if oracle_rows and len(oracle_rows) != len(rows):
+        lines.extend(
+            [
+                "",
+                "> **警告**：下列实验的 `selection_strategy` 依据判分结果挑选尝试，"
+                "其 `success_rate` 是 oracle 上界（恒等于 pass@k），",
+                "> 与其余「诚实提交」的行**不可并列比较**——相对基线收益、token 倍数、"
+                "McNemar 三列都受影响：",
+            ]
+        )
+        for r in oracle_rows:
+            lines.append(f"> - `{r['experiment_name']}`（`{r.get('selection_strategy')}`）")
+
+    # A run whose cases mostly failed to execute reports a rate computed on whatever survived,
+    # which reads as "the agent could not solve much" when it actually means the harness never
+    # ran it. The guard used to be `if not effective_case_count`, firing only at *exactly*
+    # zero — so 1 effective case out of 167 got a full-weight rate and no warning at all.
+    broken = [r for r in rows if _infra_dominated(r)]
     if broken:
-        lines.extend(["", "> **警告**：以下实验没有任何有效 case（全部 infra_error），"])
-        lines.append("> 其 0% 成功率与相对基线收益**不是能力结论**，请先排查环境/适配器：")
+        lines.extend(
+            ["", "> **警告**：以下实验的有效 case 数远低于 case 总数（基础设施失败为主），"]
+        )
+        lines.append("> 其成功率与相对基线收益**不是能力结论**，请先排查环境/适配器：")
         for r in broken:
+            eff = r.get("effective_case_count") or 0
             lines.append(
-                f"> - `{r['experiment_name']}`：{r.get('infra_error_count')} 个基础设施失败"
+                f"> - `{r['experiment_name']}`：有效 {eff}/{r.get('case_count')} 条，"
+                f"{r.get('infra_error_count')} 个基础设施失败"
             )
 
     if tier_matrix:
@@ -406,15 +649,80 @@ def _render_ablation_report(
                 "",
                 "同一 case 集上的配对比较；`b`=仅基线通过，`c`=仅候选通过。p<0.05 视为能力水平显著不同。",
                 "",
-                "| 候选 | 均通过 | 仅基线(b) | 仅候选(c) | 不一致数 | p 值 | 显著 |",
-                "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+                "| 候选 | 均通过 | 仅基线(b) | 仅候选(c) | 不一致数 | p 值 | 显著 | 可比 |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
             ]
         )
         for p in pairwise:
+            if p.get("self_repeat"):
+                note = "否（同一配置的重复运行，这是噪声）"
+            elif not p.get("comparable", True):
+                note = "否（oracle vs 提交）"
+            else:
+                note = "是"
             lines.append(
                 f"| {p['candidate']} | {p['both_passed']} | {p['only_baseline']} "
                 f"| {p['only_candidate']} | {p['discordant']} | {p['p_value']:.4f} "
-                f"| {'是' if p['significant'] else '否'} |"
+                f"| {'是' if p['significant'] else '否'} | {note} |"
             )
+    lines.extend(_render_cost_rungs_md(rows))
     lines.append("")
     return "\n".join(lines)
+
+
+def _render_cost_rungs_md(rows: list[dict[str, Any]]) -> list[str]:
+    """Each configuration's success rate at a genuinely shared token budget.
+
+    ``token_amplification`` answers "how many times the baseline's tokens did this spend", which
+    is not the same question as "at equal spend, which is ahead". Every run already carries a
+    `cost_curve`; nothing compared the rungs across runs, so the cost axis the project documents
+    as a headline had no cross-config reading at all.
+
+    The rungs must be computed once over the pooled spend and every curve recomputed on them.
+    Each run picks its own quantiles back in `report.py`, so unioning the stored curves and
+    step-holding each one's last measured point reports a run's 50k rate in a 500k column —
+    exactly what `budget_quantiles` warns against: callers comparing configurations "must pass
+    one shared rung list".
+    """
+    # An oracle row's rate is an upper bound, not a submission — every cross-run column has to
+    # say so, and this one is a cross-run column. `token_amplification` and the McNemar table
+    # already mark it; the equal-cost table did not.
+    oracle = {r["experiment_name"] for r in rows if r.get("selection_is_oracle")}
+    measured = {
+        r["experiment_name"]: [c for c in (r.get("case_rows") or []) if not c.get("infra_error")]
+        for r in rows
+    }
+    measured = {k: v for k, v in measured.items() if v}
+    if len(measured) < 2:
+        # Without per-case rows there is nothing to recompute, and a table built from the stored
+        # per-run curves is the incomparable one. No table is the honest output.
+        return []
+    pooled = [c for cases in measured.values() for c in cases]
+    budgets = budget_quantiles(pooled)
+    if not budgets:
+        return []
+    curves = {name: cost_curve(cases, budgets=budgets) for name, cases in measured.items()}
+
+    lines = [
+        "",
+        "## 等成本对比（同一 token 预算下的成功率）",
+        "",
+        "同一预算档位上的横向读数。token 倍数回答「花了基线的几倍」，这一张回答「同样花这么多，谁更强」。",
+        "档位取自所有配置合并后的每 case 花费分位数，每条曲线都在这同一组档位上重算——"
+        "各自分位数的并集会把某个配置在 50k 处的读数放进 500k 那一列。"
+        + (
+            "<br>⚠️口径 = 该行的选择策略读了判分结果（`best-of-k`），是**上界**不是一次提交，"
+            "不能与其他列直接比。"
+            if oracle
+            else ""
+        ),
+        "",
+        "| 每 case 预算(token) | "
+        + " | ".join(f"{n} ⚠️口径" if n in oracle else n for n in curves)
+        + " |",
+        "| ---: | " + " | ".join("---:" for _ in curves) + " |",
+    ]
+    for i, budget in enumerate(budgets):
+        cells = [format_pct(curve[i]["success_rate"]) for curve in curves.values()]
+        lines.append(f"| {budget} | " + " | ".join(cells) + " |")
+    return lines
