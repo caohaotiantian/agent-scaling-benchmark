@@ -296,7 +296,10 @@ class TestAnAdapterRefusesWhatItCannotPose:
     def test_a_single_file_case_is_posable(self):
         assert self._agent()._prompt(self._case(["a.py"])) is not None
 
-    def test_a_multi_file_case_is_refused_rather_than_truncated(self, tmp_path):
+    def test_a_multi_file_case_is_refused_rather_than_truncated(self, tmp_path, monkeypatch):
+        # A key must be present, or the run refuses for the *other* infra reason and this test
+        # asserts nothing about posability. It used to pass only on a machine with a `.env`.
+        monkeypatch.setenv("OPENAI_API_KEY", "not-a-real-key")
         agent = self._agent()
         assert agent._prompt(self._case(["a.py", "b.py"])) is None
 
@@ -304,9 +307,77 @@ class TestAnAdapterRefusesWhatItCannotPose:
         assert result.status == "infra_error", "not the model's failure; it never saw the case"
         assert "exactly one impl file" in (result.error_message or "")
 
-    def test_the_judge_names_itself_in_its_verdict(self):
-        source = (ROOT / "src/aibench/grading.py").read_text(encoding="utf-8")
-        assert 'f"judge={settings[' in source
+    def test_the_judge_names_itself_in_its_verdict(self, monkeypatch, tmp_path):
+        """Behaviour, not a grep. Asserting the source contains `f"judge={settings["` passes for
+        a literal that was moved into a comment, and fails for a correct rewrite.
+
+        This is also `_grade_llm_judge`'s first test of any kind — RP-34 named the whole LLM
+        half of `grading.py` as untested and only the chat-record half was covered.
+        """
+        import json as json_mod
+
+        import httpx
+
+        import aibench.env_config as env_config
+        from aibench.grading import grade_case
+        from aibench.models import Case
+
+        monkeypatch.setattr(
+            env_config,
+            "openai_settings",
+            lambda: {"api_key": "k", "base_url": "http://judge.invalid/v1", "model": "judge-7"},
+        )
+
+        seen: dict = {}
+
+        class _Resp:
+            @staticmethod
+            def raise_for_status() -> None: ...
+
+            @staticmethod
+            def json() -> dict:
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json_mod.dumps(
+                                    {"score": 0.9, "passed": True, "reason": "meets the rubric"}
+                                )
+                            }
+                        }
+                    ]
+                }
+
+        class _Client:
+            def __init__(self, **kw) -> None: ...
+
+            def __enter__(self) -> _Client:
+                return self
+
+            def __exit__(self, *a) -> None: ...
+
+            def post(self, url, **kw) -> _Resp:
+                seen["model"] = kw["json"]["model"]
+                return _Resp()
+
+        monkeypatch.setattr(httpx, "Client", _Client)
+
+        (tmp_path / "m.py").write_text("x = 2\n", encoding="utf-8")
+        raw = {
+            "case_id": "j",
+            "task_type": "bugfix",
+            "prompt": "make it right",
+            "language": "python",
+            "context": {"files": [{"path": "m.py", "role": "impl", "content": "x = 1\n"}]},
+            "grader": {"mode": "llm_judge", "judge_rubric": "is it right", "judge_threshold": 0.7},
+            "metadata": {"tier": "T2"},
+        }
+        result = grade_case(Case.from_dict(raw), tmp_path)
+        assert result.passed is True
+        assert seen["model"] == "judge-7", "the configured judge model must be the one called"
+        assert "judge=judge-7" in result.detail, (
+            f"the verdict must name the model that produced it: {result.detail!r}"
+        )
 
 
 class TestALineNumberGutterIsRecognisedAsAGutter:

@@ -77,6 +77,39 @@ def require_a_bare_python() -> None:
         )
 
 
+#: Names a real `.env` would set, and which a test reading them must not silently inherit.
+_DOTENV_NAMES = (
+    "AIBENCH_API_KEY",
+    "AIBENCH_BASE_URL",
+    "AIBENCH_CASE_RETRY",
+    "AIBENCH_DB_URL",
+    "AIBENCH_REQUEST_TIMEOUT",
+    "AIBENCH_USD_PER_MTOK",
+    "AIBENCH_USD_PER_MTOK_INPUT",
+    "AIBENCH_USD_PER_MTOK_OUTPUT",
+    "DATABASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
+)
+
+
+@pytest.fixture(autouse=True)
+def do_not_inherit_a_developers_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `.env` must not decide what the suite measures.
+
+    `aibench.cli.main` calls `load_dotenv()`, which writes into `os.environ` for the remainder
+    of the process — so one test that exercises the CLI hands every test after it the
+    developer's gateway, model name and cost rates. The result depends on which tests ran first
+    and on whether the machine has a `.env` at all, which is how a suite passes locally and
+    fails in CI for reasons nobody can reproduce.
+
+    Cleared, not preserved: a test that needs one of these sets it itself.
+    """
+    for name in _DOTENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def guard_the_checkout() -> Generator[None, None, None]:
     before = {name for name in _TRACKED_ROOT_ENTRIES if (ROOT / name).exists()}

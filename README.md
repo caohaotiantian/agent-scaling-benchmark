@@ -22,6 +22,7 @@
 |------|------|
 | **[会话交接 `docs/SESSION-2026-08-14.md`](docs/SESSION-2026-08-14.md)** | **接手请先读这一份**：最新状态与已知缺陷。§5.4 记录了一个会删掉 worktree 的测试（2026-08-17 定位到 `materialize_workspace` 会先删除目标目录，并加了守卫 `tests/conftest.py::guard_the_checkout` —— 守卫抓的是复发，不是病因），§5.3 记录 PII 与消毒缺口 |
 | [会话交接 `docs/SESSION-2026-08-11.md`](docs/SESSION-2026-08-11.md) | 上一次会话：未决问题（不含推荐方案）、已知缺陷 |
+| [审计回应 `docs/AUDIT-RESPONSE-2026-08-17.md`](docs/AUDIT-RESPONSE-2026-08-17.md) | 对 `docs/AUDIT-2026-08-17.md` 的逐条处置：改了什么、什么留给 owner、以及对已发布提交信息中六处数字的更正 |
 | [项目交接 `docs/HANDOFF.md`](docs/HANDOFF.md) | 更早的状态、限定条件与经验教训。**从 §0.-1 读起** |
 | [审计 `docs/AUDIT-2026-08-17.md`](docs/AUDIT-2026-08-17.md) | 第三方复算审计：可复现性缺口、已发布数字的核验、修复排序 |
 | [用户手册 `docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | 端到端操作向导。**内容截至 2026-08-04，早于主线转向反向构造** |

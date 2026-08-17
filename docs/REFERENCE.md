@@ -280,7 +280,9 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 | `AIBENCH_RETRY_BACKOFF_MAX` | `20.0` | 可选 | 退避上限（秒） |
 | `AIBENCH_REQUEST_TIMEOUT` | `240` | 可选 | Agent 单次 LLM 请求超时（秒），上限为该 case 的 `max_wall_time_s`。默认 120 时慢网关下实测 5–9% infra 错误 |
 | `AIBENCH_GENERATE_TIMEOUT` | `300` | 可选 | `generate-cases` 单次 LLM 请求超时（秒）；推理模型出整份 case JSON 常需 2 分钟以上 |
-| `AIBENCH_CASE_RETRY` | `2` | 可选 | case 因 **infra_error** 整 case 重跑次数 |
+| `AIBENCH_CASE_RETRY` | `2` | 可选 | case 因 **infra_error** 整 case 重跑次数。也可写进 run YAML 的 `case_retry:`（**优先**），这样它会落进 manifest —— 只走环境变量时，一次跑测重试了几次在任何产物里都看不出来 |
+| `AIBENCH_ALLOW_UNSANDBOXED` | 无 | 可选 | **Linux 上跑 opencode 必读**。沙箱靠 `sandbox-exec`，那是 macOS 独有的；没有它，被测 agent 能读到本 case 自己的答案。默认拒跑并把每条 case 记成 `infra_error`。设为 `1` 表示知情照跑，产物里会记 `sandboxed=false`；或在 agent 配置里写 `options.sandbox: false`（同样是一次有记录的选择） |
+| `AIBENCH_CASE_ROOT` | `benchmarks/ai_coding/cases` | 可选 | 生成用例集的根目录。指向别处即视为「刻意隔离」，`seed-v0` 这类与 fixture 同名的集合不再报冲突 |
 | `AIBENCH_USD_PER_MTOK` | 无 | 可选 | 统一 $/百万 tokens 估算成本 |
 | `AIBENCH_USD_PER_MTOK_INPUT` | `0.5` | 可选 | 分项时 input 单价 |
 | `AIBENCH_USD_PER_MTOK_OUTPUT` | `1.5` | 可选 | 分项时 output 单价；未设 blended 时用 (in+out)/2 |

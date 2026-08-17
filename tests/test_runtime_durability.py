@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -165,7 +166,11 @@ write_json(__import__("pathlib").Path(target), payload)
             encoding="utf-8",
         )
         proc = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
-        assert proc.returncode != 0, "the child was supposed to die mid-write"
+        # The specific signal, not merely "nonzero". A child that died of an ImportError before
+        # reaching the write would satisfy `!= 0` and prove nothing about atomicity.
+        assert proc.returncode == -signal.SIGKILL, (
+            f"expected SIGKILL mid-write, got {proc.returncode}; stderr: {proc.stderr[-500:]}"
+        )
 
         # The old contents survive, and nothing that a reader globs for is left behind.
         assert json.loads(target.read_text(encoding="utf-8")) == {"case_id": "original"}
