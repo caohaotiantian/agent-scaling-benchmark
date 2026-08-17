@@ -67,7 +67,19 @@ M15 的收窄版本成立（`llm_judge` 是 env-only）。判分结果现在会�
 只剩一个 `clamp.py` 复现，已加 `assert_disposable` 守卫。`tests/conftest.py::guard_the_checkout`
 抓的是**复发**，不是病因 —— 两者不要混为一谈。
 
-## 六、门禁
+## 六、一处非计划内的改动，交给 owner 决定
+
+`uv.lock` 的包索引从 `pypi.tuna.tsinghua.edu.cn` 变成了 `pypi.org` / `files.pythonhosted.org`
+（2,214 行）。这是固定环境那次提交里 `uv` 重新求解的副作用，不是任何一条审计发现要求的。
+
+**实测：只有索引地址变了。** 包名、版本、**哈希**三者在两个方向上完全一致；只有 `cycler`
+多出 `size` 与 `upload-time` 两个字段——镜像没提供它们。也就是说装出来的字节完全相同。
+
+保留的理由是审计 Part A 本身：它问的是「另一个人能不能 clone 到一个干净环境里复现」，而锁文件
+里写着一个区域镜像，对那张网之外的人答案是不能。但这动到的是 owner 的基础设施选择，所以写在这里
+而不是等人发现。要退回：`git checkout 982a9c4 -- uv.lock`。
+
+## 七、门禁
 
 每次提交都跑：`ruff format --check` + `ruff check`（src / tests / scripts）·`pytest`（940 条）·
 `scripts/e2e_pipeline.sh --dry-run` ·`scripts/check_doc_links.py`（23 份文档 0 问题）·
