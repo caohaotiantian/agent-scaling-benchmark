@@ -1,7 +1,8 @@
 # 对 `docs/AUDIT-2026-08-17.md` 的回应
 
 **分支** `fix/audit-2026-08-17`，基线 `982a9c41af9877ae3ac637c7a471de655278d76a`。
-十三次提交，测试从 713 增至 940，全部门禁绿。
+测试从基线的 **713** 条增至 **943** 条，全部门禁绿。
+（这两个数会随后续提交变化。要现算：`uv run pytest tests/ -q` 的最后一行，以及 `git log --oneline 982a9c4..HEAD | wc -l`。）
 
 本文引用的 `runs/*` 目录都是**本地产物，未随仓库分发**（`runs/` 已 gitignore），
 clone 里不存在；写出目录名是为了让还留着这些产物的机器可以复核。
@@ -81,7 +82,7 @@ M15 的收窄版本成立（`llm_judge` 是 env-only）。判分结果现在会�
 
 ## 七、门禁
 
-每次提交都跑：`ruff format --check` + `ruff check`（src / tests / scripts）·`pytest`（940 条）·
+每次提交都跑：`ruff format --check` + `ruff check`（src / tests / scripts）·`pytest` ·
 `scripts/e2e_pipeline.sh --dry-run` ·`scripts/check_doc_links.py`（23 份文档 0 问题）·
 `scripts/build_docs_html.py` 后 `git diff --exit-code docs/html` ·`aibench doctor` ·
 `scripts/instrument_check.py`（现已上 CI）· 对全部入库文件的 secrets 扫描。
