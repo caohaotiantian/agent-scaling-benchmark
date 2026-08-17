@@ -40,10 +40,36 @@ def is_case_json_path(path: Path) -> bool:
     return path.suffix == ".json" and not name.startswith("_")
 
 
+#: Sets that a clone does have, because they are committed as test fixtures.
+_FIXTURE_SETS = ("seed-v0", "_t4fixture")
+
+
+def missing_case_set_message(case_set: str, directory: Path) -> str:
+    """Say what to do about it, not only that it is absent.
+
+    `aibench run --case-set auto-v0` in a fresh clone used to die on a bare `FileNotFoundError`
+    naming a path — which is true and useless, because no case set is in the repository at all
+    and the reader has no way to know that from the message. The sets are gitignored by an
+    incident-motivated policy, so "not found" is the *expected* state here rather than a
+    misconfiguration.
+    """
+    return (
+        f"Case set not found: {directory}\n"
+        f"No case set ships with this repository: `.gitignore` excludes "
+        f"`benchmarks/ai_coding/cases/*/` by shape, after a `git add -A` once committed 3,551 "
+        f"files of production source including a live key.\n"
+        f"  build one:   uv run python -m aibench generate-cases --reverse "
+        f"--input-dir <drafts> --output-dir benchmarks/ai_coding/cases/{case_set}\n"
+        f"  or the whole pipeline:  ./scripts/e2e_pipeline.sh\n"
+        f"  offline, with the committed fixtures:  --case-set {_FIXTURE_SETS[0]}\n"
+        f"  offline smoke test:  ./scripts/e2e_pipeline.sh --dry-run"
+    )
+
+
 def iter_case_paths(case_set: str) -> list[Path]:
     d = case_set_dir(case_set)
     if not d.is_dir():
-        raise FileNotFoundError(f"Case set not found: {d}")
+        raise FileNotFoundError(missing_case_set_message(case_set, d))
     return sorted(p for p in d.glob("*.json") if is_case_json_path(p))
 
 

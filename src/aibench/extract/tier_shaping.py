@@ -287,6 +287,44 @@ def shape_for_tier(case_dict: dict[str, Any], tier: str) -> dict[str, Any]:
     return case_dict
 
 
+def label_tier(case_dict: dict[str, Any]) -> tuple[str, list[str]]:
+    """Label a case with the highest tier its material *already* satisfies. Never reshapes it.
+
+    :func:`settle_tier` is the generator-side function: it tries each tier by transforming a
+    copy until one holds. That is right for a case the model just wrote and wrong for a
+    reverse-constructed one, where the stub and the reference solution are two real versions of
+    the same file. ``shape_for_tier`` would run ``strip_defect_markers`` over the stub and not
+    over ``gold_files``, so the "both sides are the file as the trace found and left it"
+    property that the whole construction rests on would stop being true — and every existing
+    reverse case's fingerprint would move.
+
+    So this only *reads*. It exists because leaving ``metadata.tier`` unset is not free:
+    ``validity.audit_case`` skips :func:`~aibench.tiers.check_tier_invariants` **and** the
+    prompt-disclosure verdict when the tier is falsy, so "the prompt gives the defect away" was
+    never checked on any reverse case. A label is enough to arm both.
+
+    Returns ``("", notes)`` when no tier's invariants hold. That is the honest answer, not a
+    failure: a case whose material meets nothing stays unlabelled and both gates stay off for
+    it, exactly as before. ``notes`` then says why each tier was rejected.
+    """
+    notes: list[str] = []
+    trial = deepcopy(case_dict)
+    for tier in reversed(TIER_ORDER):
+        meta = trial.setdefault("metadata", {})
+        meta["tier"] = tier
+        check = check_tier_invariants(Case.from_dict(trial))
+        errors = [v for v in check.violations if v.severity != "warn"]
+        if errors:
+            notes.append(f"{tier}: " + "; ".join(v.code for v in errors))
+            continue
+        target = case_dict.setdefault("metadata", {})
+        target["tier"] = tier
+        target["capability_axes"] = axes_for_tier(tier)
+        target["tier_facts"] = check.facts
+        return tier, notes
+    return "", notes
+
+
 def settle_tier(case_dict: dict[str, Any], requested: str) -> tuple[str, list[str]]:
     """Label the case with the highest tier its material actually supports.
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,56 @@ from aibench.runner import run_benchmark
 from aibench.secrets_scan import scan_case_dir
 from aibench.stats import mcnemar_sample_size, observed_discordance
 from aibench.tiers import TIER_ORDER
+
+
+def _draft_query_params(paths: list[Path]) -> dict[str, Any] | None:
+    """The DB query window the drafts came from, read off the drafts themselves.
+
+    Recorded rather than made mandatory. Requiring `--since`/`--until` would be the stronger
+    fix, but it breaks every existing invocation and does not help the sets already on disk;
+    recording what the query actually was identifies the slice just as well and can be applied
+    retroactively by whoever holds the drafts.
+    """
+    for path in paths:
+        try:
+            meta = (load_json(path).get("metadata") or {}).get("db_query")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if meta:
+            return dict(meta)
+    return None
+
+
+def _stamp_generation_provenance(
+    case: dict[str, Any],
+    *,
+    draft_query: dict[str, Any] | None,
+    reverse: bool,
+) -> None:
+    """Record what produced this case, in the one object the schema leaves open.
+
+    Cases are LLM-written at `temperature: 0` with no seed and no pinned generator model,
+    against a table read `ORDER BY start_time DESC LIMIT n`. Nothing stamped the generator, the
+    harness or the query window, so every regenerated case got a new fingerprint and no tracked
+    calibration was reusable or comparable — and there was no way to tell *why* two runs of the
+    same command produced different corpora.
+
+    Does not restore identity retroactively. It stops the drift going forward and makes the
+    next divergence attributable.
+    """
+    from aibench.provenance import git_revision, harness_digest
+
+    meta = case.setdefault("metadata", {})
+    settings = openai_settings()
+    meta["generator"] = {
+        "model": settings.get("model") if reverse else (settings.get("model") or "heuristic"),
+        "temperature": 0,
+        "seed": None,  # the gateway takes none; stated so its absence is not read as unrecorded
+        "code_version": git_revision(),
+        "harness_digest": harness_digest(),
+    }
+    if draft_query:
+        meta["db_query"] = draft_query
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -166,6 +217,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         choices=list(TIER_ORDER),
         help="Force a target tier for every draft (default: the tier its trace suggests)",
+    )
+    p_gen.add_argument(
+        "--no-deduplicate",
+        action="store_true",
+        help="Keep cases whose (stub, reference solution) pair was already written. Off by "
+        "default: reverse construction draws from a trace, different rows of one session replay "
+        "the same edit, and the model writes a different prompt and different tests for each — "
+        "so `duplicate_fingerprint` sees nothing while n is inflated and paired outcomes are "
+        "correlated. Measured on `_rev2026`: 134 cases collapse to 66 unique pairs.",
     )
     p_gen.add_argument(
         "--reverse",
@@ -477,15 +537,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "run":
-        run_dir = run_benchmark(
-            run_config_path=args.run_config,
-            agent_config_path=args.agent,
-            model_config_path=args.model,
-            case_set=args.case_set,
-            run_id=args.run_id,
-            output_root=args.output_root,
-            case_workers=args.workers,
-        )
+        try:
+            run_dir = run_benchmark(
+                run_config_path=args.run_config,
+                agent_config_path=args.agent,
+                model_config_path=args.model,
+                case_set=args.case_set,
+                run_id=args.run_id,
+                output_root=args.output_root,
+                case_workers=args.workers,
+            )
+        except (FileNotFoundError, RuntimeError) as e:
+            # A missing case set is the *expected* state in a fresh clone, and an unusable node
+            # is a machine problem — neither is worth a traceback the reader has to decode.
+            print(str(e))
+            return 1
         summary = load_json(run_dir / "summary.json")
         print(f"run_dir={run_dir}")
         print(
@@ -547,11 +613,29 @@ def main(argv: list[str] | None = None) -> int:
         out.mkdir(parents=True, exist_ok=True)
         written = 0
 
+        # `ORDER BY start_time DESC LIMIT n` with `--since`/`--until` defaulting to None means
+        # "the last n rows", which is a different n rows every day. Stamped on every draft so a
+        # case built from it can say which slice of the table it came from.
+        db_query = {
+            "limit": args.limit,
+            "max_cases": args.max_cases,
+            "since": args.since,
+            "until": args.until,
+            "min_messages": args.min_messages,
+            "max_messages": args.max_messages,
+            "only_opencode": not args.all_agents,
+            "require_gold": args.require_gold,
+            "require_edits": args.require_edits,
+            "require_usable_pair": args.require_usable_pair,
+            "extracted_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+
         def _persist(d: dict[str, Any]) -> None:
             # Written as each draft is built rather than after the whole scan: a pull of
             # several thousand traces runs for many minutes, and a run killed part-way used to
             # leave an empty directory with nothing to show for the time.
             nonlocal written
+            d.setdefault("metadata", {})["db_query"] = db_query
             write_json(out / f"{d['case_id']}.json", d)
             written += 1
             if written % 100 == 0:
@@ -655,7 +739,12 @@ def main(argv: list[str] | None = None) -> int:
 
         min_tier_rank = TIER_ORDER.index(args.min_tier) if args.min_tier else -1
 
-        sink = CaseSink(out, max_cases=args.max_cases, resume=args.resume)
+        sink = CaseSink(
+            out,
+            max_cases=args.max_cases,
+            resume=args.resume,
+            deduplicate=not args.no_deduplicate,
+        )
         if sink.resumed:
             print(
                 f"resuming: {sink.resumed} case(s) already written and "
@@ -686,14 +775,27 @@ def main(argv: list[str] | None = None) -> int:
             reverse_chat = chat_json(settings)
 
         tier_counts_seen: dict[str, int] = {}
+        # The query window a draft came from, carried forward so a case says which slice of the
+        # table produced it. `extract-from-db` reads `ORDER BY start_time DESC LIMIT n` with
+        # `--since`/`--until` defaulting to None, so "the last 100 rows" means a different 100
+        # every day and nothing recorded which.
+        draft_query = _draft_query_params(paths)
 
         def _keep(path: Path, case: dict[str, Any], label: str) -> dict[str, Any] | None:
             """Write the case now. A run killed later keeps everything it already paid for."""
+            _stamp_generation_provenance(case, draft_query=draft_query, reverse=args.reverse)
             status = sink.emit(path.name, case)
             if status == "full":
                 return None
             if status == "collision":
                 print(f"skip {path.name}: case_id {case['case_id']} already written", flush=True)
+                return None
+            if status == "duplicate":
+                print(
+                    f"skip {path.name}: same (stub, reference solution) as a case already "
+                    f"written — different trace rows replaying one edit",
+                    flush=True,
+                )
                 return None
             settled = (case.get("metadata") or {}).get("tier") or "unset"
             tier_counts_seen[settled] = tier_counts_seen.get(settled, 0) + 1
@@ -782,6 +884,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"WARNING: dropped {len(collisions)} case(s) whose case_id was already taken "
                 f"({len(set(collisions))} distinct: {shown}...). The generator produced the "
                 "same id for different drafts; the first one written wins."
+            )
+        if sink.duplicates:
+            print(
+                f"deduplicated {len(sink.duplicates)} case(s) carrying a (stub, reference "
+                "solution) pair already written. Different rows of one trace session replay the "
+                "same edit; the model then writes a different prompt and different tests for "
+                "each, so `duplicate_fingerprint` never sees them. Measured on `_rev2026`: 134 "
+                "cases, 66 unique pairs. Pass --no-deduplicate to keep them."
             )
         if tier_counts:
             print(

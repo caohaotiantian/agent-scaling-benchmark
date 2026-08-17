@@ -154,6 +154,12 @@ class RunConfig:
     agent_config_path: str
     model_config_path: str
     case_workers: int = 1
+    #: The `set_fingerprint` this run is supposed to be measuring. Recorded and *compared*:
+    #: the manifest has always carried the measured value, and nothing checked it, so a
+    #: corpus that drifted underneath a config produced a number filed against the old set.
+    #: `_revmixed` is the live case — its 31 prompts were later translated to Chinese, so it
+    #: reproduces 0 of 31 recorded fingerprints while looking like the same set.
+    expected_case_set_fingerprint: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any], base_dir: Path | None = None) -> RunConfig:
@@ -174,6 +180,7 @@ class RunConfig:
             agent_config_path=d.get("agent_config", "configs/agents/mock.yaml"),
             model_config_path=d.get("model_config", "configs/models/mock-model.yaml"),
             case_workers=int(d.get("case_workers", 1)),
+            expected_case_set_fingerprint=d.get("expected_case_set_fingerprint"),
         )
 
 

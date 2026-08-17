@@ -55,6 +55,14 @@ PRE_FROM_AMBIGUOUS_PATH = "ambiguous_path"
 #: How a read's own report maps onto what it vouches for.
 _READ_ORIGIN = {READ_COMPLETE: PRE_FROM_READ, READ_UNKNOWN: PRE_FROM_UNLABELLED_READ}
 
+#: `post` is the file after the last edit replay could locate.
+POST_FROM_EDIT = "edit"
+#: `post` is what a later `write` call put there. Replay used to stop updating `post` once an
+#: edit had created the pair, so a trace that edited a file and then rewrote it whole shipped the
+#: *intermediate* state as the reference solution while `pre_origin` still read `read_complete` —
+#: a gold file that was never the file as the engineer left it.
+POST_FROM_TOOL_WRITE = "tool_write"
+
 
 @dataclass
 class FileVersion:
@@ -65,6 +73,7 @@ class FileVersion:
     post: str
     edits: int = 0
     pre_origin: str = PRE_FROM_READ
+    post_origin: str = POST_FROM_EDIT
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +82,7 @@ class FileVersion:
             "post": self.post,
             "edits": self.edits,
             "pre_origin": self.pre_origin,
+            "post_origin": self.post_origin,
         }
 
 
@@ -477,6 +487,15 @@ def replay_file_versions(
                     if k not in original:
                         written_first.add(k)
                     seen[k] = body
+                    # A write *after* an edit is the state the engineer left the file in, and
+                    # replay used to leave `post` on the intermediate edit — so the reference
+                    # solution was a version that never existed as a finished file. Recorded as
+                    # such rather than silently folded in: a `post` the trace wrote wholesale is
+                    # weaker evidence than one replay reconstructed edit by edit.
+                    fv = current.get(k)
+                    if fv is not None and fv.post != body:
+                        fv.post = body
+                        fv.post_origin = POST_FROM_TOOL_WRITE
                 continue
 
             if name not in _EDIT_TOOLS:

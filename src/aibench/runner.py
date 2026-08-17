@@ -350,6 +350,19 @@ def run_benchmark(
         set_fp = set_fingerprint(cases)
     except Exception:
         set_fp = None
+    # Recorded *and* compared. The manifest has always carried the measured fingerprint and
+    # nothing ever checked it, so a corpus that drifted underneath a config produced a number
+    # filed against the set it no longer was — `_revmixed` reproduces 0 of its 31 recorded
+    # fingerprints because the prompts were later translated, while still being called
+    # `_revmixed` everywhere.
+    expected_fp = run_cfg.expected_case_set_fingerprint
+    if expected_fp and set_fp != expected_fp:
+        raise RuntimeError(
+            f"case set {cs!r} has fingerprint {set_fp}, but {run_cfg_path.name} expects "
+            f"{expected_fp}. The corpus is not the one this config was written against; "
+            f"comparing the result against an earlier number would be comparing two sets. "
+            f"Update `expected_case_set_fingerprint` only if the drift is intended."
+        )
 
     from aibench.provenance import environment
 
@@ -364,6 +377,7 @@ def run_benchmark(
         "benchmark_name": run_cfg.benchmark_name,
         "case_set": cs,
         "case_set_fingerprint": set_fp,
+        "expected_case_set_fingerprint": expected_fp,
         "case_count": len(cases),
         "case_workers": workers,
         "grouping": run_cfg.grouping,

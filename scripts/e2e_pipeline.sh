@@ -29,6 +29,7 @@ CASE_SET_DIR="$ROOT/benchmarks/ai_coding/cases/auto-v0"
 SKIP_EXTRACT=0
 HEURISTIC_ONLY=0
 STRICT_AUDIT=0
+FORWARD=0
 OUT_ROOT="$ROOT/runs"
 WORKERS=""
 TIER=""
@@ -52,6 +53,10 @@ Production defaults:
   --heuristic-only     Generate cases without LLM
   --strict-audit       Abort if any generated case fails an error-level validity gate
                        (default: annotate the verdict; \`ablation\` then excludes those cases)
+  --forward            Use forward generation (the model invents the defect) instead of the
+                       default reverse construction. Kept because three intervention
+                       experiments judged the forward path ineffective and reproducing that
+                       negative result needs the path to still exist — it is not a live option.
   --limit N            DB scan limit (default 100)
   --max-cases N        Max generated cases (default 8)
   --matrix PATH        Ablation matrix YAML
@@ -75,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     --skip-extract) SKIP_EXTRACT=1; shift ;;
     --heuristic-only) HEURISTIC_ONLY=1; shift ;;
     --strict-audit) STRICT_AUDIT=1; shift ;;
+    --forward) FORWARD=1; shift ;;
     --limit) LIMIT="$2"; shift 2 ;;
     --max-cases) MAX_CASES="$2"; shift 2 ;;
     --matrix) MATRIX="$2"; shift 2 ;;
@@ -136,7 +142,8 @@ if [[ "$SKIP_EXTRACT" -eq 0 ]]; then
     --output-dir "$DRAFT_DIR" \
     --limit "$LIMIT" \
     --max-cases "$((MAX_CASES * 3))" \
-    --require-gold
+    --require-gold \
+    --require-edits
 fi
 
 echo "==> filter-drafts"
@@ -150,6 +157,23 @@ mkdir -p "$KEPT_DIR" "$ROOT/.e2e-artifacts"
 echo "==> generate-cases"
 mkdir -p "$CASE_SET_DIR"
 GEN_FLAGS=(--input-dir "$KEPT_DIR" --output-dir "$CASE_SET_DIR" --max-cases "$MAX_CASES" --audit --secrets-scan)
+# Reverse construction is the main line and is now what this pipeline runs. `--reverse` is a
+# `store_true` flag, so the forward branch — where the model invents both the defect and the
+# task, "inspired by this real user request (do NOT require the original repo)" — was the
+# default, and `grep -rn reverse scripts/e2e_pipeline.sh` used to return nothing: the one-click
+# pipeline could not even opt in. Forward generation was judged ineffective by three
+# intervention experiments; the code stays so that result stays reproducible, behind --forward.
+#
+# Not added to the dry-run branch above, deliberately: `--reverse` always calls a live model
+# (`cli.py` returns 1 without OPENAI_API_KEY/BASE_URL/MODEL and takes that branch before
+# `--heuristic-only` is read), and the dry-run is what CI executes with no secrets.
+if [[ "$FORWARD" -eq 1 ]]; then
+  echo "==> WARNING: forward generation. Three intervention experiments found it produces no"
+  echo "    difficulty signal: case size correlates +0.07, source-trace complexity |r| < 0.225"
+  echo "    with the sign reversed, and suppressing prompt disclosure did nothing."
+elif [[ "$HEURISTIC_ONLY" -eq 0 ]]; then
+  GEN_FLAGS+=(--reverse)
+fi
 if [[ "$HEURISTIC_ONLY" -eq 1 ]]; then
   GEN_FLAGS+=(--heuristic-only)
 fi
