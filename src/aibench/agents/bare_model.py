@@ -36,6 +36,7 @@ from typing import Any
 import httpx
 
 from aibench.agents.base import AgentAdapter, request_timeout_s
+from aibench.languages import spec_for_path
 from aibench.models import AgentConfig, AgentRunResult, Case, ModelConfig, StepRecord, UsageRecord
 
 #: Any fenced block. The largest one wins: models often precede the file with a short fenced
@@ -63,6 +64,17 @@ def extract_code(text: str) -> str:
     return (text or "").strip()
 
 
+def _is_test_file(path: str) -> bool:
+    """Whether the runner that grades this case would discover ``path`` as a test.
+
+    Consulted alongside `role`, never instead of it: `role` is optional and defaults to `impl`,
+    so a case that omits it — every committed `seed-v0` case does — labels its test files as
+    implementations.
+    """
+    spec = spec_for_path(path)
+    return bool(spec and spec.is_test_path(path))
+
+
 class BareModelAgent(AgentAdapter):
     """One call, one file back, no scaffold."""
 
@@ -86,12 +98,20 @@ class BareModelAgent(AgentAdapter):
         one-file prompt cannot exercise — so the run reported a number against an axis the
         submission never saw, and the case's other files were simply absent from the task. It
         refuses now: an unposable case is a harness failure, not a hard one.
+
+        "Implementation file" is decided by filename as well as by label. ``role`` is optional
+        and :meth:`FileBlob.from_dict` defaults it to ``impl``, so a case that omits it — which
+        all four committed `seed-v0` cases do — has every file counted as an implementation,
+        `test_fizzbuzz.py` included. Counting labels alone made two of those four unposable.
         """
-        impls = [f for f in case.files if f.role == "impl"]
+        impls = [f for f in case.files if f.role == "impl" and not _is_test_file(f.path)]
         if len(impls) != 1:
             return None
         impl = impls[0]
-        test = next((f for f in case.files if f.role == "test"), None)
+        test = next(
+            (f for f in case.files if f.role == "test" or _is_test_file(f.path)),
+            None,
+        )
         parts = [
             f"Task: {case.prompt}",
             f"File to fix: {impl.path}\n```\n{impl.content}\n```",

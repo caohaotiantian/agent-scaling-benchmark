@@ -37,7 +37,7 @@ jobs:
       # The incident this repository is recovering from is a commit carrying a live key. The
       # pre-commit hook catches it on the author's machine; this catches it on everyone else's.
       - name: Secrets scan (tracked files)
-        run: git ls-files -z | xargs -0 uv run python -m aibench secrets-scan --files
+        run: git ls-files -z | xargs -0 -r uv run python -m aibench secrets-scan --files
       - name: Docs links
         run: uv run python scripts/check_doc_links.py
       # The site builds only from `docs/html/_src/*.html`, so a committed page can drift from

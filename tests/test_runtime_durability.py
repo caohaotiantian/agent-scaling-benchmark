@@ -42,7 +42,7 @@ class TestTheGraderCannotDiscardARun:
     def test_a_raising_grader_becomes_an_infra_error_row(self, tmp_path, monkeypatch):
         import aibench.runner as runner
 
-        def _boom(case, workspace):
+        def _boom(case, workspace, **_kwargs):
             raise IsADirectoryError("the agent created a directory at the hidden test's name")
 
         monkeypatch.setattr(runner, "grade_case", _boom)

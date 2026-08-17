@@ -16,6 +16,9 @@ def case_schema_path() -> Path:
 #: `tests/fixtures/case_sets/seed-v0` and never anywhere else.
 FIXTURE_PREFIX = "fixture:"
 
+#: The mirror escape: `generated:seed-v0` resolves to the corpus root and never to the fixture.
+GENERATED_PREFIX = "generated:"
+
 #: Overrides where generated case sets live. Exists so a test can put the whole namespace under
 #: its `tmp_path` instead of writing `_test_*` directories into the checkout, which several
 #: tests did — and which is one deletion away from the incident `.gitignore` records.
@@ -33,30 +36,50 @@ def fixture_case_set_root() -> Path:
     return repo_root() / "tests/fixtures/case_sets"
 
 
+def case_root_is_overridden() -> bool:
+    """Whether the operator pointed the corpus root somewhere deliberately."""
+    import os
+
+    return bool(os.environ.get(CASE_ROOT_ENV))
+
+
 def case_set_dir(case_set: str) -> Path:
     """Resolve case set directory.
 
     Search order:
       1. ``fixture:<name>``                → tests/fixtures/case_sets/<name>, unconditionally
-      2. ``$AIBENCH_CASE_ROOT``/<set>      (default: benchmarks/ai_coding/cases/<set>)
-      3. tests/fixtures/case_sets/<set>    (unit-test fixtures only)
+      2. ``generated:<name>``              → the corpus root, unconditionally
+      3. ``$AIBENCH_CASE_ROOT``/<set>      (default: benchmarks/ai_coding/cases/<set>)
+      4. tests/fixtures/case_sets/<set>    (unit-test fixtures only)
 
     The generated location wins over the fixture, which is right for a name like `auto-v0` and
     dangerous for a name the test suite asserts against: a local `benchmarks/ai_coding/cases/
     seed-v0` would silently replace the four committed cases every `seed-v0` assertion is
     written for, and nothing would say so. Shadowing a fixture name therefore raises rather
-    than resolving, and `fixture:` is the escape for anyone who means the fixture.
+    than resolving — but only when the corpus root is the default one, and both escapes exist:
+    `fixture:` for the committed cases, `generated:` for the shadowing set. A bare raise whose
+    only remedy is "rename it" is a dead end on the two commands most likely to hit it,
+    `promote` and `calibrate`.
+
+    ``$AIBENCH_CASE_ROOT`` suppresses the check entirely. Pointing the root at a scratch
+    directory is how an operator asks for an isolated corpus, and refusing `seed-v0` there —
+    because a fixture of that name exists in the checkout — made the override unusable for
+    exactly the sets the suite cares about.
     """
     if case_set.startswith(FIXTURE_PREFIX):
         return fixture_case_set_root() / case_set[len(FIXTURE_PREFIX) :]
+    if case_set.startswith(GENERATED_PREFIX):
+        return case_set_root() / case_set[len(GENERATED_PREFIX) :]
     primary = case_set_root() / case_set
     fixture = fixture_case_set_root() / case_set
     if primary.is_dir():
-        if fixture.is_dir():
+        if fixture.is_dir() and not case_root_is_overridden():
             raise ValueError(
                 f"case set {case_set!r} exists both at {primary} and as a committed fixture at "
                 f"{fixture}. The generated one would win and silently replace what the test "
-                f"suite asserts against. Rename it, or ask for {FIXTURE_PREFIX}{case_set}."
+                f"suite asserts against. Ask for {FIXTURE_PREFIX}{case_set} or "
+                f"{GENERATED_PREFIX}{case_set} to say which you mean, set "
+                f"{CASE_ROOT_ENV} to an isolated root, or rename it."
             )
         return primary
     if fixture.is_dir():

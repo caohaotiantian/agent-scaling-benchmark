@@ -231,7 +231,7 @@ class TestAGeneratedCaseSaysWhatMadeIt:
         from aibench.cli import _stamp_generation_provenance
 
         raw = _case()
-        _stamp_generation_provenance(raw, draft_query={"limit": 100}, reverse=True)
+        _stamp_generation_provenance(raw, draft_query={"limit": 100}, model_called=True)
         generator = raw["metadata"]["generator"]
         assert set(generator) == {"model", "temperature", "seed", "code_version", "harness_digest"}
         assert generator["harness_digest"]
@@ -243,8 +243,22 @@ class TestAGeneratedCaseSaysWhatMadeIt:
         from aibench.cli import _stamp_generation_provenance
 
         raw = _case()
-        _stamp_generation_provenance(raw, draft_query={"limit": 1}, reverse=False)
+        _stamp_generation_provenance(raw, draft_query={"limit": 1}, model_called=False)
         assert not list(load_schema_validator().iter_errors(raw))
+
+    def test_a_case_no_model_wrote_does_not_name_one(self, monkeypatch):
+        """`OPENAI_MODEL` is set on any machine configured to generate, so reading it here
+        stamped `--heuristic-only` output with a model that was never called."""
+        from aibench.cli import _stamp_generation_provenance
+
+        monkeypatch.setenv("OPENAI_MODEL", "GLM-5.2")
+        raw = _case()
+        _stamp_generation_provenance(raw, draft_query=None, model_called=False)
+        assert raw["metadata"]["generator"]["model"] == "heuristic"
+
+        other = _case()
+        _stamp_generation_provenance(other, draft_query=None, model_called=True)
+        assert other["metadata"]["generator"]["model"] == "GLM-5.2"
 
 
 class TestALaterWriteIsTheFinalState:

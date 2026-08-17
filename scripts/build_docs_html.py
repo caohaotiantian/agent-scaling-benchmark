@@ -27,7 +27,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 #: An absolute path under a user's home directory, in any of the three common layouts.
 #: Scrubbed from the built pages so a hand-written fragment cannot publish one by accident.
-_HOME_PATH = re.compile(r"(?:/Users|/home|C:\\\\Users)[/\\\\][^\\s\"'<>)]+")
+#:
+#: The character class is spelled out rather than abbreviated. A first version wrote
+#: ``[^\\s\"'<>)]`` — inside a raw string that excludes a backslash and the *letter* ``s``, not
+#: whitespace — so a home path was truncated at the first ``s`` in the account name and
+#: everything after it was published verbatim. The Windows branch had the same fault from the
+#: other side: ``C:\\\\Users`` in a raw string matches a literal ``C:\\Users`` with two
+#: backslashes, which no real path has. `tests/test_artifact_provenance.py` runs the
+#: substitution against real inputs rather than grepping the source for this variable's name,
+#: which is what let both faults through.
+_HOME_PATH = re.compile(r"(?:/Users|/home|C:\\Users)[/\\][^\s\"'<>)\]]+")
 OUT = ROOT / "docs" / "html"
 ASSETS = OUT / "assets"
 SRC = OUT / "_src"

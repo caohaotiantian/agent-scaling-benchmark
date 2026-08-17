@@ -108,23 +108,24 @@ class TestNoArtifactNamesThisMachine:
     `/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/...` in `run_dir` and
     结果目录, and every manifest carried `python_executable` and `working_directory`."""
 
-    def test_paths_are_repo_relative(self, tmp_path):
+    def test_paths_are_repo_relative(self, tmp_path, monkeypatch):
+        """The run lands under a *stand-in* repository root, not the live checkout. Writing a
+        real run into `ROOT/runs` to prove a path is relative leaves the suite mutating the
+        working tree it is testing — and `runs/` is the one directory nothing cleans up."""
+        import aibench.io_util as io_util
         from aibench.io_util import load_json
         from aibench.runner import run_benchmark
 
+        monkeypatch.setattr(io_util, "repo_root", lambda: tmp_path)
         run_dir = run_benchmark(
             run_config_path=ROOT / "tests/fixtures/configs/runs/baseline.mock.yaml",
             case_set="seed-v0",
-            output_root=ROOT / "runs" / "_test_relpaths",
+            output_root=tmp_path / "runs",
         )
-        try:
-            summary = load_json(run_dir / "summary.json")
-            for key in ("result_dir", "report_path", "raw_results_path"):
-                assert not summary[key].startswith("/"), f"{key} is absolute: {summary[key]}"
-        finally:
-            import shutil
-
-            shutil.rmtree(ROOT / "runs" / "_test_relpaths", ignore_errors=True)
+        summary = load_json(run_dir / "summary.json")
+        for key in ("result_dir", "report_path", "raw_results_path"):
+            assert not summary[key].startswith("/"), f"{key} is absolute: {summary[key]}"
+            assert summary[key].startswith("runs/"), summary[key]
 
     def test_a_path_outside_the_repo_is_left_alone(self, tmp_path):
         """Honesty over tidiness: an `--output-root /tmp/...` really is absolute, and rewriting
@@ -133,13 +134,52 @@ class TestNoArtifactNamesThisMachine:
 
         assert relative_to_repo(tmp_path / "x") == str(tmp_path / "x")
 
-    def test_the_docs_build_scrubs_any_home_directory_not_one_literal(self):
-        """`build_docs_html.py` carried another engineer's home path as a replacement *target*
-        — harmless in effect, still a leaked path in a tracked file, and it had long stopped
-        matching anything in `_src/`."""
+    def _scrubber(self):
+        """The compiled pattern from the build script, loaded rather than re-declared."""
+        import importlib.util
+        import sys
+
+        spec = importlib.util.spec_from_file_location(
+            "_docs_build_probe", ROOT / "scripts/build_docs_html.py"
+        )
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        try:
+            spec.loader.exec_module(module)
+            return module._HOME_PATH
+        finally:
+            sys.modules.pop(spec.name, None)
+
+    def test_the_build_script_carries_no_home_path_of_its_own(self):
+        """It held another engineer's home directory as a replacement *target* — harmless in
+        effect, still a leaked path in a tracked file, and it had stopped matching anything in
+        `_src/` long before that was noticed."""
         body = (ROOT / "scripts/build_docs_html.py").read_text(encoding="utf-8")
         assert "lishanni" not in body
-        assert "_HOME_PATH" in body
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "see /Users/someone/code/study/outputs/x.xlsx here",
+            r"C:\Users\bob\proj\a.py",
+            "/home/engineer/secret/path.txt",
+            "<code>/Users/ab/cd</code>",
+        ],
+    )
+    def test_the_scrubber_removes_a_home_path(self, text):
+        """Run, not grepped for. The first version of this pattern was spelled
+        ``[^\\s\"'<>)]`` inside a raw string, which excludes a backslash and the *letter* `s`
+        rather than whitespace — so `/Users/lishanni/...` was cut at the `s` of the account name
+        and the remainder published. A test that checked the source for `_HOME_PATH` passed
+        throughout."""
+        assert "/Users/" not in self._scrubber().sub("<S>", text)
+        assert "/home/" not in self._scrubber().sub("<S>", text)
+        assert "Users\\" not in self._scrubber().sub("<S>", text)
+
+    @pytest.mark.parametrize("text", ["no path here at all", "relative/path/is/fine.py"])
+    def test_the_scrubber_leaves_ordinary_text_alone(self, text):
+        assert self._scrubber().sub("<S>", text) == text
 
 
 class TestARunThatNeverRanSaysSo:

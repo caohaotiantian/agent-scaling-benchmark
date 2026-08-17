@@ -219,10 +219,14 @@ def observed_discordance(pairwise: list[dict[str, Any]]) -> float | None:
 
     Self-repeats are excluded. A repeat matrix McNemars every row against `*-r1`, so two runs of
     the *same* configuration appear as a comparison — and their discordance is the harness's own
-    run-to-run noise, not a difference between configurations. Averaging that into the planner
-    understates the sample size a real comparison needs, because noise-only pairs are the ones
-    with the most discordant cases: measured on this corpus, 25.8%–32.3% of cases flip between
-    identical repeats.
+    run-to-run noise, not a difference between configurations.
+
+    Averaging them in understates the sample size a real comparison needs, and the mechanism is
+    the opposite of the intuitive one. `required_cases` rises monotonically with discordance
+    (ψ=0.05 → 243 cases, ψ=0.30 → 1470, at δ=0.04). On this corpus's 70 published pairwise
+    comparisons, self-repeats are the **least** discordant kind, not the most: 17 self-repeat
+    pairs mean 4.8% (max 19.4%) against 53 cross-configuration pairs at 14.9% (max 64.5%). So
+    pooling them pulls ψ down, and a lower ψ asks for fewer cases than the comparison needs.
     """
     comparable = [p for p in pairwise if not p.get("self_repeat") and p.get("comparable", True)]
     totals = [

@@ -266,7 +266,19 @@ _BINARY_SUFFIXES = frozenset(
 #: commit until it is edited, which is how a hook gets disabled. The marker also only reaches
 #: :func:`scan_paths`; case JSON always goes through the full case scan, so a generated case
 #: that happened to contain the string cannot exempt itself.
+#:
+#: It must sit in the file's header. As "anywhere in the file" it was an exemption any *later*
+#: line could claim — a real credential 400 lines below a fixture block was silently exempt,
+#: and so was one pasted into a file that merely quotes the marker.
 SYNTHETIC_MARKER = "aibench: synthetic-secrets"
+
+#: How far into a file the declaration may sit. All three fixtures declare it on line 2 or 3.
+_MARKER_HEADER_LINES = 5
+
+
+def declares_synthetic_secrets(text: str) -> bool:
+    """Whether ``text`` declares itself a credential fixture, in its header."""
+    return any(SYNTHETIC_MARKER in ln for ln in text.splitlines()[:_MARKER_HEADER_LINES])
 
 
 def scan_paths(paths: list[Path]) -> dict[str, Any]:
@@ -296,14 +308,22 @@ def scan_paths(paths: list[Path]) -> dict[str, Any]:
         if not p.is_file() or p.suffix.lower() in _BINARY_SUFFIXES:
             continue
         scanned += 1
+        findings = None
         if p.suffix == ".json" and is_case_json_path(p):
-            findings = scan_case_file(p)
-        else:
+            # `is_case_json_path` is a filename test, so `package.json`, `tsconfig.json` and a
+            # half-written case all reach here. Parsing is where it used to die: one malformed
+            # JSON anywhere in the commit took the whole hook down with a `JSONDecodeError`,
+            # and a hook that crashes is a hook that gets removed.
+            try:
+                findings = scan_case_file(p)
+            except (OSError, ValueError):
+                findings = None
+        if findings is None:
             try:
                 text = p.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            if SYNTHETIC_MARKER in text:
+            if declares_synthetic_secrets(text):
                 continue
             findings = scan_text(text, path=str(p), rules=FIXED_FORMAT_RULES)
         all_f.extend(f.to_dict() for f in findings)

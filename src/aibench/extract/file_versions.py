@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from aibench.extract.history_parse import (
+    PATH_TAIL_COMPONENTS,
     READ_COMPLETE,
     READ_PARTIAL,
     READ_UNKNOWN,
@@ -425,7 +426,12 @@ def _same_file(a: str, b: str) -> bool:
     """
     pa = [c for c in re.split(r"[\\/]", a.strip()) if c and c != "."]
     pb = [c for c in re.split(r"[\\/]", b.strip()) if c and c != "."]
-    n = min(len(pa), len(pb))
+    # At most three components, because three is all the truncating side ever records. Once
+    # `source_path` began preserving the untruncated spelling, two *full* paths could reach here
+    # and disagree above that window — `/Users/a/proj/src/calc.py` against
+    # `/Users/b/proj/src/calc.py` — and be called two different files on evidence that the
+    # comparison could not have had before. Differences above the window are not evidence.
+    n = min(len(pa), len(pb), PATH_TAIL_COMPONENTS)
     return n > 0 and pa[-n:] == pb[-n:]
 
 
@@ -531,6 +537,11 @@ def replay_file_versions(
             else:
                 fv.post = seen[k]
                 fv.edits += 1
+                # Reset, not left alone. `post_origin` says how the final state was arrived at,
+                # and an `edit -> write -> edit` sequence ends on a reconstructed edit; leaving
+                # the earlier write's label would understate the evidence in exactly the
+                # ordering that produces the stronger kind.
+                fv.post_origin = POST_FROM_EDIT
 
     out: list[FileVersion] = []
     for k, fv in current.items():

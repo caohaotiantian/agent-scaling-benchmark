@@ -61,6 +61,11 @@ CODING_TOOLS = {
 }
 
 
+#: How much of an absolute path survives extraction. Everything above this is discarded, so no
+#: later comparison may treat a difference above it as evidence about file identity.
+PATH_TAIL_COMPONENTS = 3
+
+
 def parse_jsonish(value: Any) -> Any:
     if value is None:
         return None
@@ -220,6 +225,11 @@ def _strip_line_numbers(lines: list[str]) -> list[str]:
         # A one-line block gives no evidence either way, and mangling it costs more than
         # leaving a stray gutter on it.
         return lines
+    if numbers[0] < 1:
+        # Every read tool here numbers from 1 — its own footers say "Showing lines 1-40 of 190".
+        # A block starting at 0 is source: `{0: "Sun", 1: "Mon", 2: "Tue"}` is otherwise
+        # indistinguishable from a gutter.
+        return lines
     if any(b - a != 1 for a, b in itertools.pairwise(numbers)):
         return lines
     return [_NUMBERED_LINE.sub("", line) if line.strip() else line for line in lines]
@@ -235,15 +245,19 @@ def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
             # Windows absolute
             path = path.split("/")[-1] if "/" in path else path.split("\\")[-1]
         elif path.startswith("/"):
-            path = "/".join(path.split("/")[-3:])
-        body = m.group("body")
-        cleaned_lines = _strip_line_numbers(body.splitlines())
+            path = "/".join(path.split("/")[-PATH_TAIL_COMPONENTS:])
         # The footer is split off before any trimming. Trimming first ate the blank lines a file
         # genuinely ends with, and the line count then came up short — a whole file refused as a
         # window for ending in whitespace. Only newlines are trimmed, never indentation: the old
         # `.strip()` dedented the first line of every file it touched.
-        content, origin = split_read_footer("\n".join(cleaned_lines).strip("\n"))
-        content = content.strip("\n")
+        #
+        # It is also split off *before* the gutter test, and that ordering is load-bearing. The
+        # gutter rule asks whether every non-blank line is numbered; the footer is a line and it
+        # is not numbered, so testing the un-split body answered "no" for the 98.0% of files
+        # that carry one — the gutter then survived into `pre` and `post`, became a stub and a
+        # reference solution, and was stamped `read_complete`.
+        content, origin = split_read_footer(m.group("body").strip("\n"))
+        content = "\n".join(_strip_line_numbers(content.splitlines())).strip("\n")
         if path and content.strip():
             files.append(
                 {

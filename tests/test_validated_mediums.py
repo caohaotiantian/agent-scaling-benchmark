@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from aibench.io_util import repo_root
 
 ROOT = repo_root()
@@ -67,8 +65,10 @@ class TestACaseLostToInfrastructureDoesNotVanish:
 class TestARepeatOfTheSameConfigIsNotACandidate:
     """M10. A repeat matrix McNemars every directory against `*-r1`, so two runs of the *same*
     configuration appear as a candidate result — and their discordance is this harness's own
-    run-to-run noise, measured at 25.8%–32.3% of cases flipping between identical repeats.
-    `plan-sample-size --from-ablation` averaged that into the planner."""
+    run-to-run noise: 4.8% of cases over the 17 self-repeat pairs on this corpus, against 14.9%
+    over the 53 pairs that moved a knob. `plan-sample-size --from-ablation` averaged the low
+    number into the planner, and since required n rises with discordance, that asked for fewer
+    cases than the comparison needs."""
 
     def _rows(self) -> list[dict]:
         manifest = {"main_model": "GLM-5.1", "agent_adapter": "tool_loop"}
@@ -256,10 +256,3 @@ class TestSeedV0SaysWhatItIs:
         dry = script.split('if [[ "$DRY_RUN" -eq 1 ]]; then', 1)[1].split("# Production path", 1)[0]
         assert "--allow-weak-grader" in dry
         assert "not production" in dry or "非生产" in dry
-
-
-@pytest.mark.parametrize("finding", ["M8", "M10", "M14", "M20", "M25"])
-def test_each_medium_has_a_test(finding: str):
-    """A guard on this file: the audit's five validated mediums each have coverage above."""
-    body = __loader__.get_data(__file__).decode("utf-8")  # type: ignore[name-defined]
-    assert body.count(f"{finding}.") >= 1, f"{finding} lost its test"

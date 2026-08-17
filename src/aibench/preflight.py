@@ -14,6 +14,7 @@ A comment cannot fail. This can:
 
 from __future__ import annotations
 
+import functools
 import platform
 import re
 import shutil
@@ -53,8 +54,14 @@ def _pinned_python() -> str | None:
     return path.read_text(encoding="utf-8").strip() if path.is_file() else None
 
 
+@functools.lru_cache(maxsize=1)
 def opencode_version() -> str | None:
-    """``opencode --version``, or ``None`` when the binary is absent or unreadable."""
+    """``opencode --version``, or ``None`` when the binary is absent or unreadable.
+
+    Cached: the adapter checks it once per attempt per case and `provenance.environment()`
+    once per artifact, and each call was a 20-second-timeout subprocess. The binary cannot
+    change under a running process in any way that should be measured mid-run.
+    """
     if shutil.which("opencode") is None:
         return None
     try:

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from aibench.cases import case_set_dir, load_cases
-from aibench.grading import grade_case
+from aibench.grading import grade_case, workspace_inventory
 from aibench.io_util import load_json, write_json
 from aibench.models import Case
 from aibench.tiers import check_tier_invariants
@@ -56,6 +56,12 @@ class CaseValidityReport:
 #: value stored by an older build can never compare equal to one computed now — a reuse gate
 #: that silently accepts a stale fingerprint hands back a p_hat measured on different code.
 FINGERPRINT_VERSION = "v3"
+
+#: A gate that could not run says nothing about the case. `audit-cases --annotate` writes its
+#: verdict into the case file permanently, so recording "the grader could not start on this
+#: machine" as `validity_ok: false` corrupts the corpus for every later reader — and the two
+#: commonest causes are environmental and transient: no node, or a missing grading extra.
+INFRA_UNVERIFIED = "infra"
 
 
 def _file_digests(entries: Any) -> list[list[str]]:
@@ -752,9 +758,9 @@ def check_stub_fails(
         ws = tmp / "workspace"
         csd = case_set_dir(case_set) if case_set else None
         materialize_workspace(case, ws, case_set_dir=csd, allow_network=False)
-        grade = grade_case(case, ws)
+        grade = grade_case(case, ws, baseline=workspace_inventory(ws))
         if grade.infra_error:
-            return False, f"infra: {grade.detail}"
+            return True, f"{INFRA_UNVERIFIED}: {grade.detail}"
         if grade.passed:
             return False, "stub_passed_grader"
         if grade.collection_error and (stub_is_complete or reference_collects is False):
@@ -783,9 +789,12 @@ def check_reference_solution(case: Case, *, case_set: str | None = None) -> tupl
         return True, "skipped_llm_judge"
     if case.grader.mode == "script" and not case.grader.command:
         return True, "skipped_non_script"
-    key_lines_only = case.grader.mode == "gold" and case.grader.match == "contains_key_lines"
-    if key_lines_only and not case.grader.gold_files:
-        return True, "skipped_key_lines_only: no reference artifact to apply"
+    if case.grader.mode == "gold":
+        # Vacuous by construction: this gate applies `grader.gold_files` and then grades, and
+        # `gold` mode grades by comparing the workspace against those same gold files. It can
+        # only fail if writing a file does not make that file present. Reporting a pass here
+        # would be reporting that a case is solvable on evidence that says nothing.
+        return True, "skipped_gold_mode: applying gold and then comparing to gold is vacuous"
     if not case.grader.gold_files:
         # Measured: of 18 cases no configuration could solve, 16 had no reference solution,
         # while cases that shipped one were unsolvable only 2 times in 31. Skipping the check
@@ -808,9 +817,11 @@ def check_reference_solution(case: Case, *, case_set: str | None = None) -> tupl
             target = ws / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(gf.content, encoding="utf-8")
-        grade = grade_case(case, ws)
+        # The inventory is taken *after* the reference solution is applied: that is the state
+        # this gate is asking about, and the gold files are the case's own material.
+        grade = grade_case(case, ws, baseline=workspace_inventory(ws))
         if grade.infra_error:
-            return False, f"infra: {grade.detail}"
+            return True, f"{INFRA_UNVERIFIED}: {grade.detail}"
         if grade.collection_error:
             # Both verdicts reject the case, but only one of them is a statement about the
             # task. Reporting a missing dependency as `reference_solution_failed` is what
@@ -849,13 +860,23 @@ def audit_case(
         "detail": ref_detail,
         "uncollectable": ref_uncollectable,
     }
-    if not ref_ok:
+    if ref_detail.startswith(f"{INFRA_UNVERIFIED}:"):
+        issues.append(
+            ValidityIssue(
+                "solvability_gate_unverified",
+                "warn",
+                f"solvability was not checked on this machine: {ref_detail}",
+            )
+        )
+    elif not ref_ok:
         issues.append(
             ValidityIssue("solvability_gate", "error", f"case must be solvable: {ref_detail}")
         )
 
     if ref_uncollectable:
         reference_collects: bool | None = False
+    elif ref_detail.startswith(f"{INFRA_UNVERIFIED}:") or ref_detail.startswith("skipped_"):
+        reference_collects = None
     elif ref_ok or ref_detail.startswith("reference_solution_failed"):
         # A reference solution that ran — whether it passed or failed — proves the workspace
         # stands up. Anything else (no gold files, a path escape, an infra failure) never
@@ -878,7 +899,15 @@ def audit_case(
         "detail": stub_detail,
         "uncollectable": stub_detail.startswith(STUB_UNCOLLECTABLE),
     }
-    if not stub_ok:
+    if stub_detail.startswith(f"{INFRA_UNVERIFIED}:"):
+        issues.append(
+            ValidityIssue(
+                "stub_fail_gate_unverified",
+                "warn",
+                f"the stub was not run on this machine: {stub_detail}",
+            )
+        )
+    elif not stub_ok:
         issues.append(
             ValidityIssue("stub_fail_gate", "error", f"stub must fail grader: {stub_detail}")
         )

@@ -70,7 +70,7 @@ def _stamp_generation_provenance(
     case: dict[str, Any],
     *,
     draft_query: dict[str, Any] | None,
-    reverse: bool,
+    model_called: bool,
 ) -> None:
     """Record what produced this case, in the one object the schema leaves open.
 
@@ -88,7 +88,11 @@ def _stamp_generation_provenance(
     meta = case.setdefault("metadata", {})
     settings = openai_settings()
     meta["generator"] = {
-        "model": settings.get("model") if reverse else (settings.get("model") or "heuristic"),
+        # What actually wrote this case, not what the environment could have written it with.
+        # `OPENAI_MODEL` is set on any machine configured to generate, so reading it here
+        # stamped `--heuristic-only` output — and every LLM-failure fallback — with the name of
+        # a model that was never called.
+        "model": settings.get("model") if model_called else "heuristic",
         "temperature": 0,
         "seed": None,  # the gateway takes none; stated so its absence is not read as unrecorded
         "code_version": git_revision(),
@@ -800,9 +804,11 @@ def main(argv: list[str] | None = None) -> int:
         # every day and nothing recorded which.
         draft_query = _draft_query_params(paths)
 
-        def _keep(path: Path, case: dict[str, Any], label: str) -> dict[str, Any] | None:
+        def _keep(
+            path: Path, case: dict[str, Any], label: str, *, model_called: bool = True
+        ) -> dict[str, Any] | None:
             """Write the case now. A run killed later keeps everything it already paid for."""
-            _stamp_generation_provenance(case, draft_query=draft_query, reverse=args.reverse)
+            _stamp_generation_provenance(case, draft_query=draft_query, model_called=model_called)
             status = sink.emit(path.name, case)
             if status == "full":
                 return None
@@ -851,9 +857,11 @@ def main(argv: list[str] | None = None) -> int:
                 # Not journalled: the last failure may have been a timeout, and a resumed run
                 # should try again rather than inherit a verdict a retry might overturn.
                 return None
+            heuristic_used = False
             try:
                 if args.heuristic_only:
                     case = heuristic_case_from_draft(draft, tier=args.tier)
+                    heuristic_used = True
                 else:
                     last_err: Exception | None = None
                     case = None
@@ -866,6 +874,7 @@ def main(argv: list[str] | None = None) -> int:
                     if case is None:
                         print(f"fallback heuristic for {path.name}: {last_err}")
                         case = heuristic_case_from_draft(draft, tier=args.tier)
+                        heuristic_used = True
                 errors = sorted(validator.iter_errors(case), key=lambda e: list(e.path))
                 if errors:
                     print(f"skip invalid {path.name}: {errors[0].message}")
@@ -887,7 +896,9 @@ def main(argv: list[str] | None = None) -> int:
                     sink.note_skip(path.name, "below_min_tier")
                     return None
                 # LLM generation can take minutes per draft; without this the command looks hung.
-                return _keep(path, case, f"[{settled or 'untiered'}]")
+                return _keep(
+                    path, case, f"[{settled or 'untiered'}]", model_called=not heuristic_used
+                )
             except Exception as e:
                 print(f"skip {path.name}: {e}")
                 return None

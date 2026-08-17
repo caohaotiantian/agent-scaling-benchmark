@@ -190,11 +190,17 @@ class TestTheSandboxIsAssertedPositively:
         assert (tmp_path / "sandbox.sb").is_file()
 
     def test_the_profile_denies_the_directory_holding_the_answer_key(self, tmp_path):
+        """The deny must name the repository. `str(ROOT) in profile` was satisfied by the
+        *allow* line alone — point the deny at an unrelated directory and it still passed."""
         from aibench.agents.opencode import sandbox_profile
 
-        profile = sandbox_profile(ROOT, readable=(ROOT / ".venv",))
-        assert str(ROOT) in profile
-        assert "deny" in profile
+        secrets = tmp_path / "answer-key"
+        profile = sandbox_profile(secrets, readable=(tmp_path / ".venv",))
+        deny = [ln for ln in profile.splitlines() if ln.lstrip().startswith("(deny")]
+        assert any(str(secrets) in ln for ln in deny), (
+            f"no deny rule names the protected root; deny lines were: {deny}"
+        )
+        assert not any(str(secrets) in ln for ln in profile.splitlines() if "(allow" in ln)
 
     def test_no_sandbox_is_reported_as_no_sandbox(self, tmp_path, monkeypatch):
         import aibench.agents.opencode as adapter
@@ -343,12 +349,46 @@ class TestAFixtureCaseSetCannotBeShadowed:
         assert resolved == ROOT / "tests/fixtures/case_sets/seed-v0"
 
     def test_shadowing_a_fixture_name_is_refused(self, tmp_path, monkeypatch):
+        """The accident the guard exists for: generating into the *default* corpus root, where
+        a new `seed-v0` outranks the committed fixture and nothing says so."""
+        import aibench.cases as cases_mod
+        from aibench.cases import CASE_ROOT_ENV, case_set_dir
+
+        monkeypatch.delenv(CASE_ROOT_ENV, raising=False)
+        monkeypatch.setattr(cases_mod, "repo_root", lambda: tmp_path)
+        (tmp_path / "benchmarks/ai_coding/cases/seed-v0").mkdir(parents=True)
+        (tmp_path / "tests/fixtures/case_sets/seed-v0").mkdir(parents=True)
+        with pytest.raises(ValueError, match="silently replace"):
+            case_set_dir("seed-v0")
+
+    def test_the_refusal_names_a_way_out(self, tmp_path, monkeypatch):
+        """`rename it` was the only remedy offered, and it is not available to `promote` or
+        `calibrate` — both of which resolve a name they were handed."""
+        import aibench.cases as cases_mod
+        from aibench.cases import CASE_ROOT_ENV, case_set_dir
+
+        monkeypatch.delenv(CASE_ROOT_ENV, raising=False)
+        monkeypatch.setattr(cases_mod, "repo_root", lambda: tmp_path)
+        generated = tmp_path / "benchmarks/ai_coding/cases/seed-v0"
+        fixture = tmp_path / "tests/fixtures/case_sets/seed-v0"
+        generated.mkdir(parents=True)
+        fixture.mkdir(parents=True)
+
+        with pytest.raises(ValueError) as excinfo:
+            case_set_dir("seed-v0")
+        assert "generated:seed-v0" in str(excinfo.value)
+        assert case_set_dir("generated:seed-v0") == generated
+        assert case_set_dir("fixture:seed-v0") == fixture
+
+    def test_an_isolated_root_is_not_treated_as_an_accident(self, tmp_path, monkeypatch):
+        """Pointing `AIBENCH_CASE_ROOT` at a scratch directory is how an operator asks for an
+        isolated corpus. Refusing `seed-v0` there — because the checkout ships a fixture of that
+        name — made the override unusable for exactly the sets the suite cares about."""
         from aibench.cases import CASE_ROOT_ENV, case_set_dir
 
         monkeypatch.setenv(CASE_ROOT_ENV, str(tmp_path))
         (tmp_path / "seed-v0").mkdir()
-        with pytest.raises(ValueError, match="silently replace"):
-            case_set_dir("seed-v0")
+        assert case_set_dir("seed-v0") == tmp_path / "seed-v0"
 
     def test_an_ordinary_name_still_prefers_the_generated_set(self, tmp_path, monkeypatch):
         from aibench.cases import CASE_ROOT_ENV, case_set_dir

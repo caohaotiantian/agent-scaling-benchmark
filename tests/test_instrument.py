@@ -106,7 +106,7 @@ class TestPanelIdentity:
         anchors = self._anchors()
         harness_digest.cache_clear()
         before = anchor_fingerprint(anchors)
-        monkeypatch.setattr(provenance, "harness_digest", lambda: "not-the-real-digest")
+        monkeypatch.setattr(provenance, "harness_digest", lambda _=None: "not-the-real-digest")
         assert anchor_fingerprint(anchors) != before
         harness_digest.cache_clear()
 

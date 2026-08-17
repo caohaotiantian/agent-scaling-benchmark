@@ -32,7 +32,7 @@ def export_ablation_csv(ablation_dir: Path, out_csv: Path | None = None) -> Path
         "relative_success_lift",
         "run_dir",
     ]
-    with atomic_write(out) as f:
+    with atomic_write(out, newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         w.writeheader()
         for r in rows:

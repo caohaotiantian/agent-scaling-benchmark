@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "AI-assisted programming benchmark harness for Agentic Scaling"
 readme = "README.md"
 requires-python = ">=3.11"
-# Not an open-source grant. The repository is private and carries no LICENSE, so the default is
-# exclusive copyright; this states that rather than leaving a reader to infer it. See LICENSE.
+# Not an open-source grant. `LICENSE` reserves all rights; this restates it in the metadata so a
+# packaging tool or a mirror cannot present the project as unlicensed-therefore-free.
 license = { text = "LicenseRef-Proprietary" }
 authors = [{ name = "caohaotiantian", email = "caohaotiantian@gmail.com" }]
 dependencies = [
@@ -65,7 +65,7 @@ pythonpath = ["src"]
 # `-ra` so a skip is visible. Two test classes skip silently where node is absent, taking the
 # whole JavaScript grading path — collection-error detection and reporter-format tally included
 # — with them, while the suite stays green under a bare `-q`.
-addopts = "-ra"
+addopts = "-ra --strict-markers --strict-config"
 
 # Ruff: lint + import sort + format
 [tool.ruff]

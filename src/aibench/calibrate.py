@@ -105,7 +105,7 @@ class CaseCalibration:
 ANCHOR_FINGERPRINT_VERSION = "v2"
 
 
-def anchor_fingerprint(anchors: list[AnchorSpec]) -> str:
+def anchor_fingerprint(anchors: list[AnchorSpec], *, source_root: Path | None = None) -> str:
     """Identity of the panel a calibration was measured against.
 
     Includes the *contents* of each referenced config, not just its path: swapping the model
@@ -121,7 +121,7 @@ def anchor_fingerprint(anchors: list[AnchorSpec]) -> str:
     from aibench.provenance import harness_digest
 
     root = repo_root()
-    parts: list[str] = [harness_digest()]
+    parts: list[str] = [harness_digest(source_root)]
     for a in sorted(anchors, key=lambda x: x.name):
         parts.append(a.name)
         for rel in (a.agent_config, a.model_config, a.run_config):
@@ -455,7 +455,11 @@ def aggregate_calibration(
         "total_cases": len(reports),
         "kept_count": len(kept),
         "dropped_count": len(reports) - len(kept),
-        "p_hat_distribution": _p_buckets(reports),
+        # Measured cases only. A case every pass lost to infrastructure carries `p_hat=0.0` as
+        # a placeholder for "unknown", and bucketing it lands it in `0.0-0.2` next to genuinely
+        # unsolved cases — so an outage reads as a harder corpus. `all_attempts_infra_count`
+        # below is where those cases are counted.
+        "p_hat_distribution": _p_buckets([r for r in reports if r.attempts]),
         "kept_p_hat_distribution": _p_buckets(kept),
         "tier_distribution": _tier_counts(kept),
         # Coverage is reported next to the verdicts, not inferred from them. A sweep that lost

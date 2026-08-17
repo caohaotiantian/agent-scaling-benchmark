@@ -90,14 +90,20 @@ def git_revision() -> str:
     return f"{sha}-dirty" if dirty else sha
 
 
-@functools.lru_cache(maxsize=1)
-def harness_digest() -> str:
+# Two entries: the live tree, plus whatever copy a probe is asking about.
+@functools.lru_cache(maxsize=2)
+def harness_digest(source_root: Path | None = None) -> str:
     """Content hash of the code that decides what a run means.
 
     Sorted by path so the digest does not depend on filesystem order, and computed from bytes
     rather than mtimes so a checkout does not change it.
+
+    ``source_root`` points the hash at a copy of `src/`. It exists so the instrument check can
+    prove that editing an adapter moves this digest without editing the adapter it is running
+    from — the probe used to write into the live file and restore it in a `finally`, which
+    leaves a corrupted working tree if the process dies in between.
     """
-    root = repo_root() / "src" / "aibench"
+    root = (source_root or repo_root() / "src") / "aibench"
     parts: list[bytes] = []
     for entry in HARNESS_SOURCES:
         target = root / entry

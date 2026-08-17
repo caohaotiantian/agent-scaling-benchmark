@@ -25,7 +25,7 @@ def load_json(path: Path) -> Any:
 
 
 @contextmanager
-def atomic_write(path: Path) -> Generator[TextIO, None, None]:
+def atomic_write(path: Path, *, newline: str | None = None) -> Generator[TextIO, None, None]:
     """Write ``path`` via a temporary file and one ``os.replace``.
 
     ``path.open("w")`` truncates first, so a process killed between the truncate and the flush
@@ -35,6 +35,9 @@ def atomic_write(path: Path) -> Generator[TextIO, None, None]:
     the whole file in one step means a reader sees either the previous contents or the new
     ones, never a prefix.
 
+    ``newline`` is passed straight through, for `csv`, which writes its own ``\r\n`` and
+    doubles the carriage return unless the handle is opened with ``newline=""``.
+
     Deliberately without ``fsync``: the failure this addresses is the process dying, which
     ``os.replace`` covers on its own. Surviving a machine crash would cost an fsync on every
     per-case artifact, and nothing here is worth that.
@@ -42,7 +45,7 @@ def atomic_write(path: Path) -> Generator[TextIO, None, None]:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
     try:
-        with tmp.open("w", encoding="utf-8") as handle:
+        with tmp.open("w", encoding="utf-8", newline=newline) as handle:
             yield handle
         os.replace(tmp, path)
     finally:

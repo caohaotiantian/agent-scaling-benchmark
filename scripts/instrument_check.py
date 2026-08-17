@@ -60,17 +60,29 @@ def check_run_identity() -> list[str]:
 
 
 def check_panel_witnesses_the_harness() -> list[str]:
-    """Editing an adapter must move the panel fingerprint."""
+    """Editing an adapter must move the panel fingerprint.
+
+    The probe edits a *copy*. Writing into `src/aibench/agents/openai_compat.py` and restoring
+    it afterwards works right up until the process is interrupted between the two writes, and
+    this script is documented as a thing to run by hand — so the failure mode was a corrupted
+    working tree on Ctrl-C, in the one file a run's identity is computed from.
+    """
+    import shutil
+    import tempfile
+
     anchors, _ = load_anchor_panel(repo_root() / "configs/runs/anchor-panel.yaml")
     before = anchor_fingerprint(anchors)
-    adapter = repo_root() / "src/aibench/agents/openai_compat.py"
-    original = adapter.read_bytes()
+
+    tmp = Path(tempfile.mkdtemp(prefix="aibench_probe_"))
     try:
-        adapter.write_bytes(original + b"\n# provenance probe\n")
+        copy = tmp / "src"
+        shutil.copytree(repo_root() / "src", copy)
+        adapter = copy / "aibench/agents/openai_compat.py"
+        adapter.write_bytes(adapter.read_bytes() + b"\n# provenance probe\n")
         harness_digest.cache_clear()
-        during = anchor_fingerprint(anchors)
+        during = anchor_fingerprint(anchors, source_root=copy)
     finally:
-        adapter.write_bytes(original)
+        shutil.rmtree(tmp, ignore_errors=True)
         harness_digest.cache_clear()
     after = anchor_fingerprint(anchors)
 

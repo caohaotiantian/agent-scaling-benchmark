@@ -8,7 +8,7 @@ from typing import Any
 
 from aibench.agents.registry import create_agent
 from aibench.cases import case_set_dir, load_cases
-from aibench.grading import grade_case
+from aibench.grading import grade_case, workspace_inventory
 from aibench.io_util import (
     load_yaml,
     relative_to_repo,
@@ -55,6 +55,7 @@ def _run_one_attempt(
         workspace = case_dir / "workspace"
         mat_info: dict[str, Any] | None = None
         mat_error: str | None = None
+        baseline: dict[str, str] = {}
         try:
             mat = materialize_workspace(
                 case,
@@ -63,6 +64,9 @@ def _run_one_attempt(
                 allow_network=True,
             )
             mat_info = mat.to_dict()
+            # Taken before the agent runs: it is what lets the interference gate tell a file the
+            # workspace was built with from one the submission added.
+            baseline = workspace_inventory(workspace)
             write_json(case_dir / "workspace_manifest.json", mat_info)
         except Exception as e:
             mat_error = str(e)
@@ -95,7 +99,7 @@ def _run_one_attempt(
         grade = None
         if not infra:
             try:
-                grade = grade_case(case, workspace)
+                grade = grade_case(case, workspace, baseline=baseline)
             except Exception as e:
                 # The only stage of this loop that was not guarded, and the most expensive one
                 # to lose: `parallel_map` re-raises a worker's exception out of the executor
@@ -340,15 +344,21 @@ def run_benchmark(
     cases = load_cases(cs, validate=True)
     workers = int(case_workers if case_workers is not None else run_cfg.case_workers)
 
-    # Refused before anything is spent. A `.nvmrc` is advisory and the failure it prevents is
-    # silent: below the floor `node --test` discovers no TypeScript test file and exits 0,
-    # which is a pass on the defective stub. Measured: five real `.ts` cases flip.
-    if any(case_language_is_javascript(c.language) for c in cases) and (
+    # Warned before anything is spent, not refused. A `.nvmrc` is advisory and the failure it
+    # prevents is silent: below the floor `node --test` discovers no TypeScript test file and
+    # exits 0, which is a pass on the defective stub. Measured: five real `.ts` cases flip.
+    #
+    # `_grade_script` is where that is actually enforced, per case, as `infra_error` — and a
+    # per-case refusal is strictly safer than a run-level one, because refusing the whole run
+    # makes a set with one `.ts` case among a hundred Python cases ungradable on a machine that
+    # can grade the hundred. Nothing false gets recorded either way.
+    if (n_js := sum(1 for c in cases if case_language_is_javascript(c.language))) and (
         reason := unsupported_node_reason()
     ):
-        raise RuntimeError(
-            f"case set {cs!r} contains JavaScript/TypeScript cases and this machine cannot "
-            f"grade them: {reason}"
+        print(
+            f"[warn] {n_js} of {len(cases)} case(s) in {cs!r} are JavaScript/TypeScript and this "
+            f"machine cannot grade them: {reason}. They will be recorded as `infra_error`, not "
+            f"as failures; the rest of the set runs normally."
         )
 
     rid = run_id or f"{run_cfg.experiment_name}-{uuid.uuid4().hex[:8]}"
@@ -374,7 +384,17 @@ def run_benchmark(
     # fingerprints because the prompts were later translated, while still being called
     # `_revmixed` everywhere.
     expected_fp = run_cfg.expected_case_set_fingerprint
-    if expected_fp and set_fp != expected_fp:
+    # A `.`-prefixed set is one this harness just materialized — `.ablation-filtered-<set>` and
+    # `.calibrating-<set>` are deliberate *subsets*, so their fingerprint cannot equal the
+    # parent's and never could. Comparing it refuses every ablation and calibration row on any
+    # config that pins a fingerprint, which is precisely the configs an operator is told to pin.
+    derived_set = cs.startswith(".")
+    if expected_fp and derived_set:
+        print(
+            f"[info] {cs!r} is a subset this run materialized; skipping the "
+            f"`expected_case_set_fingerprint` check, which can only match the full parent set."
+        )
+    if expected_fp and not derived_set and set_fp != expected_fp:
         raise RuntimeError(
             f"case set {cs!r} has fingerprint {set_fp}, but {run_cfg_path.name} expects "
             f"{expected_fp}. The corpus is not the one this config was written against; "
@@ -482,6 +502,12 @@ def run_benchmark(
     # Real elapsed time. Summing the agents' own clocks is not elapsed time when `case_workers`
     # is above 1, and it also excludes workspace materialization, `setup_commands` and the
     # grader subprocess entirely.
+    # Written first, before anything derived from it. `results.jsonl` is the only artifact that
+    # cannot be recomputed — summary, tables and report are all functions of it — so a raise in
+    # `build_summary` or `render_report_md` used to discard the whole run's measurements after
+    # they had been paid for.
+    write_jsonl(run_dir / "results.jsonl", case_results)
+
     elapsed_wall_s = time.monotonic() - started_monotonic
     manifest["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     manifest["elapsed_wall_time_s"] = elapsed_wall_s
@@ -503,7 +529,6 @@ def run_benchmark(
     summary["case_workers"] = workers
 
     write_json(run_dir / "summary.json", summary)
-    write_jsonl(run_dir / "results.jsonl", case_results)
     write_json(run_dir / "tables.json", tables)
     write_text(run_dir / "report.md", report_md)
 

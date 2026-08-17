@@ -21,7 +21,7 @@ from aibench.io_util import (
 from aibench.provenance import environment
 from aibench.report import format_hours, format_pct, render_summary_tables_json
 from aibench.runner import run_benchmark
-from aibench.stats import mcnemar_test, paired_outcomes
+from aibench.stats import budget_quantiles, cost_curve, mcnemar_test, paired_outcomes
 
 
 def load_matrix(path: Path) -> dict[str, Any]:
@@ -29,6 +29,22 @@ def load_matrix(path: Path) -> dict[str, Any]:
     if "runs" not in data or not isinstance(data["runs"], list) or not data["runs"]:
         raise ValueError("matrix YAML must contain non-empty runs: list")
     return data
+
+
+def _case_set_fingerprint(case_set: str) -> str | None:
+    """Content hash of the corpus this ablation ran on, or ``None`` when it cannot be read.
+
+    The calibration export has carried this since it was added; the ablation export did not,
+    which left the artifact that publishes the cross-configuration comparison unable to say
+    which corpus produced it.
+    """
+    from aibench.cases import load_cases
+    from aibench.validity import set_fingerprint
+
+    try:
+        return set_fingerprint(load_cases(case_set, validate=False))
+    except Exception:
+        return None
 
 
 def _filter_unusable_cases(
@@ -293,6 +309,9 @@ def run_ablation(
             # produced it is checkable but not attributable.
             "provenance": environment(),
             "case_set": case_set,
+            # Which corpus, byte for byte. `case_set` is a name, and names get reused: two
+            # ablations of "_revmixed" a week apart are not a comparison unless this matches.
+            "case_set_fingerprint": _case_set_fingerprint(case_set),
             "skip_weak_grader": skip_weak,
             "skip_invalid_cases": skip_invalid,
             "excluded_cases": excluded,
@@ -306,7 +325,9 @@ def run_ablation(
         },
     )
     report = _render_ablation_report(
-        slim_rows,
+        # Full rows, not `slim_rows`: the equal-cost table recomputes every curve on one shared
+        # rung list, which needs the per-case spend. Only the summary *file* drops them.
+        rows,
         excluded=excluded,
         axes=axes,
         baseline=base_name,
@@ -326,7 +347,9 @@ def run_ablation(
 _AXIS_KEYS = (
     "agent_adapter",
     "agent_name",
+    "agent_version",
     "main_model",
+    "model_config_name",
     "max_attempts",
     "max_steps",
     "max_wall_time_s",
@@ -334,6 +357,14 @@ _AXIS_KEYS = (
     "selection_strategy",
     "sampling_params",
     "case_set",
+    # The budget axis is the one this benchmark is named for. Omitting it made two rows that
+    # differ only in `budget_value` read as the same configuration run twice, and their
+    # difference as run-to-run noise.
+    "budget_axis",
+    "budget_value",
+    "branches",
+    "algorithm_version",
+    "grouping",
 )
 
 
@@ -397,8 +428,8 @@ def compare_runs_pairwise(
         test = mcnemar_test(only_b, only_a)
         comparable = bool(r.get("selection_is_oracle")) == base_oracle
         # Two rows that moved no knob at all are the same configuration run twice. Their
-        # disagreement is this harness's own run-to-run noise — 25.8%-32.3% of cases flip
-        # between identical repeats on this corpus — and reporting it as a candidate result
+        # disagreement is this harness's own run-to-run noise — 4.8% of cases on this corpus,
+        # against 14.9% for pairs that did move a knob — and reporting it as a candidate result
         # invites reading noise as a difference. It is still computed; it is labelled.
         self_repeat = r.get("axes_changed") == []
         out.append(
@@ -618,35 +649,46 @@ def _render_ablation_report(
 
 
 def _render_cost_rungs_md(rows: list[dict[str, Any]]) -> list[str]:
-    """Each configuration's success rate at a shared token budget.
+    """Each configuration's success rate at a genuinely shared token budget.
 
     ``token_amplification`` answers "how many times the baseline's tokens did this spend", which
     is not the same question as "at equal spend, which is ahead". Every run already carries a
     `cost_curve`; nothing compared the rungs across runs, so the cost axis the project documents
     as a headline had no cross-config reading at all.
+
+    The rungs must be computed once over the pooled spend and every curve recomputed on them.
+    Each run picks its own quantiles back in `report.py`, so unioning the stored curves and
+    step-holding each one's last measured point reports a run's 50k rate in a 500k column —
+    exactly what `budget_quantiles` warns against: callers comparing configurations "must pass
+    one shared rung list".
     """
-    curves = {r["experiment_name"]: (r.get("cost_curve") or []) for r in rows}
-    curves = {k: v for k, v in curves.items() if v}
-    if len(curves) < 2:
+    measured = {
+        r["experiment_name"]: [c for c in (r.get("case_rows") or []) if not c.get("infra_error")]
+        for r in rows
+    }
+    measured = {k: v for k, v in measured.items() if v}
+    if len(measured) < 2:
+        # Without per-case rows there is nothing to recompute, and a table built from the stored
+        # per-run curves is the incomparable one. No table is the honest output.
         return []
-    budgets = sorted({int(p["budget_tokens"]) for c in curves.values() for p in c})
+    pooled = [c for cases in measured.values() for c in cases]
+    budgets = budget_quantiles(pooled)
     if not budgets:
         return []
-
-    def rate_at(curve: list[dict[str, Any]], budget: int) -> float | None:
-        reached = [p for p in curve if int(p["budget_tokens"]) <= budget]
-        return float(reached[-1]["success_rate"]) if reached else None
+    curves = {name: cost_curve(cases, budgets=budgets) for name, cases in measured.items()}
 
     lines = [
         "",
         "## 等成本对比（同一 token 预算下的成功率）",
         "",
         "同一预算档位上的横向读数。token 倍数回答「花了基线的几倍」，这一张回答「同样花这么多，谁更强」。",
+        "档位取自所有配置合并后的每 case 花费分位数，每条曲线都在这同一组档位上重算——"
+        "各自分位数的并集会把某个配置在 50k 处的读数放进 500k 那一列。",
         "",
         "| 每 case 预算(token) | " + " | ".join(curves) + " |",
         "| ---: | " + " | ".join("---:" for _ in curves) + " |",
     ]
-    for budget in budgets:
-        cells = [format_pct(rate_at(curve, budget)) for curve in curves.values()]
+    for i, budget in enumerate(budgets):
+        cells = [format_pct(curve[i]["success_rate"]) for curve in curves.values()]
         lines.append(f"| {budget} | " + " | ".join(cells) + " |")
     return lines

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -70,7 +71,36 @@ _SKIP_MARKERS = re.compile(
 )
 
 
-def detect_grading_interference(case: Case, workspace: Path) -> str | None:
+def workspace_inventory(workspace: Path) -> dict[str, str]:
+    """Path -> content digest for everything in the workspace, as materialization left it.
+
+    Taken *before* the agent runs, and handed back to :func:`grade_case`. It is what makes the
+    interference check able to distinguish "the case shipped this" from "the submission added
+    it": `context.files` is only the inline overlay, and `materialize_workspace` also lays down
+    a snapshot, a git checkout and whatever `setup_commands` produced. Judging against
+    `context.files` alone accused a submission of tampering for a `pytest.ini` that came with
+    the project — and, because the audit gates grade through this same function, wrote
+    `validity_ok: false` into the case on disk for it.
+    """
+    out: dict[str, str] = {}
+    for path in workspace.rglob("*"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            out[path.relative_to(workspace).as_posix()] = hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+        except OSError:
+            continue
+    return out
+
+
+def detect_grading_interference(
+    case: Case,
+    workspace: Path,
+    *,
+    baseline: dict[str, str] | None = None,
+) -> str | None:
     """Catch attempts to pass by changing how tests run rather than what the code does.
 
     ``protected_paths`` covers editing the visible tests. This covers the routes around them:
@@ -87,6 +117,14 @@ def detect_grading_interference(case: Case, workspace: Path) -> str | None:
     solution's target: the case cannot be solved without editing it, and
     :func:`aibench.validity.check_gold_is_not_collection_control` rejects that shape at audit
     time instead.
+
+    ``baseline`` is :func:`workspace_inventory` taken after materialization and before the agent
+    ran. Judging against ``context.files`` alone is wrong for any case whose workspace has a
+    base layer — a snapshot, a git checkout, `setup_commands` — because none of those files are
+    in ``context.files``, and a `pytest.ini` or a `@pytest.mark.skipif` that came with the
+    project would then be reported as tampering by the submission that never touched it. A
+    symlink is followed rather than skipped: `Path.is_file()` follows, and skipping it let a
+    planted `conftest.py -> /tmp/evil.py` through the gate pytest imports it through.
     """
     shipped: dict[str, str] = {}
     for fb in case.files:
@@ -100,12 +138,29 @@ def detect_grading_interference(case: Case, workspace: Path) -> str | None:
             gold_targets.add(_safe_relpath(gf.path))
         except ValueError:
             continue
+    baseline = baseline or {}
+
+    def _unchanged_since_materialization(rel: str, path: Path) -> bool:
+        digest = baseline.get(rel)
+        if digest is None:
+            return False
+        try:
+            return hashlib.sha256(path.read_bytes()).hexdigest() == digest
+        except OSError:
+            return False
 
     for path in sorted(workspace.rglob("*")):
-        if path.is_symlink() or not path.is_file():
+        # Symlinks are resolved, not skipped: `is_file()` follows one, and a link is the
+        # cheapest way to put content pytest will import somewhere this loop does not read.
+        if not path.is_file():
             continue
         rel = path.relative_to(workspace).as_posix()
         if path.name in _COLLECTION_CONTROL_FILES:
+            if path.is_symlink():
+                # Nothing legitimate needs one, and its target is outside what the case ships.
+                return f"grading_interference_symlink: {rel}"
+            if _unchanged_since_materialization(rel, path):
+                continue
             if rel not in shipped:
                 return f"grading_interference_file: {rel}"
             if rel in gold_targets:
@@ -117,8 +172,8 @@ def detect_grading_interference(case: Case, workspace: Path) -> str | None:
             if current != shipped[rel]:
                 return f"grading_interference_file_modified: {rel}"
             continue
-        if rel in shipped:
-            continue  # covered by protected_paths, or legitimately editable
+        if rel in shipped or _unchanged_since_materialization(rel, path):
+            continue  # covered by protected_paths, or came with the workspace
         if path.suffix == ".py":
             try:
                 body = path.read_text(encoding="utf-8", errors="replace")
@@ -152,18 +207,33 @@ def inject_hidden_tests(case: Case, workspace: Path) -> list[str]:
     return written
 
 
-def grade_case(case: Case, workspace: Path) -> GradeResult:
+def grade_case(
+    case: Case,
+    workspace: Path,
+    *,
+    baseline: dict[str, str] | None = None,
+) -> GradeResult:
+    """Grade one submission.
+
+    ``baseline`` is :func:`workspace_inventory` taken right after materialization. Without
+    it the interference check cannot tell a file the workspace was built with from one the
+    submission added, so it is only armed for cases that declared `protected_paths` — the
+    conservative behaviour, and the one every caller had before.
+    """
     mode = case.grader.mode
 
     violation = check_protected_paths(case, workspace)
-    if violation is None and (case.grader.protected_paths or mode in {"script", "composite"}):
+    arm_interference = bool(case.grader.protected_paths) or (
+        baseline is not None and mode in {"script", "composite"}
+    )
+    if violation is None and arm_interference:
         # Armed for every case whose verdict comes from running a suite, not only for cases
         # that declared `protected_paths`. The old condition left the gate off for every case
         # with none — 90 `_raw2026` and 12 `_geninput` cases among them — which is precisely
         # where a planted `conftest.py` costs the most, because there is no other anti-tampering
         # check at all. Files the case shipped are still exempt (see the function's docstring),
         # so this cannot fail a case for its own contents.
-        violation = detect_grading_interference(case, workspace)
+        violation = detect_grading_interference(case, workspace, baseline=baseline)
     if violation:
         return GradeResult(
             passed=False,

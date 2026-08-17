@@ -115,11 +115,20 @@ class CaseSink:
                 # that do, and the cost of checking is one parse per resumed case.
                 if cid and self._is_complete(cid):
                     self.written_ids.add(cid)
-                    key = str(row.get("solution_key") or "")
+                    # Recomputed from the case on disk when the journal predates the field.
+                    # Trusting the journal alone silently disabled dedup for every run resumed
+                    # from an older checkpoint — the runs most likely to hold duplicates.
+                    key = str(row.get("solution_key") or "") or (self._key_on_disk(cid) or "")
                     if key:
                         self.written_keys.setdefault(key, cid)
                     self.written += 1
                     self.resumed += 1
+
+    def _key_on_disk(self, case_id: str) -> str | None:
+        try:
+            return solution_key(json.loads((self._dir / f"{case_id}.json").read_text("utf-8")))
+        except (OSError, json.JSONDecodeError, TypeError, AttributeError):
+            return None
 
     def _is_complete(self, case_id: str) -> bool:
         path = self._dir / f"{case_id}.json"

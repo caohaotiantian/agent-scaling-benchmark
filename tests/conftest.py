@@ -25,9 +25,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-#: Everything at the repository root that git tracks. Untracked entries (`.venv`, `runs`,
-#: `.pytest_cache`) come and go legitimately, so they are not watched.
-_TRACKED_ROOT_ENTRIES = (
+#: Fallback for a checkout with no git — the list as it stood when this was written.
+_FALLBACK_ROOT_ENTRIES = (
     "benchmarks",
     "configs",
     "docs",
@@ -38,6 +37,33 @@ _TRACKED_ROOT_ENTRIES = (
     "tests",
     "uv.lock",
 )
+
+
+def _tracked_root_entries() -> tuple[str, ...]:
+    """Everything at the repository root that git tracks, asked of git rather than listed here.
+
+    Untracked entries (`.venv`, `runs`, `.pytest_cache`) come and go legitimately and are not
+    watched. A hardcoded list is watched only until someone commits a new root entry: `LICENSE`,
+    `CODEOWNERS`, `.nvmrc` and `.python-version` were all added to this repository after the
+    list was written, and none of them was guarded.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "-z", "--", ":(top)*"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return _FALLBACK_ROOT_ENTRIES
+    names = {line.split("/", 1)[0] for line in out.split("\0") if line}
+    return tuple(sorted(names)) or _FALLBACK_ROOT_ENTRIES
+
+
+_TRACKED_ROOT_ENTRIES = _tracked_root_entries()
 
 
 @pytest.fixture(scope="session", autouse=True)

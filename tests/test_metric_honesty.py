@@ -142,33 +142,70 @@ class TestCostRungsAreComparedAcrossConfigs:
     tokens", which is a different question from "at equal spend, which is ahead"; nothing
     compared the rungs across runs."""
 
-    def test_the_report_carries_an_equal_budget_table(self):
-        rows = [
+    @staticmethod
+    def _rows() -> list[dict]:
+        """Two configurations whose own quantiles land on different rungs.
+
+        `cheap` never spends past 200 tokens; `dear` spends up to 900. Left to `report.py` each
+        would publish a curve on its own x-axis, which is what made the union-of-rungs table
+        report `cheap`'s 200-token rate in a 900-token column.
+        """
+        return [
             {
                 "experiment_name": "cheap",
                 "run_id": "r0",
                 "success_rate": 0.5,
-                "total_tokens": 10,
+                "total_tokens": 300,
                 "run_dir": "-",
-                "cost_curve": [
-                    {"budget_tokens": 100, "solved": 1, "success_rate": 0.5},
-                    {"budget_tokens": 200, "solved": 1, "success_rate": 0.5},
+                "case_rows": [
+                    {"case_id": "a", "passed": True, "total_tokens": 100},
+                    {"case_id": "b", "passed": False, "total_tokens": 200},
                 ],
             },
             {
                 "experiment_name": "dear",
                 "run_id": "r1",
-                "success_rate": 0.9,
-                "total_tokens": 90,
+                "success_rate": 1.0,
+                "total_tokens": 1400,
                 "run_dir": "-",
-                "cost_curve": [
-                    {"budget_tokens": 200, "solved": 2, "success_rate": 0.9},
+                "case_rows": [
+                    {"case_id": "a", "passed": True, "total_tokens": 500},
+                    {"case_id": "b", "passed": True, "total_tokens": 900},
                 ],
             },
         ]
-        report = _render_ablation_report(rows, baseline="cheap")
+
+    def test_the_report_carries_an_equal_budget_table(self):
+        report = _render_ablation_report(self._rows(), baseline="cheap")
         assert "等成本对比" in report
-        assert "| 100 |" in report and "| 200 |" in report
+        assert "cheap" in report and "dear" in report
+
+    def test_no_curve_is_read_at_a_rung_it_never_measured(self):
+        """`rate_at` step-held each run's last measured point, so a run whose highest rung was
+        200 reported its 200-token rate in every column above it. At a 900-token budget `dear`
+        has solved both cases and `cheap` still has one, and no cell may claim otherwise."""
+        from aibench.ablation import _render_cost_rungs_md
+
+        lines = _render_cost_rungs_md(self._rows())
+        rungs = {
+            int(ln.split("|")[1].strip()): [c.strip() for c in ln.split("|")[2:-1]]
+            for ln in lines
+            if ln.startswith("| ") and ln.split("|")[1].strip().isdigit()
+        }
+        assert rungs, lines
+        top = max(rungs)
+        assert top >= 900, f"the pooled rungs must reach the dearest case: {sorted(rungs)}"
+        assert rungs[top] == ["50.0%", "100.0%"]
+        # Every configuration is read at every rung — one shared x-axis, not a union of curves.
+        assert all(len(cells) == 2 for cells in rungs.values())
+
+    def test_without_per_case_rows_there_is_no_table(self):
+        """The stored per-run curves are the incomparable ones. No table is the honest output;
+        a table built from them would put each configuration on its own axis."""
+        from aibench.ablation import _render_cost_rungs_md
+
+        rows = [{k: v for k, v in r.items() if k != "case_rows"} for r in self._rows()]
+        assert _render_cost_rungs_md(rows) == []
 
 
 class TestTheCostEstimateNamesItsRate:
