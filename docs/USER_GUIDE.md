@@ -95,7 +95,9 @@ set -a && source .env && set +a
 
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
@@ -104,7 +106,7 @@ uv run python -m aibench filter-drafts \
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 
 uv run python -m aibench validate-cases --case-set auto-v0
 ```
@@ -186,7 +188,7 @@ uv run python -m aibench ablation \
 | `scripts/e2e_pipeline.sh` | DB→case→消融；`--dry-run` 仅 fixture |
 
 **完整参数清单（每个 flag 的默认值与作用）**：  
-[REFERENCE HTML](html/reference.html) · 演示页 [§七](html/overview.html#modules)。
+[`docs/REFERENCE.md` §8 CLI 命令完整参考](REFERENCE.md#8-cli-命令完整参考参数清单--作用)；模块背景见演示页 [§五 关键模块技术细节](html/overview.html#modules)。
 
 ---
 
@@ -284,7 +286,7 @@ uv run python -m aibench ablation --matrix ... --parallel 2
 | [项目介绍 overview.html](html/overview.html) | 背景、流水线架构、反向构造原理、实测分布 |
 | [用户手册 manual.html](html/manual.html) | 本向导的 HTML 展示 |
 | [生产配置 configs/README.md](../configs/README.md) | Agent / 模型 / Run / 消融矩阵的配置说明 |
-| [已发布校准数据](../benchmarks/ai_coding/calibrations/README.md) | 13 份校准文件的口径与复算方法 |
+| [已发布校准数据](../benchmarks/ai_coding/calibrations/README.md) | 13 份 JSON（其中 10 份是校准、2 份消融、1 份 bare-model）的口径与复算方法 |
 | [未尽事项 REMAINING_WORK.md](REMAINING_WORK.md) | 已知缺口（内容截至 2026-08-04） |
 | [审计 AUDIT-2026-08-17.md](AUDIT-2026-08-17.md) | 可复现性缺口与已发布数字的核验 |
 
@@ -300,14 +302,16 @@ uv sync --extra dev --extra grading && set -a && source .env && set +a
 # 生成用例
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-kept
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 uv run python -m aibench validate-cases --case-set auto-v0
 
 # 跑测 / 消融

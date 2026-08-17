@@ -68,8 +68,11 @@ print(collections.Counter(band(x) for x in v), statistics.mean(v))
 2. `json.loads` 直吃整个回复 —— 围栏代码块、前后散文、字符串内真实换行全部失败
 3. 固定 8192 输出预算 —— 重推理模型烧光预算后无输出
 
-影响量级：同一批用例、同一模型，**仅修 harness 使 GLM-5.2 从 25.8% 升到 83.9%**，
-跨度 58 个百分点，期间未改动任何模型参数。
+影响量级：同一批用例、同一模型，修 harness 后 GLM-5.2 从 25.8% 升到 83.9%，
+跨度 58 个百分点，期间未改动任何模型参数。**但这个跨度同时含协议变更** ——
+前三轮是 `openai_compat`，第四轮才是 `tool_loop`，`runs/` 下没有修复前的 `tool_loop`
+测量，所以无法把 58pp 单独归给「修 harness」这一件事。`README.md` 与
+`docs/html/_src/overview.html` 的顶部提示写的是这个更正版本，本文此前漏了。
 
 因此下列结论**暂不可信**，需用修复后的 harness 重测：
 `reverse-v1` 的 22.6/74.2/3.2、`reverse-v2-mixed` 的 16.1/77.4/6.5、

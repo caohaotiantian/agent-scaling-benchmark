@@ -161,7 +161,9 @@ set -a && source .env && set +a
 
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
@@ -172,7 +174,7 @@ uv run python -m aibench filter-drafts \
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 
 uv run python -m aibench validate-cases --case-set auto-v0
 uv run python -m aibench audit-cases --case-set auto-v0 --annotate
@@ -240,7 +242,7 @@ uv run python -m aibench promote \
 
 | 项 | 要求 |
 |----|------|
-| Python | ≥ 3.11 |
+| Python | **3.13**（`.python-version` 固定）。`pyproject.toml` 的 `requires-python` 写的是 `>=3.11`，那是**安装**下限；`aibench doctor` 要求与 `.python-version` **完全相等**，因为 `uv.lock` 在 3.12 前后解析出不同的 numpy。3.11/3.12 上依赖安装与 `pytest` 都能过，`doctor` 会红 |
 | 包管理 | 推荐 `uv` |
 | 可选 | MySQL 可达（抽库）、OpenAI 兼容 API（生成与真 Agent） |
 
@@ -535,7 +537,10 @@ runs:
 |------|------|------|----------|
 | `--input-dir` | Path | 必填 | 草稿目录 |
 | `--output-dir` | Path | 必填 | 输出 case 目录（目录名即后续 case-set 名） |
-| `--heuristic-only` | flag | 关 | 不调 LLM，仅 `heuristic_case_from_draft` |
+| `--reverse` | flag | 关 | **主线开关。** 用反向构造：缺陷取自 trace 里真实的一次编辑（`stub = pre`、`gold = post`），模型只写测试和症状式 prompt。不加此参数走的是**正向生成**——让模型自己编题——那条路线已被三次干预实验判定失效（README §「已被否决的路线」），代码保留只为回归对照 |
+| `--resume` | flag | 关 | 续跑：读 `_journal.jsonl`，跳过已写出的草稿。**长跑必带**——不带则中断后重跑会为同一批草稿二次付费 |
+| `--no-deduplicate` | flag | 关 | 关掉按 `solution_key`（stub + 参考解的哈希）去重。默认开：`_rev2026` 的 134 条实测只有 66 组不同的 (pre, post)，51% 冗余，而重复会同时虚增 n 和让配对结果相关 |
+| `--heuristic-only` | flag | 关 | 不调 LLM，仅 `heuristic_case_from_draft`。产物的 `metadata.generator.model` 记 `heuristic`，不记网关模型名 |
 | `--max-cases` | int | `50` | 成功**写出**的最大条数 |
 | `--oversample` | float | `1.5` | 每想要 1 条用例尝试多少条草稿。约 1/4 草稿会在下游被跳过（无参考解等），故需超采样；**每多一条草稿就是一次付费生成**。开跑前会打印「本次将从 N 条草稿生成」。<br>⚠️ 此前该系数写死为 `3` 且不可见：`--max-cases 600` 配 810 条草稿，会为**全部 810 次**生成付费而只写 600 条 |
 | `--filter` | flag | 关 | 生成前再跑 `rule_filter_draft`，不 keep 则跳过 |
@@ -589,10 +594,21 @@ uv run python -m aibench export-bundle --from-set <set> \
 | `--max-verbatim` | float | `0.05` | 逐行重合率上限 |
 | `--no-require-audit` | flag | 关 | 允许导出审计未通过的用例（默认必须通过） |
 | `--dry-run` | flag | 关 | 只出清单不写文件 |
+| `--allow-production-derived` | flag | 关 | 允许导出 `metadata.generation == "reverse"` 的用例。反向路径逐字复制草稿，因此这是**交付生产衍生代码**的决定，不是格式问题 |
+| `--allow-secrets` | flag | 关 | 允许导出 secrets 扫描报警的用例。2026-08-17 新增：五道门里唯有它此前没有任何出口，而同一道门在 `promote` 一直有 `--allow-secrets` —— 结果是愿意交付的人交出了一个更小、成分不同的集合，而所有已发布的 N 都是按另一个集合算的。用了会记进 `MANIFEST` |
+| `--allow-review-choice` | flag | 关 | 允许导出 `metadata.generation == "review-choice"` 的用例。不加则 `_choice2` 的 167 条全部以 `provenance` 被拒 |
 
 **五道门禁，全部机器判定，任一不过即排除**：schema、`metadata.validity_ok`、secrets 扫描干净、
-`metadata.generation == "llm"`（来源）、逐行重合 ≤ 阈值。**没有 `--force`** ——
-一个能一键绕过来源门禁的开关，迟早会在赶时间时被用掉，而那正是它要防的事。
+来源（`metadata.generation`）、逐行重合 ≤ 阈值。
+
+**没有一键 `--force`**，但**不等于没有出口**。每道门各有各的开关，都默认关、都写进 `MANIFEST`：
+`--no-require-audit`（审计）、`--allow-secrets`（密钥）、`--allow-production-derived` 与
+`--allow-review-choice`（来源）、`--max-verbatim`（重合）。这样设计是因为一个能一键放行全部门禁的
+开关迟早会在赶时间时被用掉，而**逐门开关**要求使用者说清楚放行的是哪一样、并留下痕迹。
+
+来源门放行的是 `llm` 与 `reverse`（后者需 `--allow-production-derived`），加
+`--allow-review-choice` 后再 admit `review-choice`；本文此前写的
+「`metadata.generation == "llm"`」只是其中一种。
 
 **为什么来源必须机器判**（实测 `_scaleprobe` 575 条 vs 其草稿）：
 
@@ -1316,6 +1332,9 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | 测试抄写源码 | `test_reads_source_text` | error | 是 | §14.3.7；测试 grep 实现的源码文本而非运行它 |
 | 隐藏测试索要不可知符号 | `hidden_test_requires_unknowable_symbol` | error | 是 | §14.3.8；隐藏了行为可以，隐藏了接口不行 |
+| 隐藏测试索要不可知**关键字参数** | `hidden_test_requires_unknowable_kwarg` | error | 是 | §14.3.8。上一条只看符号名，而 `f(x, mode="strict")` 里 `f` 可见、`mode=` 不可见 —— 同一个洞，参数那一侧。`docs/SESSION-2026-08-14.md` 与 `docs/HANDOFF.md` §0.2 曾写「本轮未修」，2026-08-17 已修 |
+| Gold 是集合控制文件 | `gold_is_collection_control_file` | error | 是 | 参考解落在 `conftest.py` / `pytest.ini` / `setup.cfg` 之类文件上——改的是判分环境，不是缺陷 |
+| 门禁没跑成 | `stub_fail_gate_unverified` / `solvability_gate_unverified` | **warn** | 否 | 这台机器判不了（缺 node、缺评分依赖）。**故意不是 error**：`audit-cases --annotate` 会把结论写死进 case 文件，把「本机跑不了」记成 `validity_ok: false` 等于替所有后来的读者污染语料 |
 | 判分文件带工具页脚 | `case_contains_tool_output_footer` | error | 是 | §14.3.9；stub 可能因加载不了而「失败」，不是因为缺陷 |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
@@ -1761,12 +1780,17 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 ### 17.2 当前生产矩阵
 
-`configs/runs/ablation-matrix.yaml`：
+`configs/runs/ablation-matrix.yaml` 有**四行**，每行只动一个轴：
 
-1. `openai_compat` + `GLM-5.2`（基线实验名 `openai-compat-glm52`）
-2. `tool_loop` + `GLM-5.2`
+| `experiment_name` | 相对基线动了什么 |
+|---|---|
+| `openai-compat-glm52` | **基线** |
+| `openai-compat-glm51` | 模型轴：GLM-5.2 → GLM-5.1 |
+| `tool-loop-glm52` | 适配器轴：`openai_compat` → `tool_loop` |
+| `passk-glm52` | 采样轴：attempts 1 → k |
 
-可选第二模型行已在 YAML 中注释，可按网关能力解开。
+四行产生**三组**成对比较（`compare_runs_pairwise` 跳过基线自身）。
+本节此前只写了前两行，并说「可选第二模型行已在 YAML 中注释」——那两行没有被注释掉。
 
 ### 17.3 默认行为
 
@@ -1933,14 +1957,16 @@ cp .env.example .env && set -a && source .env && set +a
 # 仅生成用例
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-kept
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 uv run python -m aibench validate-cases --case-set auto-v0
 
 # 单次跑测

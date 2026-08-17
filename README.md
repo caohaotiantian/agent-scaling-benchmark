@@ -83,7 +83,9 @@ uv run python -m aibench run --run-config tests/fixtures/configs/runs/baseline.m
 ```bash
 uv run python -m aibench extract-from-db \
   --output-dir benchmarks/ai_coding/cases/drafts-from-db \
-  --limit 100 --max-cases 30 --require-gold
+  --limit 100 --max-cases 30 --require-gold --require-edits
+  # --require-edits 是 --reverse 的前提：没有 metadata.file_versions 就没有 pre/post 对，
+  # 下一步会一条也建不出来。scripts/e2e_pipeline.sh 两个都传，这里跟它一致。
 
 uv run python -m aibench filter-drafts \
   --input-dir benchmarks/ai_coding/cases/drafts-from-db \
@@ -92,7 +94,7 @@ uv run python -m aibench filter-drafts \
 uv run python -m aibench generate-cases \
   --input-dir benchmarks/ai_coding/cases/drafts-kept \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
-  --max-cases 8 --audit --secrets-scan
+  --reverse --resume --max-cases 8 --audit --secrets-scan
 
 uv run python -m aibench validate-cases --case-set auto-v0
 ```
@@ -230,7 +232,7 @@ uv run python scripts/check_doc_links.py   # 断链检查
 不是门禁；门禁用上面第一行。
 
 Python **3.13**（见 `.python-version`；`uv.lock` 在不同解释器上会解析出不同的 numpy），
-Node **≥ 22.18**（见 `.nvmrc`；22.18 以下 `node --test` 发现不了 TypeScript 测试却退出 0，
+Node **≥ 22.18**（下限在 `languages.py` 的 `MIN_NODE_VERSION`，仓库 `.nvmrc` 固定 24；22.18 以下 `node --test` 发现不了 TypeScript 测试却退出 0，
 也就是**判为通过**）。
 
 ---

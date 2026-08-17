@@ -246,7 +246,7 @@
 <p>模型消融过程中查出三个 agent 适配器缺陷，其中两个位于 <code>tool_loop</code> ——
 而它是<strong>所有校准面板的最强锚点</strong>：截断响应时把推理正文当答案、
 <code>json.loads</code> 直吃整个回复、固定 8192 输出预算。三者共同<strong>系统性地惩罚重推理模型</strong>。</p>
-<p>影响量级：同一批用例、同一模型，<strong>仅修 harness 就使 GLM-5.2 的通过率从 25.8% 升到 83.9%</strong>，
+<p>影响量级：同一批用例、同一模型，同一批用例、同一模型，修 harness 后 GLM-5.2 从 25.8% 升到 83.9%，跨度 <strong>58pp</strong>。<strong>这个跨度同时含协议变更</strong>——前三轮是 <code>openai_compat</code>，第四轮才是 <code>tool_loop</code>，<code>runs/</code> 下没有修复前的 <code>tool_loop</code> 测量，所以无法把它单独归给「修 harness」这一件事，
 跨度 58 个百分点，期间未改动任何模型参数。</p>
 <p>因此下列数字<strong>暂不可作为结论使用</strong>：本节的难度分布、按能力档次的分类占比、
 隐藏测试剂量曲线的各测点、以及「最强锚点通过率 90.3%」。

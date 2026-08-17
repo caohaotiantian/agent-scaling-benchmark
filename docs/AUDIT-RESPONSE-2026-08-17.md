@@ -89,6 +89,6 @@ M15 的收窄版本成立（`llm_judge` 是 env-only）。判分结果现在会�
 ## 七、门禁
 
 每次提交都跑：`ruff format --check` + `ruff check`（src / tests / scripts）·`pytest` ·
-`scripts/e2e_pipeline.sh --dry-run` ·`scripts/check_doc_links.py`（23 份文档 0 问题）·
+`scripts/e2e_pipeline.sh --dry-run` ·`scripts/check_doc_links.py`（0 问题）·
 `scripts/build_docs_html.py` 后 `git diff --exit-code docs/html` ·`aibench doctor` ·
 `scripts/instrument_check.py`（现已上 CI）· 对全部入库文件的 secrets 扫描。

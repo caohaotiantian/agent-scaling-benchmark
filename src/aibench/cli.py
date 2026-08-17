@@ -1072,7 +1072,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps([c.to_dict() for c in checks], ensure_ascii=False, indent=2))
         else:
             print(render(checks))
-        return 0 if all(c.ok for c in checks) else 1
+        return 0 if all(c.ok for c in checks if c.blocking) else 1
 
     if args.cmd == "secrets-scan":
         if args.files is not None:

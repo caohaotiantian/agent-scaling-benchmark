@@ -297,8 +297,8 @@ for p in Path('benchmarks/ai_coding/cases/my-set').glob('*.json'):
 <tbody>
 <tr><td>schema</td><td>符合用例 JSON 结构</td><td>否</td></tr>
 <tr><td>audit</td><td><code>validity_ok</code> 为真</td><td><code>--no-require-audit</code></td></tr>
-<tr><td>secrets</td><td>密钥扫描为空</td><td>否</td></tr>
-<tr><td>provenance</td><td>非启发式回退产物</td><td><strong>否</strong>（该路径逐字复制草稿，即生产代码）</td></tr>
+<tr><td>secrets</td><td>密钥扫描为空</td><td><code>--allow-secrets</code>（2026-08-17 新增；此前确实没有出口）</td></tr>
+<tr><td>provenance</td><td>非启发式回退产物</td><td><code>--allow-production-derived</code> / <code>--allow-review-choice</code>（默认关；该路径逐字复制草稿，即交付生产代码，所以要显式说出口）</td></tr>
 <tr><td>verbatim</td><td>与草稿逐字重合比例低于阈值</td><td><code>--max-verbatim</code></td></tr>
 </tbody>
 </table></div>

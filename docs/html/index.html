@@ -16,9 +16,21 @@
   <div class="meta">
     <span class="pill">数据来源 · 现网 trace</span>
     <span class="pill">度量 · 三锚点校准</span>
-    <span class="pill">当前集合 · 31 条（新门禁后 19 条有效）</span>
+    <span class="pill">当前集合 · 见 <code>docs/HANDOFF.md</code> §0.-1</span>
   </div>
 </header>
+<div class="callout warn">
+  <p><strong>⚠️ 本页的数字都不是结论。</strong>本站内容截至 <strong>2026-08-11</strong>，
+     此后两次会话推翻了其中一部分。仓库的 <code>docs/HANDOFF.md</code> <strong>§0.-1</strong>
+     是权威状态；<code>README.md</code> 是入口。</p>
+  <ol>
+    <li><strong>下面表格里的「有区分度占比 83.9%」测于有缺陷的 harness</strong>，
+        且那批 31 条用例已归档。当前语料 <code>_clean2026</code>（45 条）上
+        <strong>实测区分度为零</strong>。</li>
+    <li><strong>锚点面板强弱反转</strong>（weak 85.2% &gt; strong 77.4%），重新指派之前不能做校准。</li>
+    <li>一句话状态：<strong>harness 本身可用且经过硬化，但目前没有一个可用于下结论的用例集。</strong></li>
+  </ol>
+</div>
 <section class="md-body" style="margin-top:22px">
   <h2 style="margin-top:0">文档导航</h2>
   <div class="card-grid">
@@ -38,7 +50,7 @@
      三次独立干预实验证明，无论输入什么，生成器都输出同一种难度。</p>
   <p>本项目改为<strong>反向构造</strong>：从真实会话中重放出文件被修改前与修改后的两个版本，
      以前者为待修复代码、后者为参考解，模型只负责编写能区分两版的测试。
-     缺陷来自真人真错。模型不能把缺陷改简单，但可以写出 grep 源码的测试绕开门禁——当前 31 条里 12 条如此，见参考资料 §3。</p>
+     缺陷来自真人真错。模型不能把缺陷改简单，但可以写出 grep 源码的测试绕开门禁——<code>_revmixed</code> 那 31 条里 12 条如此（该集合已归档），见参考资料 §3。</p>
   <div class="table-wrap"><table>
     <thead><tr><th>指标</th><th>模型编题 <code>auto-v0</code></th><th>反向构造 <code>reverse-v1</code></th></tr></thead>
     <tbody>
@@ -53,7 +65,7 @@
   <div class="callout warn">
     <p><strong>⚠️ 难度分布正在重测（2026-08-09）。</strong> 模型消融查出三个 agent 适配器缺陷，
        其中两个位于 <code>tool_loop</code> —— 所有校准面板的最强锚点。
-       同一批用例、同一模型，<strong>仅修 harness 就使 GLM-5.2 从 25.8% 升到 83.9%</strong>。
+       同一批用例、同一模型，同一批用例、同一模型，修 harness 后 GLM-5.2 从 25.8% 升到 83.9%，跨度 <strong>58pp</strong>。<strong>这个跨度同时含协议变更</strong>——前三轮是 <code>openai_compat</code>，第四轮才是 <code>tool_loop</code>，<code>runs/</code> 下没有修复前的 <code>tool_loop</code> 测量，所以无法把它单独归给「修 harness」这一件事。
        本页与「项目介绍」中 2026-08-09 之前的难度数字暂不可作为结论，
        见<a href="overview.html#distribution">项目介绍 · 第 6 节</a>。</p>
   </div>

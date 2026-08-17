@@ -38,6 +38,11 @@ class Check:
     found: str | None
     expected: str
     detail: str = ""
+    #: Whether failing this check stops the machine from producing a comparable measurement at
+    #: all. `opencode` and the sandbox are needed only by the configs that use opencode; the
+    #: whole `seed-v0` path, the test suite and the e2e dry-run work without either. Exiting
+    #: non-zero on them made the quickstart's fourth command fail on a healthy repository.
+    blocking: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +51,7 @@ class Check:
             "found": self.found,
             "expected": self.expected,
             "detail": self.detail,
+            "blocking": self.blocking,
         }
 
 
@@ -125,7 +131,13 @@ def check_opencode() -> Check:
             ok=False,
             found=None,
             expected=pinned or "installed",
-            detail="not on PATH; six run configs and the whole anchor panel need it",
+            detail=(
+                "not on PATH. Six run configs need it, and so does "
+                "`configs/runs/anchor-panel-opencode.yaml` — but the default "
+                "`anchor-panel.yaml` does not, and neither does anything in the README "
+                "quickstart. Install it only when you intend to run those configs."
+            ),
+            blocking=False,
         )
     return Check(
         name="opencode",
@@ -137,6 +149,7 @@ def check_opencode() -> Check:
             if pinned is None or found == pinned
             else "a different scaffold version is a different instrument"
         ),
+        blocking=False,
     )
 
 
@@ -167,8 +180,9 @@ def check_sandbox() -> Check:
             ""
             if available
             else "opencode will run unconfined; the run records sandboxed=false and refuses "
-            "unless AIBENCH_ALLOW_UNSANDBOXED=1"
+            "unless AIBENCH_ALLOW_UNSANDBOXED=1. Only matters if you run opencode."
         ),
+        blocking=False,
     )
 
 
@@ -180,9 +194,17 @@ def render(checks: list[Check]) -> str:
     width = max(len(c.name) for c in checks)
     lines = []
     for c in checks:
-        mark = "ok  " if c.ok else "FAIL"
+        mark = "ok  " if c.ok else ("FAIL" if c.blocking else "warn")
         lines.append(
             f"{mark} {c.name:<{width}}  found={c.found or '-'}  expected={c.expected}"
             + (f"\n     {c.detail}" if c.detail else "")
+        )
+    unmet = [c.name for c in checks if not c.ok and not c.blocking]
+    if unmet:
+        lines.append("")
+        lines.append(
+            f"warn = not needed for the README quickstart, the test suite or the e2e dry-run; "
+            f"needed only by the configs that use them ({', '.join(unmet)}). Exit code ignores "
+            f"these."
         )
     return "\n".join(lines)

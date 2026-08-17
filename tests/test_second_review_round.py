@@ -515,3 +515,42 @@ class TestRunningTheCodeIsNotWritingIt:
         before = _snapshot(tmp_path)
         (tmp_path / "m.py").write_text("x = 2\n", encoding="utf-8")
         assert _snapshot(tmp_path) != before
+
+
+class TestDoctorFailsOnlyOnWhatBlocksAMeasurement:
+    """P4. `doctor` is the README quickstart's fourth command and it exited 1 on a machine that
+    could run everything the quickstart goes on to do — `opencode` is needed by six run configs
+    and by `anchor-panel-opencode.yaml`, by nothing in the quickstart, and the repository gives
+    no instruction for installing it."""
+
+    def test_a_missing_opencode_is_a_warning(self, monkeypatch):
+        import aibench.preflight as preflight
+
+        preflight.opencode_version.cache_clear()
+        monkeypatch.setattr(preflight, "opencode_version", lambda: None)
+        check = preflight.check_opencode()
+        assert check.ok is False
+        assert check.blocking is False, "an absent opencode must not fail the whole doctor"
+
+    def test_a_missing_interpreter_pin_still_blocks(self, monkeypatch):
+        import aibench.preflight as preflight
+
+        monkeypatch.setattr(preflight, "_pinned_python", lambda: "3.99")
+        check = preflight.check_python()
+        assert check.ok is False and check.blocking is True
+
+    def test_the_exit_code_ignores_advisory_checks(self):
+        from aibench.preflight import Check
+
+        checks = [
+            Check("python", True, "3.13", "3.13"),
+            Check("opencode", False, None, "installed", blocking=False),
+        ]
+        assert (0 if all(c.ok for c in checks if c.blocking) else 1) == 0
+
+    def test_the_output_explains_what_warn_means(self):
+        from aibench.preflight import Check, render
+
+        out = render([Check("opencode", False, None, "installed", blocking=False)])
+        assert out.startswith("warn")
+        assert "Exit code ignores these" in out

@@ -358,3 +358,90 @@ class TestTheGraderModeMixIsNotOverstated:
         assert "gold" in modes.values(), (
             f"the counterexample this test is built on is gone: {modes}"
         )
+
+
+class TestEveryGateTheCodeEmitsIsInTheGateTable:
+    """§14.2 presents itself as the complete gate list and was missing four codes — including
+    one that two other documents described as "未修" while it had been implemented, tested and
+    armed at error severity. Nothing compared the table to the code that emits the codes."""
+
+    def _emitted(self) -> set[str]:
+        source = (ROOT / "src/aibench/validity.py").read_text(encoding="utf-8")
+        codes = set(re.findall(r'ValidityIssue\(\s*\n?\s*"([a-z_0-9]+)"', source))
+        codes |= set(re.findall(r'ValidityIssue\(f?"([a-z_0-9]+)', source))
+        return codes
+
+    def test_the_table_names_them_all(self):
+        body = (ROOT / "docs/REFERENCE.md").read_text(encoding="utf-8")
+        missing = sorted(c for c in self._emitted() if c not in body)
+        assert not missing, f"emitted by validity.py but absent from REFERENCE.md: {missing}"
+
+    def test_the_scan_finds_a_realistic_number(self):
+        """Guard on the guard: a regex that matched nothing would make the check above vacuous."""
+        assert len(self._emitted()) >= 15
+
+
+class TestTheAblationSectionIsTheAblationMatrix:
+    """§17.2 described a four-row matrix as two rows and said the others were commented out."""
+
+    def test_every_matrix_row_is_named(self):
+        import yaml
+
+        matrix = yaml.safe_load(
+            (ROOT / "configs/runs/ablation-matrix.yaml").read_text(encoding="utf-8")
+        )
+        names = [r["experiment_name"] for r in matrix["runs"]]
+        body = (ROOT / "docs/REFERENCE.md").read_text(encoding="utf-8")
+        section = body[body.index("### 17.2") : body.index("### 17.3")]
+        missing = [n for n in names if n not in section]
+        assert not missing, f"active matrix rows absent from §17.2: {missing}"
+
+
+class TestTheMainlineFlagIsInEveryRecipeAndTheTable:
+    """`--reverse` is the mainline, and it was in none of the hand-written `generate-cases`
+    recipes and in no parameter table — while the same documents declare the forward path dead.
+    A newcomer following them spends model budget on the abandoned route."""
+
+    RECIPE_DOCS = ("README.md", "docs/USER_GUIDE.md", "docs/REFERENCE.md")
+
+    @pytest.mark.parametrize("relative", RECIPE_DOCS)
+    def test_no_recipe_invokes_the_abandoned_generator(self, relative: str):
+        body = (ROOT / relative).read_text(encoding="utf-8")
+        recipes = re.findall(r"aibench generate-cases[^`]*?(?=\n\n|\n```)", body)
+        assert recipes, f"{relative}: no generate-cases recipe found; the check would be vacuous"
+        checked = 0
+        for recipe in recipes:
+            # `generate-cases ... --workers 4` is an elision illustrating one flag, not a recipe
+            # anyone runs; and `--heuristic-only` deliberately calls no model at all.
+            if "..." in recipe or "--heuristic-only" in recipe:
+                continue
+            checked += 1
+            assert "--reverse" in recipe, f"{relative}: recipe runs the forward path:\n{recipe}"
+        assert checked, f"{relative}: every generate-cases block was elided; nothing was checked"
+
+    def test_the_parameter_table_documents_the_mainline_flags(self):
+        body = (ROOT / "docs/REFERENCE.md").read_text(encoding="utf-8")
+        section = body[body.index("### 8.7") : body.index("### 8.8")]
+        for flag in ("--reverse", "--resume", "--no-deduplicate"):
+            assert f"`{flag}`" in section, f"§8.7 does not document {flag}"
+
+
+class TestEveryExportGateSaysWhetherItHasAnEscape:
+    """Three documents stated the export gates could not be bypassed, while `cli.py` grew two
+    new bypass flags on this branch and had a third all along."""
+
+    def test_every_allow_flag_is_documented(self):
+        cli = (ROOT / "src/aibench/cli.py").read_text(encoding="utf-8")
+        block = cli[
+            cli.index('"export-bundle"') : cli.index('"ablation"', cli.index('"export-bundle"'))
+        ]
+        flags = set(re.findall(r'"(--allow-[a-z-]+|--no-require-audit|--max-verbatim)"', block))
+        assert flags, "no export-bundle flags found; the check would be vacuous"
+        body = (ROOT / "docs/REFERENCE.md").read_text(encoding="utf-8")
+        missing = sorted(f for f in flags if f"`{f}`" not in body)
+        assert not missing, f"export-bundle flags absent from REFERENCE.md: {missing}"
+
+    def test_no_document_claims_the_secrets_gate_has_no_escape(self):
+        for relative in ("docs/REFERENCE.md", "docs/html/_src/manual.html"):
+            body = (ROOT / relative).read_text(encoding="utf-8")
+            assert "无豁免开关" not in body, f"{relative} still says the gate has no escape"
