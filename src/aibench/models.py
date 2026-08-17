@@ -154,6 +154,10 @@ class RunConfig:
     agent_config_path: str
     model_config_path: str
     case_workers: int = 1
+    #: How many times a case is retried after an infrastructure failure. Was reachable only
+    #: through `AIBENCH_CASE_RETRY`, so the number that decides how an outage is absorbed did
+    #: not appear in the config the run is reconstructed from. `None` keeps the env default.
+    case_retry: int | None = None
     #: The `set_fingerprint` this run is supposed to be measuring. Recorded and *compared*:
     #: the manifest has always carried the measured value, and nothing checked it, so a
     #: corpus that drifted underneath a config produced a number filed against the old set.
@@ -180,6 +184,7 @@ class RunConfig:
             agent_config_path=d.get("agent_config", "configs/agents/mock.yaml"),
             model_config_path=d.get("model_config", "configs/models/mock-model.yaml"),
             case_workers=int(d.get("case_workers", 1)),
+            case_retry=d.get("case_retry"),
             expected_case_set_fingerprint=d.get("expected_case_set_fingerprint"),
         )
 

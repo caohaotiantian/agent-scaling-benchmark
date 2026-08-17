@@ -66,7 +66,10 @@ _COLLECTION_CONTROL_FILES = frozenset(
 _GRADER_TIMEOUT_S = 120
 
 _SKIP_MARKERS = re.compile(
-    r"@(?:pytest\.mark\.(?:skip|skipif|xfail)|unittest\.skip)\b|\bpytest\.skip\s*\(|"
+    # `unittest.skip\b` matched neither `skipIf` nor `skipUnless` — the two forms an agent
+    # would actually reach for, because they take a condition and read as legitimate.
+    r"@(?:pytest\.mark\.(?:skip|skipif|xfail)|unittest\.skip(?:If|Unless)?)\b|"
+    r"\bpytest\.skip\s*\(|"
     r"\bpytest\.exit\s*\(|\braise\s+unittest\.SkipTest\b"
 )
 
@@ -267,6 +270,29 @@ def grade_case(
     return GradeResult(passed=False, mode=mode, detail=f"unknown grader mode: {mode}")
 
 
+def _grader_env() -> dict[str, str]:
+    """The environment a grader runs under, with the sources of run-to-run drift pinned.
+
+    The grader inherited the caller's environment whole. Three of those variables decide
+    whether the same code produces the same verdict:
+
+    * ``PYTHONHASHSEED`` — set randomly per interpreter, so any test that iterates a set or a
+      dict built from one and asserts an order passes or fails by luck. Pinned to 0.
+    * ``PYTHONDONTWRITEBYTECODE`` — a workspace is thrown away after grading, and writing
+      ``__pycache__`` into it makes the post-grading inventory differ from the pre-grading one
+      for reasons the submission had nothing to do with.
+    * ``PYTHONWARNINGS`` — a deprecation warning on stderr is not a failure, and leaving the
+      caller's ``error`` setting in place turns it into one.
+    """
+    import os
+
+    env = dict(os.environ)
+    env["PYTHONHASHSEED"] = "0"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("PYTHONWARNINGS", None)
+    return env
+
+
 def _grade_script(case: Case, workspace: Path) -> GradeResult:
     cmd = case.grader.command
     if not cmd:
@@ -290,6 +316,7 @@ def _grade_script(case: Case, workspace: Path) -> GradeResult:
             text=True,
             timeout=_GRADER_TIMEOUT_S,
             check=False,
+            env=_grader_env(),
         )
     except subprocess.TimeoutExpired:
         # Kept as `infra_error` — the harness cannot tell an agent-authored hang from a slow

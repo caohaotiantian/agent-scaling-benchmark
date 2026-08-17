@@ -67,3 +67,34 @@ def unsatisfied_promises(*, manifest: str = DEFAULT_MANIFEST) -> list[str]:
         except (ImportError, ValueError):
             missing.append(name)
     return missing
+
+
+def grading_env_digest(*, manifest: str = DEFAULT_MANIFEST) -> str:
+    """Content hash of the manifest plus the installed version of every name it promises.
+
+    A verdict is only attributable if the environment that produced it is. Two runs of the same
+    case set can disagree because one had numpy 2.1 and the other 2.3, and nothing in any
+    artifact recorded which — the manifest says *which names* are promised, never which builds
+    satisfied them.
+
+    A name the interpreter cannot import is hashed as ``absent``, so a missing promise changes
+    the digest rather than silently producing the same one as a satisfied environment.
+    """
+    import hashlib
+    from importlib import metadata
+
+    parts = [manifest]
+    for language in sorted(_load(manifest)):
+        for name in sorted(provided(language, manifest=manifest)):
+            version = "absent"
+            if language == "python":
+                try:
+                    version = metadata.version(name)
+                except metadata.PackageNotFoundError:
+                    version = (
+                        "importable"
+                        if is_available(language, name, manifest=manifest)
+                        else "absent"
+                    )
+            parts.append(f"{language}:{name}:{version}")
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]

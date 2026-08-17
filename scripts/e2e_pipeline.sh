@@ -39,6 +39,7 @@ REPEATS=3
 ANCHORS="$ROOT/configs/runs/anchor-panel.yaml"
 ABLATION_SET="auto-v0"
 SELECTED_SET="disc-v0"
+DIFFICULTY_QUOTA=""
 
 usage() {
   cat <<EOF
@@ -70,6 +71,9 @@ Tiering (discrimination):
 Calibration (measures real discrimination; costs anchors x repeats full runs):
   --calibrate          Run calibrate-cases + select-cases, then ablate the selected set
   --repeats N          Repeats per anchor (default 3)
+  --difficulty-quota S Band composition for select-cases, e.g. "easy=2,mid=4,hard=2".
+                       Without it select-cases takes whatever the pool happens to contain,
+                       so the selected set's band mix is an accident of the draft sample.
   --anchors PATH       Anchor panel YAML (default configs/runs/anchor-panel.yaml)
 EOF
 }
@@ -90,6 +94,7 @@ while [[ $# -gt 0 ]]; do
     --min-tier) MIN_TIER="$2"; shift 2 ;;
     --calibrate) CALIBRATE=1; shift ;;
     --repeats) REPEATS="$2"; shift 2 ;;
+    --difficulty-quota) DIFFICULTY_QUOTA="$2"; shift 2 ;;
     --anchors) ANCHORS="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown: $1"; usage; exit 1 ;;
@@ -215,10 +220,11 @@ if [[ "$CALIBRATE" -eq 1 ]]; then
     echo "==> select-cases by discrimination -> $SELECTED_SET"
     # Keeping nothing is a legitimate verdict (e.g. every case is a giveaway), not a pipeline
     # failure — report it and ablate the unfiltered set rather than aborting under `set -e`.
-    if "${UV[@]}" python -m aibench select-cases \
-      --calibration "$CAL/calibration.json" \
-      --from-set auto-v0 \
-      --to-set "$SELECTED_SET"; then
+    SELECT_FLAGS=(--calibration "$CAL/calibration.json" --from-set auto-v0 --to-set "$SELECTED_SET")
+    if [[ -n "$DIFFICULTY_QUOTA" ]]; then
+      SELECT_FLAGS+=(--difficulty-quota "$DIFFICULTY_QUOTA")
+    fi
+    if "${UV[@]}" python -m aibench select-cases "${SELECT_FLAGS[@]}"; then
       ABLATION_SET="$SELECTED_SET"
     else
       echo "!! calibration kept no discriminative case; ablating auto-v0 unfiltered"
@@ -227,6 +233,14 @@ if [[ "$CALIBRATE" -eq 1 ]]; then
     echo "---- calibration_report.md (head) ----"
     head -30 "$CAL/calibration_report.md" || true
   fi
+fi
+
+if [[ "$CALIBRATE" -ne 1 ]]; then
+  echo "!! --calibrate was not passed: ablating a pool whose discrimination was never measured."
+  echo "   Structural gates say a case *should* discriminate; only a calibration run says it does."
+  echo "   The numbers below are still real measurements of the configurations, but the case set"
+  echo "   behind them has no p_hat and no point-biserial, so 'this model is better' is not"
+  echo "   supported by this run alone. Re-run with --calibrate to get that."
 fi
 
 echo "==> production ablation on $ABLATION_SET"

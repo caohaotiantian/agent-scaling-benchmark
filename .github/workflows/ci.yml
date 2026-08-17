@@ -38,6 +38,19 @@ jobs:
       # pre-commit hook catches it on the author's machine; this catches it on everyone else's.
       - name: Secrets scan (tracked files)
         run: git ls-files -z | xargs -0 -r uv run python -m aibench secrets-scan --files
+      # `instrument_check.py` asserts the measuring instrument itself: that a run can say which
+      # code produced it, that editing an adapter moves the panel fingerprint, and that a
+      # pure-noise case does not correlate with ability. It was on no CI, no e2e and no hook.
+      # Exit 2 is INCOMPLETE — a check skipped for want of a gitignored run directory, which is
+      # the normal state in a clone. Only exit 1 (something actually failed) is a red build.
+      - name: Instrument check
+        run: |
+          set +e
+          uv run python scripts/instrument_check.py
+          status=$?
+          set -e
+          if [ "$status" -eq 1 ]; then exit 1; fi
+          echo "instrument_check exited $status (0=PASS, 2=INCOMPLETE in a clone)"
       - name: Docs links
         run: uv run python scripts/check_doc_links.py
       # The site builds only from `docs/html/_src/*.html`, so a committed page can drift from

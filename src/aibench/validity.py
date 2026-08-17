@@ -167,6 +167,17 @@ def case_fingerprint(case: Case | dict[str, Any]) -> str:
 
 
 def estimate_difficulty(case: Case) -> str:
+    """A size heuristic, named so it cannot be read as a measured difficulty band.
+
+    `audit-cases` writes this into `metadata.difficulty` while `select-cases` bands cases by
+    measured `p_hat` into easy / mid / hard. The two shared the words `easy` and `hard`, so a
+    reader comparing them was comparing lines of code against a pass rate — `_clean2026`'s
+    sample is labelled `hard` because the file is long.
+
+    The words are deliberately left alone: 13,307 cases on disk already carry them, and renaming
+    would make every stored value incomparable with every new one. What is written next to them
+    is `difficulty_scale`, so a reader never has to infer which of the two scales a value is on.
+    """
     n_files = len(case.files)
     loc = sum(len((f.content or "").splitlines()) for f in case.files)
     test_fns = 0
@@ -524,10 +535,24 @@ def check_hidden_tests_are_inferable(case: Case) -> list[ValidityIssue]:
     return issues
 
 
+def _is_test_file(path: str) -> bool:
+    """Whether the runner that grades this case would discover ``path`` as a test."""
+    from aibench.languages import spec_for_path
+
+    spec = spec_for_path(path)
+    return bool(spec and spec.is_test_path(path))
+
+
 def _test_blob(case: Case) -> str:
-    """Everything the solver is graded by: visible tests plus the hidden ones."""
+    """Everything the solver is graded by: visible tests plus the hidden ones.
+
+    Filename as well as label. `FileBlob.from_dict` defaults `role` to `impl`, so a case that
+    omits it — every committed `seed-v0` case does — presented `test_fizzbuzz.py` as an
+    implementation and contributed nothing here, leaving the gate scanning an empty string and
+    passing every such case by default.
+    """
     return "\n".join(
-        [fb.content or "" for fb in case.files if fb.role == "test"]
+        [fb.content or "" for fb in case.files if fb.role == "test" or _is_test_file(fb.path)]
         + [fb.content or "" for fb in case.grader.hidden_tests]
     )
 
@@ -572,7 +597,11 @@ def check_test_reads_source(case: Case) -> list[ValidityIssue]:
     blob = _test_blob(case)
     if not blob.strip():
         return []
-    impls = {fb.path.rsplit("/", 1)[-1] for fb in case.files if fb.role == "impl"}
+    impls = {
+        fb.path.rsplit("/", 1)[-1]
+        for fb in case.files
+        if fb.role == "impl" and not _is_test_file(fb.path)
+    }
 
     reasons: list[str] = []
     if _GETSOURCE.search(blob):
@@ -1011,6 +1040,10 @@ def annotate_case_metadata(case_path: Path, report: CaseValidityReport) -> None:
     raw = load_json(case_path)
     meta = dict(raw.get("metadata") or {})
     meta["difficulty"] = report.difficulty
+    # Which scale that word is on. `select-cases` bands cases as easy / mid / hard from measured
+    # `p_hat`; this one is `estimate_difficulty`, a size heuristic the tier module already
+    # records as discredited. They share the words `easy` and `hard`, and nothing said so.
+    meta["difficulty_scale"] = "size_heuristic"
     meta["fingerprint"] = report.fingerprint
     meta["validity_ok"] = report.ok
     meta["validity_issues"] = [i.to_dict() for i in report.issues]

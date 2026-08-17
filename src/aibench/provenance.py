@@ -39,6 +39,11 @@ HARNESS_SOURCES = (
     "retry.py",
     "models.py",
     "env_config.py",
+    # `calibrate.py` decides which cases are kept and what `p_hat` means; `stats.py` owns
+    # `point_biserial`, `wilson_ci` and `cost_curve`. Omitting them let `--reuse-from` carry a
+    # `r_pb` across a change to the estimator that produced it.
+    "calibrate.py",
+    "stats.py",
 )
 
 

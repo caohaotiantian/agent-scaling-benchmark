@@ -45,6 +45,11 @@ def _run_one_attempt(
     import os
 
     # Extra case-level retries for infra_error only (agent already retries HTTP).
+    # Run config first, environment second. `case_retries` reached this function as a
+    # parameter and nothing ever passed it, so the only way to set the number that decides how
+    # an outage is absorbed was an env var — invisible in the manifest the run is reconstructed
+    # from. Two runs whose rows differ because one retried four times and the other twice
+    # looked like the same configuration.
     max_case_tries = case_retries
     if max_case_tries is None:
         max_case_tries = max(1, int(os.environ.get("AIBENCH_CASE_RETRY", "2")))
@@ -195,6 +200,11 @@ _ADDITIVE_FIELDS = (
 #: `passk-glm52` row was being McNemar'd against three of.
 ORACLE_STRATEGIES = frozenset({"best-of-k"})
 
+#: Every strategy `_select_attempt` implements. A name outside this set used to fall through to
+#: `first-submit` while the manifest went on recording the name that was asked for, so
+#: `selection_strategy: best-of-K` produced a first-submit number filed as an oracle one.
+KNOWN_STRATEGIES = frozenset({"first-submit"}) | ORACLE_STRATEGIES
+
 
 def selection_is_oracle(strategy: str | None) -> bool:
     return str(strategy or "") in ORACLE_STRATEGIES
@@ -212,6 +222,11 @@ def _select_attempt(rows: list[dict[str, Any]], strategy: str) -> dict[str, Any]
     read as a submitted rate. ``first-submit`` returns the first attempt that ran at all, which
     is already the submit-time answer.
     """
+    if strategy not in KNOWN_STRATEGIES:
+        raise ValueError(
+            f"unknown selection_strategy {strategy!r}; known: {sorted(KNOWN_STRATEGIES)}. "
+            f"It used to fall through to first-submit while the manifest recorded the typo."
+        )
     usable = [r for r in rows if not r.get("infra_error")] or rows
     if selection_is_oracle(strategy):
         return next((r for r in usable if r.get("passed")), usable[0])
@@ -273,6 +288,7 @@ def _run_one_case(
     max_wall_time_s: float,
     attempts: int = 1,
     selection_strategy: str = "first-submit",
+    case_retries: int | None = None,
 ) -> dict[str, Any]:
     """Sample a case ``attempts`` times and fold the results into a single row."""
     case_dir = run_dir / "cases" / case.case_id
@@ -287,6 +303,7 @@ def _run_one_case(
                     model_cfg=model_cfg,
                     max_steps=max_steps,
                     max_wall_time_s=max_wall_time_s,
+                    case_retries=case_retries,
                 )
             ],
             strategy=selection_strategy,
@@ -301,6 +318,7 @@ def _run_one_case(
             model_cfg=model_cfg,
             max_steps=max_steps,
             max_wall_time_s=max_wall_time_s,
+            case_retries=case_retries,
         )
         for n in range(1, attempts + 1)
     ]
@@ -450,10 +468,13 @@ def run_benchmark(
     # Warned and recorded rather than aborted, because `run_benchmark` is called directly by the
     # test suite and aborting would couple every one of those tests to the installed extras —
     # reintroducing the failure mode of RP-09 in a new place. `--require-grading-env` aborts.
-    from aibench.grading_env import unsatisfied_promises
+    from aibench.grading_env import grading_env_digest, unsatisfied_promises
 
     unmet = unsatisfied_promises()
     manifest["grading_env_unsatisfied"] = unmet
+    # Which builds satisfied the promises, not only which names were promised. Two runs of the
+    # same case set can disagree because one had numpy 2.1 and the other 2.3; no artifact said.
+    manifest["grading_env_digest"] = grading_env_digest()
     if unmet:
         message = (
             f"configs/grading-env.yaml promises packages this interpreter cannot import: "
@@ -494,6 +515,7 @@ def run_benchmark(
             max_wall_time_s=run_cfg.max_wall_time_s,
             attempts=attempts,
             selection_strategy=run_cfg.selection_strategy,
+            case_retries=run_cfg.case_retry,
         )
 
     case_results = parallel_map(_job, cases, workers=workers)
