@@ -158,9 +158,13 @@ def run_ablation(
         summary = load_json(run_dir / "summary.json")
         if item.get("algorithm_name"):
             summary["algorithm_name"] = item["algorithm_name"]
+        run_manifest = load_json(run_dir / "run_manifest.json")
         tables = render_summary_tables_json(summary)
         return {
             "case_rows": read_result_rows(run_dir / "results.jsonl"),
+            # Only the knobs that decide what the row measures. Everything else in the manifest
+            # is identity or provenance, and copying it whole would double the summary's size.
+            "manifest": {k: run_manifest.get(k) for k in _AXIS_KEYS},
             "stratified_by_tier": summary.get("stratified_by_tier"),
             "experiment_name": exp,
             "run_id": summary.get("run_id"),
@@ -175,11 +179,14 @@ def run_ablation(
             "pass_at_k": summary.get("pass_at_k"),
             "attempts_per_case": summary.get("attempts_per_case"),
             "cost_curve": summary.get("cost_curve"),
+            "selection_strategy": summary.get("selection_strategy"),
+            "selection_is_oracle": summary.get("selection_is_oracle"),
             "effective_case_count": summary.get("effective_case_count"),
             "infra_error_count": summary.get("infra_error_count"),
             "infra_error_rate": summary.get("infra_error_rate"),
             "total_tokens": summary.get("total_tokens"),
             "total_cost": summary.get("total_cost"),
+            "cost_rate": summary.get("cost_rate"),
             "total_wall_time_h": summary.get("total_wall_time_h"),
             "overview_row": tables["overview_row"],
             "general_row": tables["general_row"],
@@ -242,17 +249,25 @@ def run_ablation(
     )
     base_row = next((r for r in rows if r["experiment_name"] == base_name), None)
     base_sr = float(base_row["success_rate"]) if base_row else None
+    base_oracle = bool((base_row or {}).get("selection_is_oracle"))
     for r in rows:
+        # A row whose selection strategy consulted the grader's verdict is an upper bound, not
+        # a submission. Every cross-run column has to say so, not only the McNemar one: the
+        # lift, the token multiple and the overview table all put an oracle rate beside three
+        # honest ones in `configs/runs/ablation-matrix.yaml` as it ships.
+        r["comparable_with_baseline"] = bool(r.get("selection_is_oracle")) == base_oracle
         if base_sr is None:
             r["relative_success_lift"] = None
             r["overview_row"]["相对基线收益"] = None
         else:
             lift = float(r["success_rate"] or 0) - base_sr
             r["relative_success_lift"] = lift
-            r["overview_row"]["相对基线收益"] = f"{lift * 100:+.1f}pp"
+            marker = "" if r["comparable_with_baseline"] else "（oracle，不可比）"
+            r["overview_row"]["相对基线收益"] = f"{lift * 100:+.1f}pp{marker}"
 
     attach_token_amplification(rows, baseline=base_name)
     pairwise = compare_runs_pairwise(rows, baseline=base_name)
+    axes = diff_axes_against_baseline(rows, baseline=base_name)
     tier_matrix = {r["experiment_name"]: r.get("stratified_by_tier") or {} for r in rows}
 
     # Per-case rows are only needed to build the comparisons; keep them out of the summary file.
@@ -269,12 +284,14 @@ def run_ablation(
             "runs": slim_rows,
             "failed_runs": failed_rows,
             "pairwise_comparisons": pairwise,
+            "axes_changed": axes,
             "tier_matrix": tier_matrix,
         },
     )
     report = _render_ablation_report(
         slim_rows,
         excluded=excluded,
+        axes=axes,
         baseline=base_name,
         pairwise=pairwise,
         tier_matrix=tier_matrix,
@@ -282,6 +299,46 @@ def run_ablation(
     )
     write_text(abl_dir / "ablation_report.md", report)
     return abl_dir
+
+
+#: Knobs whose value decides what a row measures. A matrix row that claims to vary one axis and
+#: quietly moves three of these is not a controlled comparison, and nothing used to check:
+#: `configs/runs/ablation-matrix.yaml`'s `tool-loop-glm52` row changes the adapter,
+#: `max_wall_time_s` 300 -> 600 *and* `case_workers` 4 -> 2, because it points at a different
+#: run config. The knobs all reach `run_manifest.json`; the comparison never read them back.
+_AXIS_KEYS = (
+    "agent_adapter",
+    "agent_name",
+    "main_model",
+    "max_attempts",
+    "max_steps",
+    "max_wall_time_s",
+    "case_workers",
+    "selection_strategy",
+    "sampling_params",
+    "case_set",
+)
+
+
+def diff_axes_against_baseline(
+    rows: list[dict[str, Any]],
+    *,
+    baseline: str | None,
+) -> dict[str, list[str]]:
+    """Which knobs each row moved relative to the baseline, by name."""
+    base = next((r for r in rows if r["experiment_name"] == baseline), None)
+    if base is None:
+        return {}
+    base_manifest = base.get("manifest") or {}
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        if r["experiment_name"] == baseline:
+            continue
+        manifest = r.get("manifest") or {}
+        moved = [key for key in _AXIS_KEYS if manifest.get(key) != base_manifest.get(key)]
+        out[r["experiment_name"]] = moved
+        r["axes_changed"] = moved
+    return out
 
 
 def attach_token_amplification(rows: list[dict[str, Any]], *, baseline: str | None) -> None:
@@ -314,12 +371,14 @@ def compare_runs_pairwise(
     if base is None:
         return []
     base_rows = base.get("case_rows") or []
+    base_oracle = bool(base.get("selection_is_oracle"))
     out: list[dict[str, Any]] = []
     for r in rows:
         if r["experiment_name"] == baseline:
             continue
         both, only_b, only_a, neither = paired_outcomes(base_rows, r.get("case_rows") or [])
         test = mcnemar_test(only_b, only_a)
+        comparable = bool(r.get("selection_is_oracle")) == base_oracle
         out.append(
             {
                 "baseline": baseline,
@@ -328,6 +387,11 @@ def compare_runs_pairwise(
                 "only_baseline": only_b,
                 "only_candidate": only_a,
                 "neither": neither,
+                # One side selected on the grader's verdict and the other did not, so the pair
+                # is an upper bound against a submission. The p-value is still computed — the
+                # arithmetic is not wrong — but it does not answer "is this model better".
+                "comparable": comparable,
+                "candidate_selection_is_oracle": bool(r.get("selection_is_oracle")),
                 **test,
             }
         )
@@ -356,6 +420,7 @@ def _render_ablation_report(
     tier_matrix: dict[str, dict[str, Any]] | None = None,
     failed: list[dict[str, Any]] | None = None,
     excluded: dict[str, dict[str, int]] | None = None,
+    axes: dict[str, list[str]] | None = None,
 ) -> str:
     lines = [
         "# Ablation Report",
@@ -390,7 +455,7 @@ def _render_ablation_report(
         "| --- | --- | --- | --- | ---: | --- | --- | ---: | ---: | --- |",
     ]
     for r in rows:
-        o = r["overview_row"]
+        o = r.get("overview_row") or {}
         sr = float(r.get("success_rate") or 0) * 100
         lift = o.get("相对基线收益")
         if lift is None and r.get("relative_success_lift") is not None:
@@ -406,16 +471,43 @@ def _render_ablation_report(
             "",
             "## Runs",
             "",
-            "| experiment | run_id | success_rate | 有效Case | 基础设施失败 | tokens | cost | run_dir |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+            "| experiment | run_id | success_rate | 口径 | 有效Case | 基础设施失败 | tokens "
+            "| cost(USD估) | run_dir |",
+            "| --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- |",
         ]
     )
     for r in rows:
+        basis = "oracle 上界" if r.get("selection_is_oracle") else "提交"
         lines.append(
             f"| {r['experiment_name']} | {r['run_id']} | {float(r['success_rate'] or 0):.3f} "
-            f"| {r.get('effective_case_count')} | {r.get('infra_error_count')} "
+            f"| {basis} | {r.get('effective_case_count')} | {r.get('infra_error_count')} "
             f"| {r['total_tokens']} | {r.get('total_cost')} | {r['run_dir']} |"
         )
+
+    multi_axis = {k: v for k, v in (axes or {}).items() if len(v) > 1}
+    if multi_axis:
+        lines.extend(
+            [
+                "",
+                "> **警告**：以下实验相对基线同时变动了多个旋钮，差异**不能归因到任何单一轴**：",
+            ]
+        )
+        for exp, moved in sorted(multi_axis.items()):
+            lines.append(f"> - `{exp}`：{', '.join(moved)}")
+
+    oracle_rows = [r for r in rows if r.get("selection_is_oracle")]
+    if oracle_rows and len(oracle_rows) != len(rows):
+        lines.extend(
+            [
+                "",
+                "> **警告**：下列实验的 `selection_strategy` 依据判分结果挑选尝试，"
+                "其 `success_rate` 是 oracle 上界（恒等于 pass@k），",
+                "> 与其余「诚实提交」的行**不可并列比较**——相对基线收益、token 倍数、"
+                "McNemar 三列都受影响：",
+            ]
+        )
+        for r in oracle_rows:
+            lines.append(f"> - `{r['experiment_name']}`（`{r.get('selection_strategy')}`）")
 
     # A run whose cases mostly failed to execute reports a rate computed on whatever survived,
     # which reads as "the agent could not solve much" when it actually means the harness never
@@ -481,15 +573,53 @@ def _render_ablation_report(
                 "",
                 "同一 case 集上的配对比较；`b`=仅基线通过，`c`=仅候选通过。p<0.05 视为能力水平显著不同。",
                 "",
-                "| 候选 | 均通过 | 仅基线(b) | 仅候选(c) | 不一致数 | p 值 | 显著 |",
-                "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+                "| 候选 | 均通过 | 仅基线(b) | 仅候选(c) | 不一致数 | p 值 | 显著 | 可比 |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
             ]
         )
         for p in pairwise:
+            comparable = p.get("comparable", True)
             lines.append(
                 f"| {p['candidate']} | {p['both_passed']} | {p['only_baseline']} "
                 f"| {p['only_candidate']} | {p['discordant']} | {p['p_value']:.4f} "
-                f"| {'是' if p['significant'] else '否'} |"
+                f"| {'是' if p['significant'] else '否'} "
+                f"| {'是' if comparable else '否（oracle vs 提交）'} |"
             )
+    lines.extend(_render_cost_rungs_md(rows))
     lines.append("")
     return "\n".join(lines)
+
+
+def _render_cost_rungs_md(rows: list[dict[str, Any]]) -> list[str]:
+    """Each configuration's success rate at a shared token budget.
+
+    ``token_amplification`` answers "how many times the baseline's tokens did this spend", which
+    is not the same question as "at equal spend, which is ahead". Every run already carries a
+    `cost_curve`; nothing compared the rungs across runs, so the cost axis the project documents
+    as a headline had no cross-config reading at all.
+    """
+    curves = {r["experiment_name"]: (r.get("cost_curve") or []) for r in rows}
+    curves = {k: v for k, v in curves.items() if v}
+    if len(curves) < 2:
+        return []
+    budgets = sorted({int(p["budget_tokens"]) for c in curves.values() for p in c})
+    if not budgets:
+        return []
+
+    def rate_at(curve: list[dict[str, Any]], budget: int) -> float | None:
+        reached = [p for p in curve if int(p["budget_tokens"]) <= budget]
+        return float(reached[-1]["success_rate"]) if reached else None
+
+    lines = [
+        "",
+        "## 等成本对比（同一 token 预算下的成功率）",
+        "",
+        "同一预算档位上的横向读数。token 倍数回答「花了基线的几倍」，这一张回答「同样花这么多，谁更强」。",
+        "",
+        "| 每 case 预算(token) | " + " | ".join(curves) + " |",
+        "| ---: | " + " | ".join("---:" for _ in curves) + " |",
+    ]
+    for budget in budgets:
+        cells = [format_pct(rate_at(curve, budget)) for curve in curves.values()]
+        lines.append(f"| {budget} | " + " | ".join(cells) + " |")
+    return lines

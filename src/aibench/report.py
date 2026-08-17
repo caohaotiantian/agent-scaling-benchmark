@@ -92,6 +92,10 @@ def build_summary(
         "max_attempts": m.get("max_attempts"),
         "max_steps": m.get("max_steps"),
         "selection_strategy": m.get("selection_strategy"),
+        # `best-of-k` submits the attempt the grader passed. `success_rate` is then an upper
+        # bound identical to `pass_at_k`, and `selection_hit_rate` is identically 1.0 wherever
+        # defined — a legitimate quantity, but not one comparable with a submitted rate.
+        "selection_is_oracle": bool(m.get("selection_is_oracle")),
         # Agent 与模型
         "agent_name": m.get("agent_name"),
         "agent_version": m.get("agent_version"),
@@ -133,6 +137,7 @@ def build_summary(
         "avg_tokens_per_case": avg_tokens,
         "avg_tokens_per_success": avg_tokens_success,
         "total_cost": _estimate_cost_usd(total_tokens),
+        "cost_rate": resolved_usd_rate(),
         "avg_cost_per_case": None,
         "token_amplification": None,
         "cost_curve": cost_curve(effective, budgets=budget_quantiles(effective)),
@@ -192,19 +197,48 @@ def _scaling_metrics(effective: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+#: Used when no `AIBENCH_USD_PER_MTOK*` variable is set. `total_cost` is then an invented number
+#: at an invented rate, and the published `total_cost: 5.303278` is exactly that — the (0.5+1.5)/2
+#: fallback applied to 5,303,278 tokens. Recording the rate and its source is what lets a reader
+#: tell the two apart without re-deriving them.
+_FALLBACK_USD_PER_MTOK_INPUT = 0.5
+_FALLBACK_USD_PER_MTOK_OUTPUT = 1.5
+
+
+def resolved_usd_rate() -> dict[str, Any]:
+    """The USD-per-million-tokens rate a cost estimate would use, and where it came from."""
+    blended = os.environ.get("AIBENCH_USD_PER_MTOK")
+    if blended:
+        try:
+            return {"usd_per_mtok": float(blended), "source": "AIBENCH_USD_PER_MTOK"}
+        except ValueError:
+            return {"usd_per_mtok": None, "source": f"AIBENCH_USD_PER_MTOK={blended!r} unparseable"}
+    raw_in = os.environ.get("AIBENCH_USD_PER_MTOK_INPUT")
+    raw_out = os.environ.get("AIBENCH_USD_PER_MTOK_OUTPUT")
+    try:
+        pin = float(raw_in) if raw_in is not None else _FALLBACK_USD_PER_MTOK_INPUT
+        pout = float(raw_out) if raw_out is not None else _FALLBACK_USD_PER_MTOK_OUTPUT
+    except ValueError:
+        return {"usd_per_mtok": None, "source": "AIBENCH_USD_PER_MTOK_INPUT/OUTPUT unparseable"}
+    configured = raw_in is not None or raw_out is not None
+    return {
+        "usd_per_mtok": (pin + pout) / 2.0,
+        "usd_per_mtok_input": pin,
+        "usd_per_mtok_output": pout,
+        # The token split is not recorded per call, so the average of the two is the best this
+        # can do even when both rates are real.
+        "source": (
+            "AIBENCH_USD_PER_MTOK_INPUT/OUTPUT, averaged (token split not recorded)"
+            if configured
+            else "built-in fallback, no rate configured — this is not a price"
+        ),
+    }
+
+
 def _estimate_cost_usd(total_tokens: int) -> float | None:
     """Rough USD estimate from env rates (per 1M tokens)."""
-    try:
-        # blended rate if only one set; else (in+out)/2
-        blended = os.environ.get("AIBENCH_USD_PER_MTOK")
-        if blended:
-            return total_tokens / 1_000_000.0 * float(blended)
-        pin = float(os.environ.get("AIBENCH_USD_PER_MTOK_INPUT", "0.5"))
-        pout = float(os.environ.get("AIBENCH_USD_PER_MTOK_OUTPUT", "1.5"))
-        # unknown split → use average
-        return total_tokens / 1_000_000.0 * ((pin + pout) / 2.0)
-    except Exception:
-        return None
+    rate = resolved_usd_rate()["usd_per_mtok"]
+    return None if rate is None else total_tokens / 1_000_000.0 * rate
 
 
 def format_pct(value: Any) -> str:
@@ -278,11 +312,20 @@ def _render_cost_curve_md(summary: dict[str, Any]) -> list[str]:
     ]
 
 
+ORACLE_CAVEAT = (
+    "> **本次 `success_rate` 是 oracle 上界，不是提交结果。**"
+    "`selection_strategy` 依据判分结果挑选尝试，"
+    "而真实系统在提交时看不到判分结果——因此它恒等于 `pass@k`，"
+    "`选择命中率` 恒为 100%。**不要**与「诚实提交」的配置并列比较。"
+)
+
+
 def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]) -> str:
     sr = summary.get("success_rate") or 0.0
     lines = [
         f"# Benchmark Report: {summary.get('run_id')}",
         "",
+        *([ORACLE_CAVEAT, ""] if summary.get("selection_is_oracle") else []),
         f"- Experiment: {summary.get('experiment_name')}",
         f"- Benchmark: {summary.get('benchmark_name')}",
         f"- Case set: {summary.get('case_set')}",
@@ -327,7 +370,8 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         f"| 分支数 | {summary.get('branches')} |",
         f"| 最大 Attempt 数 | {summary.get('max_attempts')} |",
         f"| 最大 Step 数 | {summary.get('max_steps')} |",
-        f"| 选择策略 | {summary.get('selection_strategy')} |",
+        f"| 选择策略 | {summary.get('selection_strategy')}"
+        f"{'（oracle，非提交口径）' if summary.get('selection_is_oracle') else ''} |",
         f"| Agent 名称 | {summary.get('agent_name')} |",
         f"| Agent 版本 | {summary.get('agent_version')} |",
         f"| 主模型 | {summary.get('main_model')} |",
@@ -352,6 +396,7 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         f"| 平均 Step/Case | {float(summary.get('avg_steps_per_case') or 0):.2f} |",
         f"| 总模型调用次数 | {summary.get('total_model_calls')} |",
         f"| 总成本(USD估) | {summary.get('total_cost')} |",
+        f"| 计价口径 | {(summary.get('cost_rate') or {}).get('source')} |",
         f"| 成功率 95% CI | {summary.get('confidence_interval')} |",
         f"| Case set fingerprint | {summary.get('case_set_fingerprint')} |",
         "",
@@ -431,6 +476,7 @@ def render_summary_tables_json(summary: dict[str, Any]) -> dict[str, Any]:
         "最大Attempt数": summary.get("max_attempts"),
         "最大Step数": summary.get("max_steps"),
         "选择策略": summary.get("selection_strategy"),
+        "选择口径为oracle": summary.get("selection_is_oracle"),
         "Agent名称": summary.get("agent_name"),
         "Agent版本": summary.get("agent_version"),
         "主模型": summary.get("main_model"),

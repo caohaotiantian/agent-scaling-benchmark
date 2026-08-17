@@ -171,15 +171,33 @@ _ADDITIVE_FIELDS = (
 )
 
 
+#: Strategies that choose using the grader's verdict, which no real system can see at
+#: submission time. Under one of these ``success_rate`` is an upper bound, not a submission —
+#: identical to ``pass_at_k``, with ``selection_hit_rate`` identically 1.0 wherever it is
+#: defined. That is a legitimate quantity to want; it is not comparable with a rate some other
+#: configuration actually submitted, which is what `configs/runs/ablation-matrix.yaml`'s
+#: `passk-glm52` row was being McNemar'd against three of.
+ORACLE_STRATEGIES = frozenset({"best-of-k"})
+
+
+def selection_is_oracle(strategy: str | None) -> bool:
+    return str(strategy or "") in ORACLE_STRATEGIES
+
+
 def _select_attempt(rows: list[dict[str, Any]], strategy: str) -> dict[str, Any]:
     """Pick the attempt the configured strategy would have submitted.
 
     An attempt that never ran is not a submission, so both strategies skip infra failures
     before choosing; otherwise the folded row would carry an infra failure's grade and
     failure_category while reporting itself as a normal result.
+
+    ``best-of-k`` consults ``passed`` — see :data:`ORACLE_STRATEGIES`. It is kept because the
+    oracle bound is worth measuring; every artifact it produces is labelled so it cannot be
+    read as a submitted rate. ``first-submit`` returns the first attempt that ran at all, which
+    is already the submit-time answer.
     """
     usable = [r for r in rows if not r.get("infra_error")] or rows
-    if strategy == "best-of-k":
+    if selection_is_oracle(strategy):
         return next((r for r in usable if r.get("passed")), usable[0])
     return usable[0]  # first-submit
 
@@ -197,6 +215,7 @@ def _aggregate_attempts(
     """
     selected = _select_attempt(rows, strategy)
     row = dict(selected)
+    row["selection_is_oracle"] = selection_is_oracle(strategy)
 
     usable = [r for r in rows if not r.get("infra_error")]
     outcomes = [bool(r.get("passed")) for r in usable]
@@ -361,6 +380,14 @@ def run_benchmark(
         "judgment_type": "半确定性",
         "primary_metric_name": "task_success_rate",
     }
+    manifest["selection_is_oracle"] = selection_is_oracle(run_cfg.selection_strategy)
+    if manifest["selection_is_oracle"]:
+        print(
+            f"[warn] selection_strategy={run_cfg.selection_strategy!r} picks the attempt the "
+            f"grader passed, which no real system can see at submission time. This run's "
+            f"success_rate is an oracle upper bound identical to pass@k — do not compare it "
+            f"against a configuration that submitted honestly."
+        )
     attempts = max(1, int(run_cfg.max_attempts))
     if attempts > 1 and model_cfg.temperature == 0:
         print(
