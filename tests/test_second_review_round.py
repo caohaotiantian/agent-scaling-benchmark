@@ -465,3 +465,22 @@ class TestTheGraderRunsInAPinnedEnvironment:
             output_root=tmp_path,
         )
         assert load_json(run_dir / "run_manifest.json")["grading_env_digest"]
+
+
+class TestTheDifficultyColumnSaysWhichScale:
+    """M5's live form. `runner.py` writes `estimate_difficulty` into every row and the report
+    stratifies by it, so a reader meets `easy`/`medium`/`hard` next to a `p_hat` band table that
+    reads `easy`/`mid`/`hard` — two of three words shared, different axes."""
+
+    def test_the_report_labels_the_scale(self):
+        from aibench.report import render_report_md
+
+        summary = {
+            "run_id": "r",
+            "stratified_by_difficulty": {
+                "easy": {"n": 1, "successes": 1, "success_rate": 1.0, "confidence_interval": None}
+            },
+        }
+        report = render_report_md(summary, [])
+        assert "体量启发式" in report
+        assert "p_hat" in report

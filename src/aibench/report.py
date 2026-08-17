@@ -412,6 +412,16 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         strata = summary.get(key) or {}
         lines.append(f"### by {title}")
         lines.append("")
+        if title == "difficulty":
+            # `easy`/`medium`/`hard` here come from `estimate_difficulty` — lines of code and a
+            # count of `def test_`, which `tiers.py` records as discredited (it put 93.8% of the
+            # first generated set into one band). `select-cases` uses `easy`/`mid`/`hard` banded
+            # from measured `p_hat`. The two share two of three words and are not the same axis.
+            lines.append(
+                "> 口径：`estimate_difficulty` 的**体量启发式**（行数 + `def test_` 个数），"
+                "不是校准测出的 `p_hat` 分档。二者共用 `easy`/`hard` 两个词，不可横比。"
+            )
+            lines.append("")
         lines.append("| 分层 | n | 成功 | 成功率 | 95% CI |")
         lines.append("| --- | ---: | ---: | ---: | --- |")
         for label, st in strata.items():
