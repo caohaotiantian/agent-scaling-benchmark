@@ -343,6 +343,9 @@ class TestTheGraderModeMixIsNotOverstated:
     which is in the repository and contradicts the sentence without leaving the checkout."""
 
     def test_the_page_states_the_measured_mix(self):
+        """Checks the page states *a* gold count, not that the count is right — the corpus it
+        was measured on is gitignored, so a clone cannot re-derive it. What a clone *can* check
+        is the counterexample below, which is committed."""
         page = _reference()
         assert "<code>gold</code> <strong>4,994</strong>" in page, (
             "the page must state the gold count it used to deny"

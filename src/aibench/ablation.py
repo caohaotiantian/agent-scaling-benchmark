@@ -684,6 +684,10 @@ def _render_cost_rungs_md(rows: list[dict[str, Any]]) -> list[str]:
     exactly what `budget_quantiles` warns against: callers comparing configurations "must pass
     one shared rung list".
     """
+    # An oracle row's rate is an upper bound, not a submission — every cross-run column has to
+    # say so, and this one is a cross-run column. `token_amplification` and the McNemar table
+    # already mark it; the equal-cost table did not.
+    oracle = {r["experiment_name"] for r in rows if r.get("selection_is_oracle")}
     measured = {
         r["experiment_name"]: [c for c in (r.get("case_rows") or []) if not c.get("infra_error")]
         for r in rows
@@ -705,9 +709,17 @@ def _render_cost_rungs_md(rows: list[dict[str, Any]]) -> list[str]:
         "",
         "同一预算档位上的横向读数。token 倍数回答「花了基线的几倍」，这一张回答「同样花这么多，谁更强」。",
         "档位取自所有配置合并后的每 case 花费分位数，每条曲线都在这同一组档位上重算——"
-        "各自分位数的并集会把某个配置在 50k 处的读数放进 500k 那一列。",
+        "各自分位数的并集会把某个配置在 50k 处的读数放进 500k 那一列。"
+        + (
+            "<br>⚠️口径 = 该行的选择策略读了判分结果（`best-of-k`），是**上界**不是一次提交，"
+            "不能与其他列直接比。"
+            if oracle
+            else ""
+        ),
         "",
-        "| 每 case 预算(token) | " + " | ".join(curves) + " |",
+        "| 每 case 预算(token) | "
+        + " | ".join(f"{n} ⚠️口径" if n in oracle else n for n in curves)
+        + " |",
         "| ---: | " + " | ".join("---:" for _ in curves) + " |",
     ]
     for i, budget in enumerate(budgets):

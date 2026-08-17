@@ -14,9 +14,11 @@ runner collects them.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from aibench.cases import is_case_json_path
+from aibench.grading import _COLLECTION_CONTROL_FILES
 from aibench.io_util import load_json
 from aibench.languages import spec_for_path
 from aibench.validity import case_fingerprint
@@ -51,6 +53,12 @@ def donor_files(case: dict[str, Any]) -> list[dict[str, str]]:
             continue
         spec = spec_for_path(path)
         if spec is not None and spec.is_test_path(path):
+            continue
+        if Path(path).name in _COLLECTION_CONTROL_FILES:
+            # A `conftest.py` or `pytest.ini` planted under `vendor/<donor>/` is not noise: it
+            # is a file the host's own runner discovers and obeys. `grading.py` treats these as
+            # collection controls for exactly that reason, and a retrieval case must not smuggle
+            # one in as a distractor.
             continue
         out.append({"path": path, "content": str(f.get("content") or "")})
     return out

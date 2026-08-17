@@ -817,3 +817,26 @@ class TestBareModelPosabilityOnTheCommittedFixtures:
             "seed-v0-003-normalize-name": True,
             "seed-v0-004-snapshot-div": False,
         }, posable
+
+
+class TestADonorCannotPlantACollectionControlFile:
+    """A retrieval case plants a donor's implementation files under `vendor/<id>/` as noise.
+    `conftest.py` and friends are not noise there — the host's own runner discovers and obeys
+    them, which is why `grading.py` treats them as collection controls and the interference gate
+    refuses them. The donor filter excluded tests and stopped there."""
+
+    def test_a_conftest_is_not_donated(self):
+        from aibench.compose import donor_files
+
+        case = {
+            "context": {
+                "files": [
+                    {"path": "pkg/calc.py", "content": "def f():\n    return 1\n"},
+                    {"path": "pkg/conftest.py", "content": "collect_ignore = ['.']\n"},
+                    {"path": "pytest.ini", "content": "[pytest]\naddopts = -p no:randomly\n"},
+                    {"path": "pkg/test_calc.py", "content": "def test_f():\n    assert True\n"},
+                ]
+            }
+        }
+        donated = [f["path"] for f in donor_files(case)]
+        assert donated == ["pkg/calc.py"], donated

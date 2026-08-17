@@ -545,10 +545,14 @@ def replay_file_versions(
             else:
                 fv.post = seen[k]
                 fv.edits += 1
-                # Reset, not left alone. `post_origin` says how the final state was arrived at,
-                # and an `edit -> write -> edit` sequence ends on a reconstructed edit; leaving
-                # the earlier write's label would understate the evidence in exactly the
-                # ordering that produces the stronger kind.
+                # Reset, not left alone. `post_origin` says how the final state was *arrived
+                # at*, and an `edit -> write -> edit` sequence ends on a reconstructed edit.
+                #
+                # It is the last step that is labelled, not the whole history: the base of that
+                # final edit came from a wholesale `write`, which the sibling note above calls
+                # the weaker evidence. Both readings are defensible and this one is the
+                # narrower claim — "the last thing done to this file was an edit replay" — which
+                # is what the field's name says.
                 fv.post_origin = POST_FROM_EDIT
 
     out: list[FileVersion] = []
