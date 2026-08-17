@@ -26,9 +26,9 @@
 | [项目交接 `docs/HANDOFF.md`](docs/HANDOFF.md) | 更早的状态、限定条件与经验教训。**从 §0.-1 读起** |
 | [审计 `docs/AUDIT-2026-08-17.md`](docs/AUDIT-2026-08-17.md) | 第三方复算审计：可复现性缺口、已发布数字的核验、修复排序 |
 | [用户手册 `docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | 端到端操作向导。**内容截至 2026-08-04，早于主线转向反向构造** |
-| [文档站首页](docs/html/index.html) | 四页 HTML 站的导航 |
-| [项目介绍](docs/html/overview.html) | 背景、流水线架构、反向构造原理、实测分布 |
-| [用户手册](docs/html/manual.html) | 环境准备、端到端流程、参数含义、故障排查 |
+| [文档站首页](docs/html/index.html) | 四页 HTML 站的导航。**内容截至 2026-08-11**，其中的难度与区分度数字均已被后续会话推翻，页首有提示 |
+| [项目介绍](docs/html/overview.html) | 背景、流水线架构、反向构造原理、实测分布。**同上，截至 2026-08-11**；页首三条限定必须先读 |
+| [用户手册](docs/html/manual.html) | 环境准备、端到端流程、参数含义、故障排查（操作步骤仍适用） |
 | [参考资料](docs/html/reference.html) | 设计依据、数据格式、门禁规则、已发布校准数据 |
 | [参考手册 `docs/REFERENCE.md`](docs/REFERENCE.md) | **CLI 与配置的参数级权威参考**（HTML 站不含这部分） |
 | [未尽事项](docs/REMAINING_WORK.md) | 已知缺口（注意：内容截至 2026-08-04，早于主线转向） |
@@ -200,7 +200,7 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 
 配对检验只从「两个配置结论不同」的 case 学到东西，所以不一致率和效应量同样决定题量。
 
-`--limit` / `--max-cases` 有默认值，**不传也不会全库无限扫**。详见 [参考手册 `docs/REFERENCE.md`](docs/REFERENCE.md) §8.5 ——参数级细节在 `.md`，不在 HTML 站，这正是上面那条规则说的。
+`--limit` / `--max-cases` 有默认值，**不传也不会全库无限扫**。完整的默认值一览在 [参考手册 `docs/REFERENCE.md`](docs/REFERENCE.md) **§4.3**（抽取、生成与 e2e 三处的默认值放在一起）；逐个参数的说明在 §8.5（`extract-from-db`）与 §8.7（`generate-cases`）。参数级细节在 `.md`，不在 HTML 站，这正是上面那条规则说的。
 
 ---
 

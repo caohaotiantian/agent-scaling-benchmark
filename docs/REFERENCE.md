@@ -576,7 +576,7 @@ runs:
 | `--export-csv` | flag | 关 | 写 `ablation_overview.csv` |
 | `--export-xlsx` | flag | 关 | 写 xlsx（依赖 openpyxl） |
 
-### 8.8.1 `export-bundle` — 导出可共享用例包（仓库之外）
+### 8.9 `export-bundle` — 导出可共享用例包（仓库之外）
 
 用例**不入库**。要把用例交给别人复现，用这条路径导出到仓库之外的任意目录，再走你自己的共享渠道。
 
@@ -625,7 +625,7 @@ uv run python -m aibench export-bundle --from-set <set> \
 产物含 `MANIFEST.json`：各门禁的通过/拒绝计数、**每条被拒用例的 id 与原因**、所用阈值、
 tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程，不必选择相信我们（§5.1）。
 
-### 8.9 `promote` — 人工门控发布
+### 8.10 `promote` — 人工门控发布
 
 **作用**：把候选集中**通过门控**的 case 复制到正式集（如 `prod-v0`），并改 `review_status=published`。
 
@@ -642,7 +642,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 **门控顺序（每条 case）**：schema → script 模式（可关）→ 非 weak_grader → secrets（可关）→ 可选 validity audit → 写盘并复制 snapshots。
 
-### 8.10 `audit-cases` — 科学效度审计
+### 8.11 `audit-cases` — 科学效度审计
 
 **作用**：对 case set 跑 §14 全部门禁，输出汇总；可选回写 metadata。
 
@@ -656,7 +656,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 报告含 `tier_distribution`；每条 case 的 `checks` 含 `stub_fail`、`reference_solution`、`tier`。
 
-### 8.9.1 `compose-cases` — 合成 T4 检索用例
+### 8.12 `compose-cases` — 合成 T4 检索用例
 
 **作用**：把已验证用例的实现文件植入另一条已验证用例作为干扰文件，凑齐 T4 的广度要求。
 
@@ -675,7 +675,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 捐赠者按固定顺序轮转而非随机：集合内容每次都变的话，就无法和之前的校准结果对比。
 
-### 8.10.1 `calibrate-cases` — 经验校准（区分度实测）
+### 8.13 `calibrate-cases` — 经验校准（区分度实测）
 
 **作用**：用锚点面板跑 `anchors × repeats` 次，按 case 统计 `p_hat` / `spread` /
 `point_biserial` / `flaky`，给出 keep/drop 判定。见 §13.5.5。
@@ -696,7 +696,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 产物：`calibration.json` + `calibration_report.md`。**成本 = 锚点数 × repeats 次全量跑测**，
 按需预算。`kept_count==0` 时 exit 1。
 
-### 8.10.2 `select-cases` — 按区分度选题
+### 8.14 `select-cases` — 按区分度选题
 
 **作用**：把校准保留的 case 复制成新集合，按 `spread`、`point_biserial` 降序。
 
@@ -712,7 +712,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 写入时把 `metadata.calibration`（`p_hat` / `spread` / `point_biserial` / `attempts`）落到 case 上。
 
-### 8.11 `secrets-scan`
+### 8.15 `secrets-scan`
 
 **作用**：用正则扫描 case JSON 里**每一个字符串值**中疑似密钥。
 
@@ -748,13 +748,13 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 > **26 处命中全是误报**（README 的 `.env.example`、Rust 文档注释、测试断言）。
 > 收紧它们需要一份对抗性召回语料先落盘，否则放宽会同时漏掉真凭证 —— 单独一轮处理。
 
-### 8.12 `snapshot-skeleton`
+### 8.16 `snapshot-skeleton`
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
 | `--case-set` | str | 必填 | 将 `context.files` 落到 `snapshots/<case_id>/`，并设 `workspace.mode=mixed` |
 
-### 8.13 `export-ablation`
+### 8.17 `export-ablation`
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
@@ -762,7 +762,7 @@ hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里�
 | `--csv` | flag | **True** | 导出 CSV |
 | `--xlsx` | flag | 关 | 导出 XLSX |
 
-### 8.14 `plan-sample-size` — 反推所需题量
+### 8.18 `plan-sample-size` — 反推所需题量
 
 配对检验只从「两个配置结论不同」的 case 学到东西，所以题量由**不一致率**和效应量共同决定，
 不是拍脑袋定的。此前本节缺失 —— 一个自称参数级权威的文档漏掉了一整个子命令。
@@ -780,7 +780,7 @@ uv run python -m aibench plan-sample-size --delta 10 --discordance 20
 uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablation_<ts>/ablation_summary.json
 ```
 
-### 8.15 `doctor` — 环境自检
+### 8.19 `doctor` — 环境自检
 
 把此前只写在注释里的外部版本要求变成退出码：python、node、`configs/grading-env.yaml` 的承诺、
 `opencode` 版本、沙箱可用性。任一不满足退出 1。
@@ -1602,7 +1602,7 @@ JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走�
 | `retrieval-v0`（已发布） | **0** | 0 |
 | `_scaleprobe` | 14 | 5 |
 
-`retrieval-v0` 那 6 条命中页脚的文件全是 `role: distractor`，因此正确地不判负。
+`retrieval-v0` 那 6 条命中页脚的文件全是 `role: distractor`，因此正确地不判负 —— 所以上面两张表里 `retrieval-v0` 的 **0** 指的是「因页脚被判负的用例数」，不是「含页脚的文件数」。两个数都对，是两件事。
 
 匹配**行锚定** `^\(…\)$`：语料里有一个 `filesystem.py` 是 read 工具自身的实现，
 源码里就含 `result += f"\n\n(Showing lines {offset}-…)"`，子串匹配会误伤它。
