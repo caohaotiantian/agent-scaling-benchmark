@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from aibench.calibrate import read_result_rows
-from aibench.cases import case_set_dir
+from aibench.cases import case_set_dir, case_set_root
 from aibench.io_util import (
     load_json,
     load_yaml,
@@ -78,7 +78,7 @@ def _filter_unusable_cases(
         )
     # write filtered set under benchmarks/ai_coding/cases/.ablation-filtered-<set>
     dest_name = f".ablation-filtered-{case_set}"
-    dest = repo_root() / "benchmarks/ai_coding/cases" / dest_name
+    dest = case_set_root() / dest_name
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)

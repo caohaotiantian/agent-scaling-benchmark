@@ -26,7 +26,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from aibench.cases import case_set_dir, is_case_json_path
+from aibench.cases import case_set_dir, case_set_root, is_case_json_path
 from aibench.io_util import load_json, load_yaml, repo_root, write_json, write_text
 from aibench.stats import item_rest_correlation, wilson_ci
 
@@ -612,7 +612,7 @@ def _materialize_subset(case_set: str, case_ids: list[str]) -> str:
     """Write a temporary case set holding only ``case_ids`` so a run can cover just those."""
     src = case_set_dir(case_set)
     dest_name = f".calibrating-{case_set}"
-    dest = repo_root() / "benchmarks/ai_coding/cases" / dest_name
+    dest = case_set_root() / dest_name
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)

@@ -124,8 +124,14 @@ def test_calibration_report_renders():
 
 
 def test_select_copies_the_kept_cases_best_discriminators_first(tmp_path, monkeypatch):
-    src = repo_root() / "benchmarks/ai_coding/cases/_test_cal_src"
-    dest = repo_root() / "benchmarks/ai_coding/cases/_test_cal_dest"
+    # Redirected at `tmp_path`: this used to create `_test_cal_{src,dest}` inside the checkout
+    # and remove them afterwards, which is the shape of the unlocated bug that emptied a
+    # worktree (docs/SESSION-2026-08-14.md §5.4).
+    from aibench.cases import CASE_ROOT_ENV
+
+    monkeypatch.setenv(CASE_ROOT_ENV, str(tmp_path / "cases"))
+    src = tmp_path / "cases" / "_test_cal_src"
+    dest = tmp_path / "cases" / "_test_cal_dest"
     src.mkdir(parents=True, exist_ok=True)
     try:
         for cid in ("keeper", "giveaway"):
@@ -154,11 +160,7 @@ def test_select_copies_the_kept_cases_best_discriminators_first(tmp_path, monkey
         written = json.loads((dest / "keeper.json").read_text(encoding="utf-8"))
         assert written["metadata"]["calibration"]["spread"] == 1.0
     finally:
-        for d in (src, dest):
-            if d.exists():
-                for f in d.glob("*.json"):
-                    f.unlink()
-                d.rmdir()
+        pass  # tmp_path is removed by pytest; nothing here touches the checkout
 
 
 def test_anchor_panel_config_spans_both_axes():

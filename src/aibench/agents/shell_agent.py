@@ -81,8 +81,12 @@ class ShellAgent(AgentAdapter):
             status=status,
             artifacts={
                 "files_written": written[:50],
-                "final_message": (proc.stdout or "")[-2000],
-                "stderr": (proc.stderr or "")[-1000],
+                # Slices, not indices. `(proc.stdout or "")[-2000]` reads *one character* and
+                # raises `IndexError: string index out of range` on any output shorter than
+                # 2000 bytes — which is every run of a CLI that succeeds quietly. The adapter
+                # therefore could not complete a single successful run, and had no test.
+                "final_message": (proc.stdout or "")[-2000:],
+                "stderr": (proc.stderr or "")[-1000:],
                 "exit_code": proc.returncode,
             },
             usage=UsageRecord(model_calls=1, total_tokens=0),
