@@ -47,7 +47,33 @@ RP-57（`git gc --prune=now` 重写对象库）· RP-04 的许可证**选择**�
 **RP-57 的现状**：`git fsck --unreachable` 仍能看到重写前那两个 451 字节、匹配 `openai_sk`
 的 blob。**不可达，未发布** —— 但那把 key 无论如何都应按已泄露处理，那是轮换决定，不是仓库决定。
 
-## 三、审计判为 low 且实测无暴露面的条目
+## 三、每个 ID 都能查到处置
+
+审计里共出现 **118** 个不同编号（RP-/NF-/B/H/M）。其中 **94 个**在本分支某次提交的信息里被点名，
+查法：
+
+```bash
+git log 982a9c4..HEAD --grep='RP-17'      # 换成任意编号
+```
+
+剩下 **24 个**此前只写在 gitignore 的 `.agent/` 计划里 —— 也就是 clone 的人看不到。
+它们全部列在下面（§三、§四），不再有「只存在于本机」的处置。
+
+**为什么专门讲这件事**：本文开头说「凡是 clone 的人需要知道的结论，都在这里」。
+第一版没做到 —— 它只点名了 33 个编号，其余靠一份 gitignore 的文件兜底，而 RP-24 指的正是这个毛病。
+`tests/test_second_review_round.py::TestEveryAuditIdHasATrackedDisposition` 现在会核对这句话。
+
+| 只在本文有处置的 24 个 | 处置 |
+|---|---|
+| RP-01、RP-02、RP-03、RP-08、RP-14、RP-15 | 非目标：是否公开发布语料/PII 治理，属 owner 决定（见 §二） |
+| RP-31 | 已修（`tests/conftest.py` 的 session fixture，缺 `python` 时明确失败），但当时没在提交信息里点名。审计给的另一条路——从 `sys.executable` 解析判分器——**没有采纳**：判分命令是用例自带的字符串，改写它会改变这条用例测的东西 |
+| RP-49 | 已修：`overview.html` 现在引的是 `v3:54785dc2e6eb12a3`，与 `cases_archive/2026-08-12/_revhide2/rev-1f1563e5cdce9714.json` 核对一致 |
+| RP-57 | 非目标：`git gc --prune=now` 重写对象库是 owner 的决定（见 §二末） |
+| NF-11 | **审计自身的悬空引用** —— 它引了一个自己没有定义的编号。无从处置 |
+| H4 | 审计 §D.3 列为可安全忽略 |
+| M3、M7、M9、M12、M13、M15、M17、M18、M21、M22、M23、M26、M27 | 见下节：审计判为 low 且实测无暴露面，收窄结论本身就是处置 |
+
+## 四、审计判为 low 且实测无暴露面的条目
 
 以下按审计自己的收窄结论记为「不改」，收窄本身就是处置：
 
@@ -62,19 +88,19 @@ M22（空 patch 行照判、照失败、留在分母里，这是正确的 T5 处
 M15 的收窄版本成立（`llm_judge` 是 env-only）。判分结果现在会写出 `judge=<model>` —— 让这条
 环境侧信道在产物里看得见。把 judge 改成配置优先是评测契约的变更，属于 owner。
 
-## 四、审计没发现、写测试时发现的两个缺陷
+## 五、审计没发现、写测试时发现的两个缺陷
 
 * `ShellAgent` 的 `(proc.stdout or "")[-2000]` 是**下标不是切片**。任何输出短于 2000 字节的
   CLI 都会让它抛 `IndexError` —— 这个适配器从来没有成功完成过一次跑测。
 * 同一适配器的 `empty_patch` 永远不可能为真：它把工作区里每个文件都算作「被写过」。
 
-## 五、`SESSION-2026-08-14.md` §5.4 那个会删 worktree 的测试：已定位
+## 六、`SESSION-2026-08-14.md` §5.4 那个会删 worktree 的测试：已定位
 
 病因是 `materialize_workspace` 一上来就删除目标目录。用 `git archive` 导出 `982a9c4` 后削到
 只剩一个 `clamp.py` 复现，已加 `assert_disposable` 守卫。`tests/conftest.py::guard_the_checkout`
 抓的是**复发**，不是病因 —— 两者不要混为一谈。
 
-## 六、一处非计划内的改动，交给 owner 决定
+## 七、一处非计划内的改动，交给 owner 决定
 
 `uv.lock` 的包索引从 `pypi.tuna.tsinghua.edu.cn` 变成了 `pypi.org` / `files.pythonhosted.org`
 （2,214 行）。这是固定环境那次提交里 `uv` 重新求解的副作用，不是任何一条审计发现要求的。
@@ -86,7 +112,7 @@ M15 的收窄版本成立（`llm_judge` 是 env-only）。判分结果现在会�
 里写着一个区域镜像，对那张网之外的人答案是不能。但这动到的是 owner 的基础设施选择，所以写在这里
 而不是等人发现。要退回：`git checkout 982a9c4 -- uv.lock`。
 
-## 七、门禁
+## 八、门禁
 
 每次提交都跑：`ruff format --check` + `ruff check`（src / tests / scripts）·`pytest` ·
 `scripts/e2e_pipeline.sh --dry-run` ·`scripts/check_doc_links.py`（0 问题）·

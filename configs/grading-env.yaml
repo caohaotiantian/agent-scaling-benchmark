@@ -14,8 +14,11 @@
 # Keep in step with the `grading` extra in pyproject.toml; tests/test_grading_env.py asserts it.
 
 python:
-  # Chosen from the draft pool, not from taste: these six unblock 15 of the (pre, post) pairs
-  # that fail the import gate for third-party packages alone, taking the pool from 77 to 89.
+  # Chosen from the draft pool, not from taste: these six unblock pairs that fail the import
+  # gate for third-party packages alone, taking the pool from 77 to 89 — a net +12. Fifteen
+  # pairs name one of these six, but three of the fifteen also import a private module, so
+  # installing the six does not rescue them. The earlier comment gave both 15 and 89 without
+  # saying they do not add up.
   # The rest need private modules (`config`, `pypto`, `obstacle_avoidance`, `@opencode-ai/*`,
   # `vscode`), which no install fixes. Installed by the `grading` extra.
   - numpy

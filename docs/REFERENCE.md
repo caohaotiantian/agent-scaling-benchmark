@@ -135,7 +135,7 @@ Agentic Scaling 需要在统一 Benchmark 协议下比较不同 **算法 / Agent
 | 包 / 路径 | 职责 |
 |-----------|------|
 | `src/aibench/extract/` | 抽库、规则筛选、LLM 软过滤、生成、snapshot 骨架 |
-| `src/aibench/agents/` | `mock` / `openai_compat` / `tool_loop` / `shell` |
+| `src/aibench/agents/` | `mock` / `openai_compat` / `tool_loop` / `shell` / `bare_model` / `opencode`（六个，§12 逐个讲）|
 | `src/aibench/runner.py` | 单次 run、case 并行、manifest |
 | `src/aibench/grading.py` | script / gold / llm_judge / composite |
 | `src/aibench/workspace.py` | workspace 物化（inline/snapshot/git/mixed） |
@@ -376,7 +376,7 @@ extra: {}
 |------|------|------|
 | `name` | string | 写入结果表的 Agent 名称 |
 | `version` | string | Agent 版本字符串 |
-| `adapter` | string | 注册表键：`openai_compat` / `tool_loop` / `shell` / `mock` |
+| `adapter` | string | 注册表键：`openai_compat` / `tool_loop` / `shell` / `mock` / `bare_model` / `opencode` |
 | `description` | string | 可选说明 |
 | `options` | object | 适配器专有选项（见 §12） |
 

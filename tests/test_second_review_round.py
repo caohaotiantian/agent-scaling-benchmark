@@ -7,6 +7,7 @@ or at the commit that introduced the defect it names, whichever is later.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -554,3 +555,40 @@ class TestDoctorFailsOnlyOnWhatBlocksAMeasurement:
         out = render([Check("opencode", False, None, "installed", blocking=False)])
         assert out.startswith("warn")
         assert "Exit code ignores these" in out
+
+
+class TestEveryAuditIdHasATrackedDisposition:
+    """`docs/AUDIT-RESPONSE-2026-08-17.md` promises that everything a clone needs to know is in
+    it rather than in gitignored `.agent/`. The first version named 33 of the audit's 118 ids and
+    left the rest to a file no clone receives — which is RP-24, the finding it cites.
+
+    A disposition counts as tracked if the id is named in the response document or in a commit
+    message on this branch. Both survive a clone; `.agent/` does not.
+    """
+
+    BASE = "982a9c4"
+
+    def _ids(self) -> list[str]:
+        audit = (ROOT / "docs/AUDIT-2026-08-17.md").read_text(encoding="utf-8")
+        return sorted(set(re.findall(r"\b(RP-\d{2}|NF-\d{2}|[BHM]\d{1,2})\b", audit)))
+
+    def test_the_audit_still_has_the_ids_this_test_is_about(self):
+        assert len(self._ids()) > 100, "the audit changed shape; re-derive this check"
+
+    def test_no_id_is_dispositioned_only_where_a_clone_cannot_look(self):
+        import subprocess
+
+        log = subprocess.run(
+            ["git", "-C", str(ROOT), "log", f"{self.BASE}..HEAD", "--format=%s%n%b"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if log.returncode != 0:
+            pytest.skip("no git history here (a tarball export); nothing to check against")
+        response = (ROOT / "docs/AUDIT-RESPONSE-2026-08-17.md").read_text(encoding="utf-8")
+        tracked = log.stdout + response
+        missing = [i for i in self._ids() if not re.search(rf"\b{re.escape(i)}\b", tracked)]
+        assert not missing, (
+            f"dispositioned only in gitignored .agent/, which no clone receives: {missing}"
+        )
