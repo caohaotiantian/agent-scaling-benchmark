@@ -61,6 +61,9 @@ _COLLECTION_CONTROL_FILES = frozenset(
         "usercustomize.py",
     }
 )
+#: Wall-clock ceiling on one grader invocation. Named so the timeout message can quote it.
+_GRADER_TIMEOUT_S = 120
+
 _SKIP_MARKERS = re.compile(
     r"@(?:pytest\.mark\.(?:skip|skipif|xfail)|unittest\.skip)\b|\bpytest\.skip\s*\(|"
     r"\bpytest\.exit\s*\(|\braise\s+unittest\.SkipTest\b"
@@ -215,14 +218,20 @@ def _grade_script(case: Case, workspace: Path) -> GradeResult:
             cwd=workspace,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=_GRADER_TIMEOUT_S,
             check=False,
         )
     except subprocess.TimeoutExpired:
+        # Kept as `infra_error` — the harness cannot tell an agent-authored hang from a slow
+        # machine, and charging the model for the second is worse than excusing it the first.
+        # But the two are not the same event and the artifact now says which one this was, so
+        # the classification is auditable rather than assumed: `grader timeout` appears 0 times
+        # across the 218 `results.jsonl` files on disk, against 1,454 agent-side infra errors,
+        # which is the evidence that this branch is latent rather than a live distortion.
         return GradeResult(
             passed=False,
             mode="script",
-            detail="grader timeout",
+            detail=f"grader timeout after {_GRADER_TIMEOUT_S}s: {cmd}",
             infra_error=True,
         )
     except OSError as e:
@@ -422,5 +431,9 @@ def _grade_llm_judge(case: Case, workspace: Path) -> GradeResult:
         passed=passed,
         mode="llm_judge",
         score=score,
-        detail=f"score={score} thr={thr} {reason}".strip(),
+        # The judge model is taken from the environment and used to be recorded nowhere, so a
+        # judged result could not say what judged it — the same hole `code_version` had, on the
+        # grading side. Every other adapter resolves its model config-first; this one cannot,
+        # so naming it in the detail is the least that keeps the verdict attributable.
+        detail=f"judge={settings['model']} score={score} thr={thr} {reason}".strip(),
     )

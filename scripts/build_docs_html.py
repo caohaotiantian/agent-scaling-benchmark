@@ -24,6 +24,10 @@ from markdown.extensions.tables import TableExtension
 from markdown.extensions.toc import TocExtension
 
 ROOT = Path(__file__).resolve().parents[1]
+
+#: An absolute path under a user's home directory, in any of the three common layouts.
+#: Scrubbed from the built pages so a hand-written fragment cannot publish one by accident.
+_HOME_PATH = re.compile(r"(?:/Users|/home|C:\\\\Users)[/\\\\][^\\s\"'<>)]+")
 OUT = ROOT / "docs" / "html"
 ASSETS = OUT / "assets"
 SRC = OUT / "_src"
@@ -913,10 +917,11 @@ def adapt_standalone_html(
     text = text.replace("docs/USER_GUIDE.md", "user-guide.html")
     text = text.replace("agentic_scaling_benchmark_tables.md", "tables.html")
     text = text.replace("aibench-project-overview.html", "project-overview.html")
-    text = text.replace(
-        "/Users/lishanni/code/agent-study/outputs/agentic_scaling_benchmark_tables/agentic_scaling_benchmark_tables.xlsx",
-        "见本站 tables.html（字段字典）",
-    )
+    # Any absolute home-directory path, rather than the one literal that used to sit here. The
+    # literal was another engineer's home directory published in a tracked file — harmless as a
+    # replacement *target*, and still a leaked path — and it had stopped matching anything in
+    # `_src/` long before this was noticed, so it was documentation of a leak and nothing else.
+    text = _HOME_PATH.sub("见本站 tables.html（字段字典）", text)
 
     # Ensure page wrapper for design report
     if wide and 'class="page"' not in text and 'class="page wide"' not in text:

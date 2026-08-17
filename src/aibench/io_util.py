@@ -76,3 +76,19 @@ def write_text(path: Path, text: str) -> None:
 def repo_root() -> Path:
     # src/aibench/io_util.py -> parents[2] = repo root
     return Path(__file__).resolve().parents[2]
+
+
+def relative_to_repo(path: Path | str) -> str:
+    """``path`` as the repository sees it, or unchanged when it lies outside.
+
+    Two tracked calibration files embed
+    ``/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/...`` in `run_dir` and
+    结果目录. That is an engineer's home directory published in the repository, and it is also
+    useless to a reader: the run directories are gitignored, so the only actionable part of the
+    string is the part after the repository root.
+    """
+    candidate = Path(path)
+    try:
+        return candidate.resolve().relative_to(repo_root().resolve()).as_posix()
+    except (ValueError, OSError):
+        return str(path)

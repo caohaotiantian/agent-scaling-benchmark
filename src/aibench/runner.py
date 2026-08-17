@@ -9,7 +9,14 @@ from typing import Any
 from aibench.agents.registry import create_agent
 from aibench.cases import case_set_dir, load_cases
 from aibench.grading import grade_case
-from aibench.io_util import load_yaml, repo_root, write_json, write_jsonl, write_text
+from aibench.io_util import (
+    load_yaml,
+    relative_to_repo,
+    repo_root,
+    write_json,
+    write_jsonl,
+    write_text,
+)
 from aibench.languages import case_language_is_javascript, unsupported_node_reason
 from aibench.models import AgentConfig, AgentRunResult, Case, GradeResult, ModelConfig, RunConfig
 from aibench.parallel_util import parallel_map
@@ -117,6 +124,10 @@ def _run_one_attempt(
             "difficulty": difficulty,
             "tier": case.tier,
             "fingerprint": case_fingerprint(case),
+            # Carried into the calibration export so a published band can be recomputed from
+            # the file. `auto-v0`'s row requires "只取有参考解的 105 条" and nothing identified
+            # which 105, so the recipe failed on its own most-cited example.
+            "has_reference": bool(case.grader.gold_files),
             "agent_status": agent_result.status,
             "passed": passed,
             "infra_error": infra,
@@ -303,6 +314,7 @@ def run_benchmark(
     run_id: str | None = None,
     output_root: Path | None = None,
     case_workers: int | None = None,
+    require_grading_env: bool = False,
 ) -> Path:
     root = repo_root()
     run_cfg_path = run_config_path or (root / "configs/runs/baseline.yaml")
@@ -402,10 +414,29 @@ def run_benchmark(
         "model_combo_summary": f"main={model_cfg.model}",
         "sampling_params": sampling,
         "model_config_name": model_cfg.name,
-        "result_dir": str(run_dir),
+        "result_dir": relative_to_repo(run_dir),
         "judgment_type": "半确定性",
         "primary_metric_name": "task_success_rate",
     }
+    # `configs/grading-env.yaml` is a declaration the run never verified: the grader shells out
+    # to `python -m pytest -q` in whatever interpreter happens to be current, so a case built
+    # against a promised package that is not installed fails at grading and reads as difficulty.
+    # Warned and recorded rather than aborted, because `run_benchmark` is called directly by the
+    # test suite and aborting would couple every one of those tests to the installed extras —
+    # reintroducing the failure mode of RP-09 in a new place. `--require-grading-env` aborts.
+    from aibench.grading_env import unsatisfied_promises
+
+    unmet = unsatisfied_promises()
+    manifest["grading_env_unsatisfied"] = unmet
+    if unmet:
+        message = (
+            f"configs/grading-env.yaml promises packages this interpreter cannot import: "
+            f"{', '.join(unmet)}. Cases importing them will fail at grading, which reads as "
+            f"difficulty. Run `uv sync --extra dev --extra grading`."
+        )
+        if require_grading_env:
+            raise RuntimeError(message)
+        print(f"[warn] {message}")
     manifest["selection_is_oracle"] = selection_is_oracle(run_cfg.selection_strategy)
     if manifest["selection_is_oracle"]:
         print(
@@ -459,8 +490,8 @@ def run_benchmark(
     tables = render_summary_tables_json(summary)
     report_md = render_report_md(summary, case_results)
 
-    summary["report_path"] = str(run_dir / "report.md")
-    summary["raw_results_path"] = str(run_dir / "results.jsonl")
+    summary["report_path"] = relative_to_repo(run_dir / "report.md")
+    summary["raw_results_path"] = relative_to_repo(run_dir / "results.jsonl")
     summary["tables"] = tables
     summary["case_set_fingerprint"] = set_fp
     summary["case_workers"] = workers

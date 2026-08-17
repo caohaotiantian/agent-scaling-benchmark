@@ -116,6 +116,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Parallel case workers (default: run-config case_workers or 1)",
     )
+    p_run.add_argument(
+        "--require-grading-env",
+        action="store_true",
+        help="Abort if `configs/grading-env.yaml` promises a package this interpreter cannot "
+        "import. Default is to warn and record `grading_env_unsatisfied` in the manifest: a "
+        "case importing an absent package fails at grading and reads as difficulty, so the "
+        "number is worth flagging even when the run is worth having.",
+    )
 
     p_val = sub.add_parser("validate-cases", help="Validate a case set against schema")
     p_val.add_argument("--case-set", type=str, default="auto-v0")
@@ -546,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
                 run_id=args.run_id,
                 output_root=args.output_root,
                 case_workers=args.workers,
+                require_grading_env=args.require_grading_env,
             )
         except (FileNotFoundError, RuntimeError) as e:
             # A missing case set is the *expected* state in a fresh clone, and an unusable node
@@ -559,6 +568,16 @@ def main(argv: list[str] | None = None) -> int:
             f"({summary['success_count']}/{summary['effective_case_count']}) "
             f"tokens={summary['total_tokens']} cost={summary.get('total_cost')}"
         )
+        if not summary["effective_case_count"]:
+            # A run where every case died on the harness exited 0 and wrote a complete report
+            # reading `success_rate: 0.0` — which a script, or a reader in a hurry, takes as a
+            # capability result. The artifacts are still written: the failure is worth keeping.
+            print(
+                f"FAILED: no case executed. All {summary['case_count']} died on infrastructure "
+                f"({summary['infra_error_count']} infra errors) — this is not a 0% pass rate. "
+                f"Check credentials, the gateway and `aibench doctor`; see {run_dir}/report.md."
+            )
+            return 1
         return 0
 
     if args.cmd == "validate-cases":

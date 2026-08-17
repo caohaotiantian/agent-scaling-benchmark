@@ -79,9 +79,18 @@ class BareModelAgent(AgentAdapter):
         self.show_tests = bool(opts.get("show_tests", True))
 
     def _prompt(self, case: Case) -> tuple[str, str] | None:
-        impl = next((f for f in case.files if f.role == "impl"), None)
-        if impl is None:
+        """The single file to fix, or ``None`` when this adapter cannot pose the case.
+
+        A multi-file case used to be silently reduced to its first implementation file. The
+        adapter's own config claims axis **A4 跨文件一致性**, which is precisely the axis a
+        one-file prompt cannot exercise — so the run reported a number against an axis the
+        submission never saw, and the case's other files were simply absent from the task. It
+        refuses now: an unposable case is a harness failure, not a hard one.
+        """
+        impls = [f for f in case.files if f.role == "impl"]
+        if len(impls) != 1:
             return None
+        impl = impls[0]
         test = next((f for f in case.files if f.role == "test"), None)
         parts = [
             f"Task: {case.prompt}",
@@ -123,9 +132,17 @@ class BareModelAgent(AgentAdapter):
 
         built = self._prompt(case)
         if built is None:
+            n_impl = sum(1 for f in case.files if f.role == "impl")
             return AgentRunResult(
-                status="failed",
-                error_message="case has no impl file to fix",
+                # `infra_error`, not `failed`: the adapter could not pose the task, which is a
+                # statement about this adapter and not about the model. Scoring it as a failure
+                # charged the model for a case it was never shown.
+                status="infra_error",
+                error_message=(
+                    f"bare_model needs exactly one impl file; this case has {n_impl}. "
+                    "It pastes the whole file into one prompt, so a multi-file case cannot be "
+                    "posed — use openai_compat or tool_loop for those."
+                ),
                 wall_time_s=time.perf_counter() - t0,
                 empty_patch=True,
             )

@@ -10,7 +10,15 @@ from typing import Any
 
 from aibench.calibrate import read_result_rows
 from aibench.cases import case_set_dir
-from aibench.io_util import load_json, load_yaml, repo_root, write_json, write_text
+from aibench.io_util import (
+    load_json,
+    load_yaml,
+    relative_to_repo,
+    repo_root,
+    write_json,
+    write_text,
+)
+from aibench.provenance import environment
 from aibench.report import format_hours, format_pct, render_summary_tables_json
 from aibench.runner import run_benchmark
 from aibench.stats import mcnemar_test, paired_outcomes
@@ -168,7 +176,7 @@ def run_ablation(
             "stratified_by_tier": summary.get("stratified_by_tier"),
             "experiment_name": exp,
             "run_id": summary.get("run_id"),
-            "run_dir": str(run_dir),
+            "run_dir": relative_to_repo(run_dir),
             "algorithm_name": summary.get("algorithm_name"),
             "agent_name": summary.get("agent_name"),
             "main_model": summary.get("main_model"),
@@ -275,7 +283,11 @@ def run_ablation(
     write_json(
         abl_dir / "ablation_summary.json",
         {
-            "matrix": str(matrix_path),
+            "matrix": relative_to_repo(matrix_path),
+            # Same reason as the calibration export: an artifact that cannot say which code
+            # produced it is checkable but not attributable.
+            "provenance": environment(),
+            "case_set": case_set,
             "skip_weak_grader": skip_weak,
             "skip_invalid_cases": skip_invalid,
             "excluded_cases": excluded,

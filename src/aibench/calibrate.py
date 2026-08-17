@@ -75,6 +75,16 @@ class CaseCalibration:
     #: Content hash of the case as measured; a later run reuses this result only if it matches.
     fingerprint: str | None = None
     by_anchor: dict[str, float] = field(default_factory=dict)
+    #: How many attempts each anchor actually contributed. `by_anchor` alone is a rate with no
+    #: denominator, so a published Δ between two anchors could not be recomputed under the
+    #: convention the calibrations README promises — an anchor that produced 3 of 9 attempts and
+    #: one that produced 9 read identically.
+    by_anchor_attempts: dict[str, int] = field(default_factory=dict)
+    #: Whether the case ships a reference solution. `auto-v0`'s published row requires
+    #: "只取有参考解的 105 条" and no field in the file identified which 105, so the recompute
+    #: recipe failed on its own first and most-cited example: following it naively lands on
+    #: 62.7 / 13.5 / 23.8 against a published 75.2 / 16.2 / 8.6.
+    has_reference: bool | None = None
     spread: float = 0.0
     point_biserial: float | None = None
     flaky: bool = False
@@ -303,6 +313,7 @@ def aggregate_calibration(
     outcomes: dict[str, dict[int, list[bool]]] = {}
     tiers: dict[str, str | None] = {}
     fingerprints: dict[str, str | None] = {}
+    has_reference: dict[str, bool | None] = {}
     anchor_of: list[str] = []
     for i, run in enumerate(runs):
         anchor_of.append(str(run.get("anchor", "anchor")))
@@ -314,6 +325,7 @@ def aggregate_calibration(
                 continue
             tiers.setdefault(cid, row.get("tier"))
             fingerprints.setdefault(cid, row.get("fingerprint"))
+            has_reference.setdefault(cid, row.get("has_reference"))
             outcomes.setdefault(cid, {}).setdefault(i, []).append(bool(row.get("passed")))
 
     run_indices = list(range(len(runs)))
@@ -342,6 +354,7 @@ def aggregate_calibration(
         # Group across an anchor's repeats: an anchor that solves a case only sometimes is the
         # signal that the case itself is unstable, and one run per anchor can never show it.
         by_anchor: dict[str, float] = {}
+        by_anchor_attempts: dict[str, int] = {}
         flaky = False
         for name, indices in runs_of_anchor.items():
             hits = [ok for i in indices for ok in per_run.get(i, [])]
@@ -349,6 +362,7 @@ def aggregate_calibration(
                 continue
             rate = sum(1 for ok in hits if ok) / len(hits)
             by_anchor[name] = rate
+            by_anchor_attempts[name] = len(hits)
             flaky = flaky or 0.0 < rate < 1.0
         spread = (max(by_anchor.values()) - min(by_anchor.values())) if by_anchor else 0.0
 
@@ -382,6 +396,8 @@ def aggregate_calibration(
                 p_hat=p_hat,
                 confidence_interval=f"[{ci[0] * 100:.1f}%, {ci[1] * 100:.1f}%]" if ci else None,
                 by_anchor=by_anchor,
+                by_anchor_attempts=by_anchor_attempts,
+                has_reference=has_reference.get(cid),
                 spread=spread,
                 point_biserial=r_pb,
                 flaky=flaky,
@@ -558,9 +574,23 @@ def calibrate_case_set(
             tiers={c.case_id: c.tier for c in cases},
             anchors_expected=len(anchors),
         )
+    from aibench.provenance import environment
+    from aibench.validity import set_fingerprint
+
     report["case_set"] = case_set
     report["repeats"] = repeats
     report["anchor_fingerprint"] = panel
+    # None of the 13 published calibrations records what produced it, and the 24 run directories
+    # behind them stamp the literal `aibench@0.1.0 / agent@1.0.0` — a constant that
+    # `provenance.py` now calls "worse than no field", because it reads as an answer. The
+    # README warns that adapter defects moved one model's pass rate 58 points; a reader holding
+    # these numbers could not tell which side of which fix any of them sat on. The numbers were
+    # arithmetically checkable and not attributable.
+    report["provenance"] = environment()
+    try:
+        report["case_set_fingerprint"] = set_fingerprint(cases)
+    except Exception:
+        report["case_set_fingerprint"] = None
     report["unfit_anchors"] = [{"anchor": n, "tier": t, "missing_axes": m} for n, t, m in unfit]
     report["reused_case_count"] = len(reused)
     report["recalibrated_case_count"] = len(todo)

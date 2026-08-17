@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from typing import Any
@@ -191,6 +192,39 @@ def split_read_footer(content: str) -> tuple[str, str]:
     return body, (READ_COMPLETE if int(m.group("n")) == len(body_lines) else READ_PARTIAL)
 
 
+_NUMBERED_LINE = re.compile(r"^\s*(?P<n>\d+):\s?")
+
+
+def _strip_line_numbers(lines: list[str]) -> list[str]:
+    """Remove a read tool's ``12: `` gutter, and only that.
+
+    The strip used to run per line, unconditionally, so any *source* line beginning with digits
+    and a colon lost its leading token. That is not a rare shape — ``404: "not found",`` in a
+    dict, ``8080: {`` in a config, a YAML mapping keyed by number — and the damage is silent:
+    the reconstructed file is subtly wrong, and it becomes the stub or the reference solution of
+    a case.
+
+    A gutter is recognisable by being a *gutter*: every non-blank line carries one and the
+    numbers run consecutively. One line matching proves nothing, which is exactly the case the
+    old rule got wrong.
+    """
+    numbers: list[int] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        match = _NUMBERED_LINE.match(line)
+        if not match:
+            return lines
+        numbers.append(int(match.group("n")))
+    if len(numbers) < 2:
+        # A one-line block gives no evidence either way, and mangling it costs more than
+        # leaving a stray gutter on it.
+        return lines
+    if any(b - a != 1 for a, b in itertools.pairwise(numbers)):
+        return lines
+    return [_NUMBERED_LINE.sub("", line) if line.strip() else line for line in lines]
+
+
 def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
     files: list[dict[str, str]] = []
     for m in _PATH_CONTENT.finditer(text or ""):
@@ -202,13 +236,7 @@ def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
         elif path.startswith("/"):
             path = "/".join(path.split("/")[-3:])
         body = m.group("body")
-        # strip line-number prefixes like "12: code"
-        cleaned_lines = []
-        for line in body.splitlines():
-            if re.match(r"^\s*\d+:", line):
-                cleaned_lines.append(re.sub(r"^\s*\d+:\s?", "", line))
-            else:
-                cleaned_lines.append(line)
+        cleaned_lines = _strip_line_numbers(body.splitlines())
         # The footer is split off before any trimming. Trimming first ate the blank lines a file
         # genuinely ends with, and the line count then came up short — a whole file refused as a
         # window for ending in whitespace. Only newlines are trimmed, never indentation: the old
