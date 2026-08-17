@@ -13,6 +13,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      # `node --test` below 22.18 discovers no TypeScript test file and exits 0 having run
+      # nothing, and 0 is a pass — measured, five real `.ts` cases flip from fail to pass on
+      # node 22.1. Without this step the runner's preinstalled node decided the result and the
+      # two JavaScript test classes skipped silently when it was absent.
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
       # `grading` too, not just `dev`: `configs/grading-env.yaml` promises the grading
       # environment provides numpy, pandas, requests, matplotlib, flask and av, and
       # tests/test_grading_env.py holds that promise to an actual import. Installing only `dev`
@@ -20,10 +27,23 @@ jobs:
       - name: Install
         run: uv sync --extra dev --extra grading
       - name: Ruff format check
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests scripts
       - name: Ruff lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts
       - name: Unit tests
         run: uv run pytest tests/ -q
       - name: E2E dry-run
         run: ./scripts/e2e_pipeline.sh --dry-run
+      # The incident this repository is recovering from is a commit carrying a live key. The
+      # pre-commit hook catches it on the author's machine; this catches it on everyone else's.
+      - name: Secrets scan (tracked files)
+        run: git ls-files -z | xargs -0 uv run python -m aibench secrets-scan --files
+      - name: Docs links
+        run: uv run python scripts/check_doc_links.py
+      # The site builds only from `docs/html/_src/*.html`, so a committed page can drift from
+      # its own source with nothing noticing.
+      - name: Docs site is the rebuild of its source
+        run: |
+          uv run python scripts/build_docs_html.py
+          git diff --exit-code docs/html
+          test -z "$(git status --porcelain docs/html)"

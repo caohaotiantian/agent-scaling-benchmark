@@ -6,7 +6,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from aibench.languages import pass_ratio, registered_spec
+from aibench.languages import (
+    case_language_is_javascript,
+    pass_ratio,
+    registered_spec,
+    unsupported_node_reason,
+)
 from aibench.models import Case, GradeResult
 from aibench.workspace import safe_relpath as _safe_relpath
 
@@ -193,6 +198,16 @@ def _grade_script(case: Case, workspace: Path) -> GradeResult:
     cmd = case.grader.command
     if not cmd:
         return GradeResult(passed=False, mode="script", detail="missing grader.command")
+    if case_language_is_javascript(case.language) and (reason := unsupported_node_reason()):
+        # An unusable runner is a harness failure, not a verdict about the submission. Left
+        # unchecked it is worse than a crash: `node --test` below 22.18 exits 0 having
+        # discovered nothing, and 0 is a pass.
+        return GradeResult(
+            passed=False,
+            mode="script",
+            detail=f"javascript grading unavailable: {reason}",
+            infra_error=True,
+        )
     try:
         proc = subprocess.run(
             cmd,

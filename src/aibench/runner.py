@@ -10,6 +10,7 @@ from aibench.agents.registry import create_agent
 from aibench.cases import case_set_dir, load_cases
 from aibench.grading import grade_case
 from aibench.io_util import load_yaml, repo_root, write_json, write_jsonl, write_text
+from aibench.languages import case_language_is_javascript, unsupported_node_reason
 from aibench.models import AgentConfig, AgentRunResult, Case, GradeResult, ModelConfig, RunConfig
 from aibench.parallel_util import parallel_map
 from aibench.report import (
@@ -320,6 +321,17 @@ def run_benchmark(
     cs = case_set or run_cfg.case_set
     cases = load_cases(cs, validate=True)
     workers = int(case_workers if case_workers is not None else run_cfg.case_workers)
+
+    # Refused before anything is spent. A `.nvmrc` is advisory and the failure it prevents is
+    # silent: below the floor `node --test` discovers no TypeScript test file and exits 0,
+    # which is a pass on the defective stub. Measured: five real `.ts` cases flip.
+    if any(case_language_is_javascript(c.language) for c in cases) and (
+        reason := unsupported_node_reason()
+    ):
+        raise RuntimeError(
+            f"case set {cs!r} contains JavaScript/TypeScript cases and this machine cannot "
+            f"grade them: {reason}"
+        )
 
     rid = run_id or f"{run_cfg.experiment_name}-{uuid.uuid4().hex[:8]}"
     started_monotonic = time.monotonic()

@@ -1,0 +1,20 @@
+# Who to ask, for the three things a replayer cannot get from the repository.
+#
+# The audit's premise failed at step zero: an outsider could not obtain the code, a colleague
+# granted access held no licence grant, and nothing named anyone to ask about either. This file
+# is the answer to "who grants access", and LICENSE is the answer to "on what terms".
+#
+# Access granted by the copyright holder:
+#   * the repository itself
+#   * `AIBENCH_DB_URL` — the MySQL `llm_chat_records` table every case is derived from
+#   * `OPENAI_BASE_URL` / `OPENAI_API_KEY` — the gateway serving GLM-5.2, GLM-5.1, GLM-5,
+#     Qwen3.7-Plus and Deepseek-V4-Flash-0731. No tracked file names its endpoint, and with
+#     `OPENAI_BASE_URL` unset requests go to api.openai.com and fail per case as HTTP errors.
+
+*       @caohaotiantian
+
+# The contract surfaces. A change to any of these changes what a published number means.
+/benchmarks/ai_coding/schemas/   @caohaotiantian
+/benchmarks/ai_coding/calibrations/  @caohaotiantian
+/configs/                        @caohaotiantian
+/LICENSE                         @caohaotiantian

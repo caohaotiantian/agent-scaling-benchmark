@@ -328,10 +328,30 @@ def main(argv: list[str] | None = None) -> int:
         help="Exit 2 if any case fails error-level gates",
     )
 
+    p_doc = sub.add_parser(
+        "doctor",
+        help="Check that this machine can produce a comparable measurement (python, node, "
+        "opencode, grading env, sandbox)",
+    )
+    p_doc.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Machine-readable output",
+    )
+
     p_sec = sub.add_parser("secrets-scan", help="Scan a case directory for likely secrets")
     p_sec.add_argument("--case-set", type=str, default=None)
     p_sec.add_argument("--input-dir", type=Path, default=None)
     p_sec.add_argument("--report", type=Path, default=None)
+    p_sec.add_argument(
+        "--files",
+        nargs="*",
+        type=Path,
+        default=None,
+        help="Scan these files instead of a case directory. This is the pre-commit shape: the "
+        "hook passes the staged paths, and a finding exits 2 before the content enters history.",
+    )
 
     p_snap = sub.add_parser(
         "snapshot-skeleton",
@@ -904,7 +924,26 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
+    if args.cmd == "doctor":
+        from aibench.preflight import render, run_checks
+
+        checks = run_checks()
+        if args.as_json:
+            print(json.dumps([c.to_dict() for c in checks], ensure_ascii=False, indent=2))
+        else:
+            print(render(checks))
+        return 0 if all(c.ok for c in checks) else 1
+
     if args.cmd == "secrets-scan":
+        if args.files is not None:
+            from aibench.secrets_scan import scan_paths
+
+            rep = scan_paths(list(args.files))
+            if args.report:
+                write_json(args.report, rep)
+            if not rep["clean"]:
+                print(json.dumps(rep, ensure_ascii=False, indent=2))
+            return 0 if rep["clean"] else 2
         if args.input_dir:
             directory = args.input_dir
         elif args.case_set:

@@ -1,3 +1,8 @@
+"""Unit tests for the secrets scanner.
+
+aibench: synthetic-secrets — the keys here are fabricated.
+"""
+
 from aibench.secrets_scan import scan_case_dict, scan_text
 
 

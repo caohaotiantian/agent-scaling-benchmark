@@ -51,8 +51,17 @@ class TestRunIdentity:
 
     def test_environment_names_the_interpreter_and_the_harness(self):
         env = environment()
-        for field in ("harness_digest", "python_executable", "python_version"):
+        for field in ("harness_digest", "venv_digest", "python_version", "platform"):
             assert env[field], f"{field} missing"
+
+    def test_no_absolute_path_names_this_machine(self):
+        """`python_executable` and `working_directory` were a home directory in all 148
+        manifests on disk, and neither is something a reader can act on. What matters is which
+        packages were importable, which `venv_digest` answers without naming anyone."""
+        env = environment()
+        assert "python_executable" not in env
+        assert "working_directory" not in env
+        assert not [k for k, v in env.items() if isinstance(v, str) and v.startswith("/Users/")]
 
     def test_the_api_key_never_enters_an_artifact(self):
         assert "api_key" not in environment()

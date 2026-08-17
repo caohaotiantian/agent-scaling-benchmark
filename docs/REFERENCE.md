@@ -241,8 +241,8 @@ uv run python -m aibench promote \
 
 ```bash
 cd agent-scaling-benchmark
-uv sync --extra dev
-./scripts/install-hooks.sh   # pre-commit: ruff format + import + lint
+uv sync --extra dev --extra grading
+./scripts/install-hooks.sh   # pre-commit: ruff format + import + lint + secrets
 cp .env.example .env         # 填写密钥与连接
 set -a && source .env && set +a
 ```
@@ -1836,7 +1836,7 @@ uv run pytest tests/ -q
 
 ```bash
 # 环境
-uv sync --extra dev
+uv sync --extra dev --extra grading
 cp .env.example .env && set -a && source .env && set +a
 ./scripts/install-hooks.sh
 

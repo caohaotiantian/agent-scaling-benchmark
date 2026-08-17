@@ -1,5 +1,7 @@
 """Redaction must not turn working source into source that cannot be parsed.
 
+aibench: synthetic-secrets — the credentials in the fixtures below are fabricated.
+
 `(...)\\s*[:=]\\s*\\S+` swallowed the delimiter closing the value, so
 `assert "token=abc" in url` became `assert "token=*** in url` — an unterminated string
 literal. Measured over `drafts-from-db` before the fix: 56 lines across 90 files in 45 drafts

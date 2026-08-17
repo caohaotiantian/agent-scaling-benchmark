@@ -48,7 +48,7 @@ MySQL llm_chat_records（或 JSON 导出）
 
 ```bash
 cd agent-scaling-benchmark
-uv sync --extra dev
+uv sync --extra dev --extra grading
 cp .env.example .env   # 按需填写
 ./scripts/install-hooks.sh   # 提交前 ruff format + import + lint
 ```
@@ -288,7 +288,7 @@ uv run python -m aibench ablation --matrix ... --parallel 2
 ## 11. 命令速查
 
 ```bash
-uv sync --extra dev && set -a && source .env && set +a
+uv sync --extra dev --extra grading && set -a && source .env && set +a
 
 # 生成用例
 uv run python -m aibench extract-from-db \

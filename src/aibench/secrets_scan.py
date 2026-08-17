@@ -75,6 +75,15 @@ class Finding:
 #: Assignment rules whose value half needs a shape check; the rest match a fixed credential
 #: format and need none.
 _ASSIGNMENT_RULES = {"password_assign", "api_key_assign"}
+
+#: Rules that match a credential's actual shape rather than a keyword near a value. `bearer` is
+#: excluded with the assignment rules: its character class swallows any word after `Bearer`,
+#: which is a documentation phrase as often as a token.
+FIXED_FORMAT_RULES = frozenset(
+    {"openai_sk", "anthropic_key", "openai_project_key", "aws_key", "private_key"}
+    | {"github_pat", "github_token", "gitlab_token", "slack_token", "google_api_key", "jwt"}
+    | {"db_url_password"}
+)
 _ASSIGNED_VALUE = re.compile(r"""['"]?\s*[:=]\s*['"]?(?P<value>[^\s'"]+)""")
 #: Type names and keywords that appear as the value half of a declaration.
 _CODE_TOKENS = frozenset(
@@ -154,9 +163,17 @@ def _same_name(a: str, b: str) -> bool:
     )
 
 
-def scan_text(text: str, *, path: str = "<text>") -> list[Finding]:
+def scan_text(
+    text: str,
+    *,
+    path: str = "<text>",
+    rules: frozenset[str] | None = None,
+) -> list[Finding]:
+    """Findings in ``text``. ``rules`` restricts which patterns are applied."""
     out: list[Finding] = []
     for name, pat in _PATTERNS:
+        if rules is not None and name not in rules:
+            continue
         for m in pat.finditer(text or ""):
             snip = m.group(0)
             if _REDACTED in snip or text[m.end() : m.end() + 3] == _REDACTED:
@@ -233,6 +250,69 @@ def scan_case_dict(case: dict[str, Any], *, path: str = "case") -> list[Finding]
 
 def scan_case_file(path: Path) -> list[Finding]:
     return scan_case_dict(load_json(path), path=str(path.name))
+
+
+#: Files a content scan cannot read as text, and would only produce noise from.
+_BINARY_SUFFIXES = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".tar", ".gz", ".whl", ".so", ".dylib"}
+)
+
+#: A file that declares itself a fixture. Three test modules exist to prove this scanner catches
+#: each credential format, and `.env.example` is a template whose whole job is to show the shape
+#: of a connection string — so the hook reporting them is the scanner finding its own bait.
+#:
+#: A marker rather than a path allowlist: a list in this module goes stale the moment someone
+#: adds a fixture, and the failure mode of a stale list is that the hook blocks a legitimate
+#: commit until it is edited, which is how a hook gets disabled. The marker also only reaches
+#: :func:`scan_paths`; case JSON always goes through the full case scan, so a generated case
+#: that happened to contain the string cannot exempt itself.
+SYNTHETIC_MARKER = "aibench: synthetic-secrets"
+
+
+def scan_paths(paths: list[Path]) -> dict[str, Any]:
+    """Scan arbitrary files, for the pre-commit hook.
+
+    A case JSON is scanned as a case, so the full rule set and the field-position exemptions
+    both apply. Anything else — source, docs, configs — is scanned with the fixed-format rules
+    only.
+
+    That narrowing is deliberate and it is what makes the hook survivable. `password_assign`
+    and `api_key_assign` match a *keyword near a value*, which is the right shape for a case's
+    JSON strings and the wrong shape for a repository that talks about credentials for a
+    living: run over this tree they report `max_tokens={...}`, `api_key_env: OPENAI_API_KEY`,
+    and this module's own docstrings. A hook that cries wolf on every commit gets disabled, and
+    a disabled hook catches nothing. The fixed-format rules — `sk-`, `sk-ant-`, `sk-proj-`,
+    AWS, private keys, GitHub, GitLab, Slack, Google, JWT, DB URLs with a password — match a
+    credential's actual shape and do not have that failure mode.
+
+    The heuristics are not lost: they still run over every case, which is where the corpus
+    lives and where `--secrets-scan`, `promote` and `export-bundle` all apply them.
+    """
+    from aibench.cases import is_case_json_path
+
+    all_f: list[dict[str, Any]] = []
+    scanned = 0
+    for p in paths:
+        if not p.is_file() or p.suffix.lower() in _BINARY_SUFFIXES:
+            continue
+        scanned += 1
+        if p.suffix == ".json" and is_case_json_path(p):
+            findings = scan_case_file(p)
+        else:
+            try:
+                text = p.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if SYNTHETIC_MARKER in text:
+                continue
+            findings = scan_text(text, path=str(p), rules=FIXED_FORMAT_RULES)
+        all_f.extend(f.to_dict() for f in findings)
+    return {
+        "files_scanned": scanned,
+        "finding_count": len(all_f),
+        "clean": len(all_f) == 0,
+        "findings": all_f,
+    }
 
 
 def scan_case_dir(directory: Path) -> dict[str, Any]:

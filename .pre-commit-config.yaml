@@ -5,8 +5,11 @@
 # Full:   uv run pre-commit run --all-files
 
 repos:
+  # Kept in step with the version `uv.lock` resolves. At v0.12.0 against a locked 0.16.0 the
+  # hook and `scripts/lint.sh` were four minor versions apart, so a file could pass one and
+  # fail the other.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.0
+    rev: v0.16.0
     hooks:
       # Lint + autofix (includes import sorting via isort rule "I")
       - id: ruff
@@ -15,3 +18,16 @@ repos:
       # Code formatter
       - id: ruff-format
         types_or: [python, pyi]
+
+  # The incident this repository is recovering from is a `git add -A` that committed a live
+  # `sk-` key and a mail authorization code. `.agent/history-and-reproducibility` named this
+  # hook as D5, 唯一防止复发 of that task, and it was never landed. Staged content only: the
+  # scanner reads what is about to enter history, not the working tree.
+  - repo: local
+    hooks:
+      - id: aibench-secrets-scan
+        name: secrets scan (staged files)
+        entry: uv run python -m aibench secrets-scan --files
+        language: system
+        pass_filenames: true
+        stages: [pre-commit]

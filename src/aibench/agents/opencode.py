@@ -524,6 +524,53 @@ class OpenCodeAgent(AgentAdapter):
             return "no model name in model config or OPENAI_MODEL"
         return api_key, base_url, model_name
 
+    def _version_mismatch(self) -> str | None:
+        """Refuse a scaffold version other than the one the configs pin.
+
+        `configs/agents/opencode.yaml` used to record "measured against 1.18.15" in a comment.
+        Nothing installed it, nothing pinned it, nothing checked it, and no artifact recorded
+        which version produced a number — for the adapter this project explicitly recommends
+        over `tool_loop` for every model comparison. A different scaffold version is a
+        different instrument.
+        """
+        expected = self.agent_config.options.get("expected_version")
+        if not expected:
+            return None
+        from aibench.preflight import opencode_version
+
+        found = opencode_version()
+        if found is None:
+            return f"could not read `opencode --version`; this config pins {expected}"
+        if found != str(expected):
+            return (
+                f"opencode {found} is not the pinned {expected}. A different scaffold version "
+                f"is a different instrument; set `options.expected_version` in the agent config "
+                f"if the change is intended."
+            )
+        return None
+
+    def _sandbox_refusal(self) -> str | None:
+        """Refuse to measure with no filesystem boundary, unless that is asked for explicitly.
+
+        The boundary is ``sandbox-exec``, which exists on macOS only. On Linux there is none,
+        and the artifact recorded ``sandboxed: false`` while the run proceeded — so a Linux
+        replay measured a different instrument and said so in a field nobody reads. Two
+        calibration runs on disk show an agent walking to `benchmarks/ai_coding/cases/` and
+        reading its own case JSON, which is what the boundary is for.
+        """
+        import os
+
+        if not bool(self.agent_config.options.get("sandbox", True)):
+            return None  # explicitly disabled in the config, which is a recorded choice
+        if _SANDBOX_EXEC.is_file() or os.environ.get("AIBENCH_ALLOW_UNSANDBOXED") == "1":
+            return None
+        return (
+            "no filesystem boundary available on this platform (sandbox-exec is macOS-only), "
+            "so the agent could read the case's own answer key. Set "
+            "AIBENCH_ALLOW_UNSANDBOXED=1 to measure anyway and have the run record "
+            "sandboxed=false, or set `options.sandbox: false` in the agent config."
+        )
+
     def _wrap_in_sandbox(self, command: list[str], staging: Path) -> tuple[list[str], bool]:
         """Put a kernel-enforced boundary around the run, and say whether it went on.
 
@@ -573,6 +620,18 @@ class OpenCodeAgent(AgentAdapter):
             return AgentRunResult(
                 status="infra_error",
                 error_message=f"opencode binary not found: {self.binary}",
+                wall_time_s=time.perf_counter() - t0,
+            )
+        if mismatch := self._version_mismatch():
+            return AgentRunResult(
+                status="infra_error",
+                error_message=mismatch,
+                wall_time_s=time.perf_counter() - t0,
+            )
+        if refusal := self._sandbox_refusal():
+            return AgentRunResult(
+                status="infra_error",
+                error_message=refusal,
                 wall_time_s=time.perf_counter() - t0,
             )
         steps_budget = int(self.max_steps_cap or max_steps)

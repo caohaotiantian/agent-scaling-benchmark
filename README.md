@@ -46,8 +46,8 @@ uv run python scripts/check_doc_links.py    # 断链检查
 ## 快速开始
 
 ```bash
-uv sync --extra dev
-./scripts/install-hooks.sh    # ruff format + import + lint
+uv sync --extra dev --extra grading
+./scripts/install-hooks.sh    # ruff format + import + lint + secrets scan
 
 cp .env.example .env          # 填写 AIBENCH_DB_URL / OPENAI_*
 set -a && source .env && set +a
