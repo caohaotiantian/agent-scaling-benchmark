@@ -31,7 +31,7 @@ uv run python scripts/build_docs_html.py
 
 **是两份不同的文档，不是同一份的两种形态。**
 `reference.html`（约 300 行）讲设计论证与数据格式；
-`docs/REFERENCE.md`（约 1600 行）讲 CLI 全参数、配置字段、Schema、产物映射、FAQ。
+`docs/REFERENCE.md`（约 1,970 行）讲 CLI 全参数、配置字段、Schema、产物映射、FAQ。
 查参数去 `.md`，查「为什么这么设计」去这里。
 
 ## `_src/` 里的孤儿

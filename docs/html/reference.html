@@ -87,7 +87,7 @@
 <tr><td><code>language</code></td><td>string</td><td><code>python</code> 或 <code>javascript</code>（含 TypeScript）</td></tr>
 <tr><td><code>prompt</code></td><td>string</td><td>题面。<strong>仅描述可观察症状</strong>，不提及原因、机制或被修改的函数</td></tr>
 <tr><td><code>context.files[]</code></td><td>array</td><td>工作区文件，含 <code>path</code> / <code>content</code> / <code>role</code></td></tr>
-<tr><td><code>grader.mode</code></td><td>string</td><td>评分方式。Schema 允许 <code>script</code> / <code>gold</code> / <code>llm_judge</code> / <code>composite</code>；<strong>主线只产出 <code>script</code></strong>，磁盘上 0 条 <code>composite</code>，<code>llm_judge</code> 也无人使用</td></tr>
+<tr><td><code>grader.mode</code></td><td>string</td><td>评分方式。Schema 允许 <code>script</code> / <code>gold</code> / <code>llm_judge</code> / <code>composite</code>；磁盘上 13,307 条用例里 <code>script</code> <strong>8,313</strong> 条、<code>gold</code> <strong>4,994</strong> 条（37.5%），0 条 <code>composite</code>，<code>llm_judge</code> 无人使用。本页此前写「主线只产出 <code>script</code>」——committed 的 <code>seed-v0/case_003</code> 本身就是 <code>gold</code></td></tr>
 <tr><td><code>grader.command</code></td><td>string</td><td>评分命令，如 <code>python -m pytest -q</code> 或 <code>node --test</code></td></tr>
 <tr><td><code>grader.gold_files[]</code></td><td>array</td><td>参考解。用它替换工作区文件后，测试必须全部通过</td></tr>
 <tr><td><code>grader.hidden_tests[]</code></td><td>array</td><td>隐藏测试，仅在评分时注入工作区</td></tr>
@@ -300,8 +300,8 @@
 <div class="table-wrap"><table>
 <thead><tr><th>项</th><th>影响</th></tr></thead>
 <tbody>
-<tr><td>Node 版本</td><td>&lt; 22 无法执行 TypeScript 测试；语言规格中的发现规则按 Node 24 实测确定</td></tr>
-<tr><td>Python 第三方包</td><td><strong>评分环境提供 numpy、pandas、requests、matplotlib、flask、av</strong>，由 <code>pyproject.toml</code> 的 <code>grading</code> extra 安装，并由 <code>configs/grading-env.yaml</code> 声明；导入这六个之外的第三方包的用例才会在生成前被过滤。安装命令必须是 <code>uv sync --extra dev --extra grading</code> —— <code>uv sync --extra dev</code> 会把它们卸掉。<br>（本页此前写的是「未安装 numpy、pandas 等」，与该清单正好相反。照那句读会得出「<code>grading</code> extra 没必要」的结论，并误判哪些草稿能过 import 门。）</td></tr>
+<tr><td>Node 版本</td><td>下限是 <strong>22.18</strong>（<code>languages.py</code> 的 <code>MIN_NODE_VERSION</code>）。低于它 <code>node --test</code> 发现不到 TypeScript 测试文件却退出 0 —— 那是对着缺陷桩报「通过」，实测 5 条 <code>.ts</code> 用例因此翻转。语言规格中的发现规则按 Node 24 实测确定。本页此前写「&lt; 22」，比真实下限低</td></tr>
+<tr><td>Python 第三方包</td><td><strong>评分环境提供 14 个第三方包</strong>：numpy、pandas、requests、matplotlib、flask、av、httpx、jsonschema、openpyxl、pymysql、pytest、rich、sqlalchemy、yaml —— 由 <code>pyproject.toml</code> 的 <code>grading</code> extra 安装，并由 <code>configs/grading-env.yaml</code> 声明（该文件是唯一权威，本页只是抄录）；导入这 14 个之外的第三方包的用例才会在生成前被过滤。本页此前只列了前六个。安装命令必须是 <code>uv sync --extra dev --extra grading</code> —— <code>uv sync --extra dev</code> 会把它们卸掉。<br>（本页此前写的是「未安装 numpy、pandas 等」，与该清单正好相反。照那句读会得出「<code>grading</code> extra 没必要」的结论，并误判哪些草稿能过 import 门。）</td></tr>
 <tr><td>网络</td><td><strong>未隔离。</strong>评分命令以 <code>subprocess.run(shell=True)</code> 在宿主机执行，继承环境，无沙箱、无网络限制；<code>allow_network</code> 参数只控制要不要 git clone 来物化工作区，与测试运行时无关。也没有任何审计会因为测试联网而拒绝用例——相反，联网测试被<em>刻意</em>排除在 <code>test_reads_source_text</code> 的误伤之外。Docker/gVisor 隔离未做，是目前最大的安全缺口</td></tr>
 </tbody>
 </table></div>

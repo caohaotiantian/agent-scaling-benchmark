@@ -1,6 +1,6 @@
 # AI-Coding-Assist Benchmark — 用户使用手册
 
-> **⚠️ 本文内容早于 2026-08-10 的主线转向**，描述的是已被否决的「正向生成」路线，且未提及 `bare_model` 适配器。当前状态以 [`docs/HANDOFF.md`](HANDOFF.md) §0 为准，操作步骤以 [用户手册 manual.html](html/manual.html) 为准。
+> **⚠️ 本文内容早于 2026-08-10 的主线转向**，描述的是已被否决的「正向生成」路线，且未提及 `bare_model` 适配器。当前状态以 [`docs/HANDOFF.md`](HANDOFF.md) **§0.-1**（最新的一块；§0 记的是 2026-08-10 的状态，且指向一个已删除的用例集）为准，操作步骤以 [用户手册 manual.html](html/manual.html) 为准。
 > 文档站首页：[docs/html/index.html](html/index.html)
 
 面向：从真实会话构建候选测评集、一键跑测、Agent/模型消融，并产出对齐 Agentic Scaling 结果表的报告。
@@ -67,7 +67,7 @@ set -a && source .env && set +a
 | LLM 生成 case / 真 Agent 跑测 | `OPENAI_API_KEY` + `OPENAI_BASE_URL`（建议再设 `OPENAI_MODEL`） |
 | 离线 dry-run | 可不填 |
 
-完整变量表见 [REFERENCE §6](html/reference.html)（Markdown 源见 `REFERENCE.md`）。
+完整变量表见 [`REFERENCE.md` §6 环境变量完整参考](REFERENCE.md#6-环境变量完整参考)。
 
 **不要把 `.env` 提交到 git。**
 
@@ -160,7 +160,7 @@ uv run python -m aibench ablation \
 | 包外部 CLI | `configs/agents/shell.yaml`（填 `command_template`） |
 | 单测 / dry-run mock | **仅** `tests/fixtures/configs/` |
 
-说明见 [用户手册 manual.html](html/manual.html) 与 [REFERENCE §7](html/reference.html)。
+说明见 [用户手册 manual.html](html/manual.html) 与 [`REFERENCE.md` §7 生产配置体系](REFERENCE.md#7-生产配置体系-configs)。
 
 ---
 
@@ -217,14 +217,14 @@ uv run python -m aibench ablation \
 | 查失败原因 | `report.md` + `cases/<id>/result.json` |
 | 复现 | `run_manifest.json` 中的 fingerprint 与配置路径 |
 
-字段与设计表的对应关系见 [REFERENCE HTML](html/reference.html) §16–18。
+字段与设计表的对应关系见 [`REFERENCE.md` §16 运行产物与结果表映射](REFERENCE.md#16-运行产物与结果表映射)（至 §18）。
 
 ---
 
 ## 8. 科学效度与并行（实用）
 
 **科学效度** = 可自动执行的 case 质量门禁（实现于 `validity.py`），保证指标差异尽量来自 Agent/模型，而非坏题/答案泄漏。  
-完整门禁列表与算法逻辑见 [REFERENCE HTML](html/reference.html) §14 与演示页 [§八](html/overview.html#ablation)。
+完整门禁列表与算法逻辑见 [`REFERENCE.md` §14 科学效度](REFERENCE.md#14-科学效度scientific-validity定义门禁与逻辑)；设计论证见 [参考资料 HTML](html/reference.html) 的「效度门禁」一节，演示页见 [§八](html/overview.html#ablation)。
 
 | 级别 | 门禁示例 | 是否阻断 `validity_ok` |
 |------|----------|------------------------|

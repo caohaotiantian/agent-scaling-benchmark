@@ -18,8 +18,8 @@
 | 入口 | `uv run python -m aibench` · 安装后 `aibench` |
 | 读者 | 使用者、评测工程师、对接 Agentic Scaling 汇报的同学 |
 | 演示页 | [`docs/html/overview.html`](html/overview.html) |
-| 结果表设计源 | [`docs/html/reference.html`](html/reference.html)、[`docs/html/reference.html`](html/reference.html)（字段字典源 `_src/tables.md`） |
-| 本文 HTML | [`docs/html/reference.html`](html/reference.html) |
+| 结果表设计源 | [`docs/html/reference.html`](html/reference.html)；字段字典源 `docs/html/_src/tables.md`（未渲染成页面） |
+| 本文 HTML | 无。`docs/html/reference.html` 是另写的一页，不是本文的渲染结果 |
 
 本文是 **可执行系统** 的权威参考：概念、架构、Case 协议、配置、CLI、脚本、产物、设计表映射、操作规程与故障排查。  
 快速上手见 [用户手册 HTML](html/manual.html)（由 `docs/html/_src/manual.html` 手写构建，与 `USER_GUIDE.md` 无关）；设计决策见 `docs/design/*`。运行时以 `aibench <cmd> -h` 与仓库现行 `configs/` 为准。  
@@ -295,7 +295,7 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 
 ### 7.1 布局
 
-`configs/` 下**全部 39 个文件**，由目录列表生成（此前这张表只列了 9 个）。
+`configs/` 下**全部 40 个 YAML**，由目录列表生成（此前这张表只列了 9 个）。早前写的 39 漏掉了 `configs/grading-env.yaml`。
 说明取自每个文件的第一行注释。
 
 | 路径 | 用途 |
@@ -1709,7 +1709,7 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 - 实验标识：`run_id`、`experiment_name`、`experiment_time`
 - **执行身份**（2026-08-11 新增，见下）：`code_version`、`harness_digest`、`dependency_digest`、
-  `python_executable`、`python_version`、`node_version`、`working_directory`、`gateway_base_url`
+  `venv_digest`、`python_version`、`node_version`、`opencode_version`、`platform`、`gateway_base_url`
 - Benchmark 口径：`benchmark_name`、`case_set`、`case_count`、`effective_case_count`、`grouping`
 - 算法配置：预算轴/值、分支、attempts、steps、选择策略
 - Agent 与模型：名称版本、主模型、组合摘要、采样参数
@@ -1728,12 +1728,14 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 | `code_version` | 运行时 `git rev-parse --short HEAD`，工作树脏时加 `-dirty`。仓库根与 `repo_root()` 不一致、或 git 不可用时为 `unknown-worktree`；无法判定干净与否时为 `<sha>-unknown-cleanliness` |
 | `harness_digest` | 决定「一次跑测意味着什么」的源码摘要：`agents/` + `grading.py` + `workspace.py` + `runner.py` + `languages.py` + `retry.py` + `models.py` + `env_config.py`。也并入 `anchor_fingerprint` |
 | `dependency_digest` | `uv.lock` 的哈希，依赖变动可见 |
-| `python_executable` / `python_version` / `node_version` | 实际解释器与运行时 |
-| `working_directory` | 进程 cwd |
+| `python_version` / `node_version` / `opencode_version` | 实际运行时版本。`opencode_version` 记录脚手架本身——不同版本是不同的仪器 |
+| `venv_digest` | 解释器所在虚拟环境的内容哈希，取代了原来的 `python_executable`：回答「是不是同一套依赖」而不写出本机路径 |
+| `platform` | 操作系统与架构。macOS 有 `sandbox-exec`，Linux 没有，两边量的不是同一个边界 |
 | `gateway_base_url` | 环境里解析到的网关地址。**API key 从不进入产物**，有测试锁住 |
 
-> `python_executable` 与 `working_directory` 含本机路径（可能带账号名）。`runs/` 已 gitignore
-> 且没有 manifest 入库，`export-bundle` 也不携带 manifest —— 但**手工分享整个 run 目录会带出去**。
+> 2026-08-17 起 manifest 里**不再有本机路径**：`python_executable` 与 `working_directory` 已由
+> `venv_digest` 与 `platform` 取代。历史 manifest 仍带 —— `runs/` 已 gitignore 且没有 manifest
+> 入库，`export-bundle` 也不携带 manifest，但**手工分享一个旧 run 目录仍会带出去**。
 
 **无数据源的列**（Fusion 时间拆解、投机 Oracle 等）保持 `null`，不编造。
 

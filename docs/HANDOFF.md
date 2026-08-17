@@ -382,9 +382,10 @@ HTML 站与校准数据用 `reverse-v*`，case 目录用 `_rev*`，指的是同�
 
 ### 0.2c 两条只存在于 `.agent/` 里的结论（2026-08-17 抄回）
 
-`.agent/` 是 gitignored 的，clone 的人看不到；本文件有五处引用指向那里
-（§0 的 78、413、459、548、1215 行）。其中两条是接手者最需要的推理，抄在这里，
-这样即使那 26 个任务目录永远不入库，结论也不会只剩一条断链。
+`.agent/` 是 gitignored 的，clone 的人看不到；本文件有五处引用指向那里 —— §0「三条被推翻的
+结论」一处、§0.7 两处、§0.9 一处、§7 一处（按小节记，不按行号：行号一改就错，这一段原来写的
+就是已经失效的行号）。其中两条是接手者最需要的推理，抄在这里，这样即使那 26 个任务目录永远
+不入库，结论也不会只剩一条断链。
 
 **一、「确定性差分验收」被自己的产量数据否掉（原 `HANDOFF:459` →
 `.agent/deterministic-acceptance/plan.md`）。**
@@ -1357,16 +1358,20 @@ uv run aibench generate-cases --input-dir benchmarks/ai_coding/cases/_drafts \
 uv run aibench audit-cases --case-set _cases --annotate
 
 # 模型比较：用无脚手架口径，且内置 3 次重复
+# `_revmixed` 现在在归档里，`--case-set _revmixed` 解析不到（见 §0.2b）。先指向归档根：
+export AIBENCH_CASE_ROOT=benchmarks/ai_coding/cases_archive/2026-08-12
 uv run aibench ablation --matrix configs/runs/ablation-bare-models.yaml \
   --case-set _revmixed --parallel 3
 
 # 交付（不加 --allow-production-derived 会全部拒绝，理由 production_derived）
 uv run aibench export-bundle --from-set _revmixed --output-dir <交付路径> \
-  --drafts-dir benchmarks/ai_coding/cases/_rev_raw4 --allow-production-derived
+  --drafts-dir benchmarks/ai_coding/cases_archive/2026-08-12/_rev_raw4 \
+  --allow-production-derived
 
 # 网关抖动时提高 infra 重试预算（默认仅 2）
 AIBENCH_CASE_RETRY=4 uv run aibench calibrate-cases --case-set _revmixed --repeats 3 \
   --anchors configs/runs/anchor-panel.yaml --parallel 3 --workers 3
+# 同上：`_revmixed` 需要 AIBENCH_CASE_ROOT 指向归档根，否则这一条也解析不到
 ```
 
 ### 8.1 历史命令（2026-08-07 及以前）

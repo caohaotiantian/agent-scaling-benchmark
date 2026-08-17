@@ -34,19 +34,32 @@ class TestTheGradingEnvironmentIsDescribedAsItIs:
     opposite. A reader concludes the `grading` extra is unnecessary and walks straight into
     RP-09."""
 
-    def test_the_page_names_the_packages_the_manifest_promises(self):
+    def test_the_page_names_every_package_the_manifest_promises(self):
+        """All of them, not a sample. Checking four of the fourteen is how the page went eight
+        names short — `httpx`, `jsonschema`, `openpyxl`, `pymysql`, `pytest`, `rich`,
+        `sqlalchemy` and `yaml` are promised by the manifest and were absent from the page,
+        with the sentence still reading as if the list were complete."""
         manifest = yaml.safe_load((ROOT / "configs/grading-env.yaml").read_text(encoding="utf-8"))
         promised = set(manifest["python"])
         body = _reference()
         section = body[body.index('id="repro-env"') :]
-        for package in ("numpy", "pandas", "matplotlib", "flask"):
-            assert package in promised, "the manifest changed; update this test with it"
-            assert package in section, f"{package} is promised but the page never names it"
+        missing = sorted(p for p in promised if p not in section)
+        assert not missing, (
+            f"promised by configs/grading-env.yaml but not named on the page: {missing}"
+        )
+
+    def test_the_page_does_not_understate_the_count(self):
+        manifest = yaml.safe_load((ROOT / "configs/grading-env.yaml").read_text(encoding="utf-8"))
+        body = _reference()
+        section = body[body.index('id="repro-env"') :]
+        assert f"{len(manifest['python'])} 个第三方包" in section, (
+            "the page states a count; it must be the manifest's count"
+        )
 
     def test_the_page_asserts_availability_rather_than_absence(self):
         body = _reference()
         section = body[body.index('id="repro-env"') :]
-        assert "评分环境提供 numpy" in section
+        assert "评分环境提供" in section
         # The old sentence survives only as history, and must be labelled as such.
         if "未安装 numpy" in section:
             assert "此前" in section, "the old claim is repeated without saying it was wrong"
@@ -257,3 +270,91 @@ class TestRunCitationsAreMarkedAsLocal:
             assert module.check(doc) == []
         finally:
             sys.modules.pop(spec.name, None)
+
+
+class TestThePagesQuoteTheRuntimeFloorsTheCodeEnforces:
+    """D-04 and D-07's other half. `reference.html` said Node "< 22" while `languages.py` has
+    enforced 22.18 since the version gate landed, and the same page's package list was eight
+    names short. A documented floor below the real one is the dangerous direction: between the
+    two, `node --test` discovers no TypeScript test file and exits 0, which is a pass on the
+    defective stub."""
+
+    def test_the_node_floor_on_the_page_is_the_floor_in_the_code(self):
+        from aibench.languages import MIN_NODE_VERSION
+
+        floor = ".".join(str(n) for n in MIN_NODE_VERSION)
+        section = (body := _reference())[body.index('id="repro-env"') :]
+        assert floor in section, f"the page never states the real floor {floor}"
+
+
+class TestTheManifestFieldTableIsTheManifest:
+    """RP-58's documentation half. The code stopped writing `python_executable` and
+    `working_directory` — the two fields that carried a home directory — and §16.4 went on
+    documenting them, privacy warning included, for fields no manifest carries. Nothing checked
+    the table against the thing it describes."""
+
+    def _section(self) -> str:
+        body = (ROOT / "docs/REFERENCE.md").read_text(encoding="utf-8")
+        start = body.index("### 16.4")
+        return body[start : body.index("### 16.5", start)]
+
+    def test_every_recorded_field_is_documented(self):
+        from aibench.provenance import environment
+
+        section = self._section()
+        missing = sorted(k for k in environment() if f"`{k}`" not in section)
+        assert not missing, f"written into every manifest but undocumented: {missing}"
+
+    def test_no_retired_field_is_still_described(self):
+        from aibench.provenance import environment
+
+        section = self._section()
+        recorded = set(environment())
+        stale = [f for f in ("python_executable", "working_directory") if f in recorded]
+        assert not stale, (
+            "these were retired for carrying a home directory; the code brought them back"
+        )
+        for field in ("python_executable", "working_directory"):
+            if f"`{field}`" in section:
+                assert "2026-08-17 起" in section or "此前" in section, (
+                    f"§16.4 describes `{field}` as current; no manifest carries it"
+                )
+
+
+class TestTheConfigCountIsCounted:
+    """RP-43/RP-55. §7.1 claims to list every file under `configs/` and stated 39; there are 40.
+    The omission was `configs/grading-env.yaml` — the manifest that decides which drafts survive
+    the import gate — and the pinning test globs only `agents/models/runs`, so it structurally
+    could not catch it."""
+
+    def test_the_stated_count_matches_the_directory(self):
+        import re
+
+        actual = len(list((ROOT / "configs").rglob("*.yaml")))
+        body = (ROOT / "docs/REFERENCE.md").read_text(encoding="utf-8")
+        stated = re.search(r"`configs/` 下\*\*全部 (\d+) 个 YAML\*\*", body)
+        assert stated, "§7.1 no longer states a count in the form this test reads"
+        assert int(stated.group(1)) == actual
+
+
+class TestTheGraderModeMixIsNotOverstated:
+    """RP-42's other half. `reference.html` said the mainline "only produces `script`" while
+    4,994 of the 13,307 cases on disk are `gold` — including the committed `seed-v0/case_003`,
+    which is in the repository and contradicts the sentence without leaving the checkout."""
+
+    def test_the_page_states_the_measured_mix(self):
+        page = _reference()
+        assert "<code>gold</code> <strong>4,994</strong>" in page, (
+            "the page must state the gold count it used to deny"
+        )
+        # The old sentence may survive as history, but only if it is labelled as history.
+        if "主线只产出" in page:
+            assert "此前" in page, "the retracted claim is repeated without saying it was wrong"
+
+    def test_a_committed_fixture_is_gold(self):
+        from aibench.cases import load_cases
+
+        modes = {c.case_id: c.grader.mode for c in load_cases("seed-v0", validate=False)}
+        assert "gold" in modes.values(), (
+            f"the counterexample this test is built on is gone: {modes}"
+        )

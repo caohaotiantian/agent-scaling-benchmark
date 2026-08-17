@@ -376,7 +376,7 @@ uv run python -m aibench ablation \
 
           <h3>5.6 推荐工作流（步骤）</h3>
           <ol class="steps">
-            <li><strong>环境</strong> — <code>uv sync</code>，配置 <code>.env</code>（DB + OPENAI_*）</li>
+            <li><strong>环境</strong> — <code>uv sync --extra dev --extra grading</code>，配置 <code>.env</code>（DB + OPENAI_*）</li>
             <li><strong>构建候选集</strong> — extract → filter → generate → validate/audit → 得到 auto-v0</li>
             <li><strong>单次基线</strong> — <code>run_benchmark.sh</code> 或 <code>aibench run</code></li>
             <li><strong>消融对比</strong> — 改矩阵中的 Agent/模型行，读 <code>ablation_report.md</code></li>

@@ -1,6 +1,6 @@
 # pre-commit hooks: ruff format + import sort + lint on Python files
 # Install: ./scripts/install-hooks.sh
-#   or: uv sync --extra dev && uv run pre-commit install
+#   or: uv sync --extra dev --extra grading && uv run pre-commit install
 # Manual: ./scripts/lint.sh
 # Full:   uv run pre-commit run --all-files
 

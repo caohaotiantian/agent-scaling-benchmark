@@ -25,6 +25,7 @@ _INSTALL_SITES = (
     "docs/REFERENCE.md",
     "docs/html/_src/manual.html",
     "docs/html/manual.html",
+    "docs/html/_src/project-overview.html",
     ".github/workflows/ci.yml",
     ".github/workflows/live-smoke.yml",
     "scripts/install-hooks.sh",

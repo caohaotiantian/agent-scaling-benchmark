@@ -20,7 +20,7 @@
 
 | 页面 | 说明 |
 |------|------|
-| **[会话交接 `docs/SESSION-2026-08-14.md`](docs/SESSION-2026-08-14.md)** | **接手请先读这一份**：最新状态与已知缺陷。§5.4 记录了一个会删掉 worktree 的测试（2026-08-17 已定位并加了守卫，见 `tests/conftest.py`），§5.3 记录 PII 与消毒缺口 |
+| **[会话交接 `docs/SESSION-2026-08-14.md`](docs/SESSION-2026-08-14.md)** | **接手请先读这一份**：最新状态与已知缺陷。§5.4 记录了一个会删掉 worktree 的测试（2026-08-17 定位到 `materialize_workspace` 会先删除目标目录，并加了守卫 `tests/conftest.py::guard_the_checkout` —— 守卫抓的是复发，不是病因），§5.3 记录 PII 与消毒缺口 |
 | [会话交接 `docs/SESSION-2026-08-11.md`](docs/SESSION-2026-08-11.md) | 上一次会话：未决问题（不含推荐方案）、已知缺陷 |
 | [项目交接 `docs/HANDOFF.md`](docs/HANDOFF.md) | 更早的状态、限定条件与经验教训。**从 §0.-1 读起** |
 | [审计 `docs/AUDIT-2026-08-17.md`](docs/AUDIT-2026-08-17.md) | 第三方复算审计：可复现性缺口、已发布数字的核验、修复排序 |
@@ -33,7 +33,7 @@
 | [未尽事项](docs/REMAINING_WORK.md) | 已知缺口（注意：内容截至 2026-08-04，早于主线转向） |
 
 > **`docs/REFERENCE.md` 与 `docs/html/reference.html` 是两份不同的文档，不是同一份的两种形态。**
-> 前者 1600 行，覆盖 CLI 全参数、配置字段、Schema、产物映射、FAQ；
+> 前者约 1,970 行，覆盖 CLI 全参数、配置字段、Schema、产物映射、FAQ；
 > 后者 300 行，覆盖设计论证、数据格式、门禁规则、已发布校准数据清单。
 > 查参数去 `.md`，查「为什么这么设计」去 `.html`。
 > 文档站只从 `docs/html/_src/*.html` 三个手写片段构建，**改 `docs/*.md` 不会改变站点内容**。
@@ -55,7 +55,27 @@ uv sync --extra dev --extra grading
 
 cp .env.example .env          # 填写 AIBENCH_DB_URL / OPENAI_*
 set -a && source .env && set +a
+
+uv run python -m aibench doctor   # 先确认这台机器能产出可比的测量
 ```
+
+### 先跑通：clone 里唯一离线可用的集合
+
+案例集是 gitignore 的（见 §「为什么仓库里没有 case」），**唯一随仓库分发的是 `seed-v0`**
+——四条 committed 的 fixture 用例，不需要数据库、不需要网关：
+
+```bash
+uv run python -m aibench validate-cases --case-set seed-v0   # -> OK case_set=seed-v0
+uv run python -m aibench run --run-config tests/fixtures/configs/runs/baseline.mock.yaml \
+  --case-set seed-v0        # mock 适配器，不花钱 -> success_rate=1.000 (4/4)
+```
+
+`uv run python -m aibench audit-cases --case-set seed-v0` 会报 **0/4 通过**，这是对的、
+不是仓库坏了：这四条是最小 fixture，三条没有随附参考解（`no_reference_solution`），
+一条的 key line 已经出现在上下文里（`contamination_keyline_in_context`）。
+它们存在是为了让单元测试有东西可跑，不是为了做合格用例的样板。
+
+下面所有 `--case-set auto-v0` 的命令都要先自己建集，那一步需要数据库与网关。
 
 ### 只要生成测试用例（不做消融）
 
