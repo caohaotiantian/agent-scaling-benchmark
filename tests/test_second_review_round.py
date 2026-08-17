@@ -484,3 +484,34 @@ class TestTheDifficultyColumnSaysWhichScale:
         report = render_report_md(summary, [])
         assert "体量启发式" in report
         assert "p_hat" in report
+
+
+class TestRunningTheCodeIsNotWritingIt:
+    """`ShellAgent` diffed the whole workspace, so `__pycache__` from merely importing the module
+    counted as files the agent wrote — `files_written` overstated the work and `empty_patch`
+    could not fire on a run that changed nothing."""
+
+    def test_a_cache_directory_is_not_a_written_file(self, tmp_path):
+        from aibench.agents.shell_agent import _snapshot
+
+        (tmp_path / "m.py").write_text("x = 1\n", encoding="utf-8")
+        before = _snapshot(tmp_path)
+
+        cache = tmp_path / "__pycache__"
+        cache.mkdir()
+        (cache / "m.cpython-313.pyc").write_bytes(b"\x00compiled")
+        (tmp_path / ".pytest_cache").mkdir()
+        (tmp_path / ".pytest_cache" / "lastfailed").write_text("{}", encoding="utf-8")
+
+        after = _snapshot(tmp_path)
+        assert after == before, (
+            f"running the code registered as writing it: {set(after) - set(before)}"
+        )
+
+    def test_a_real_edit_is_still_seen(self, tmp_path):
+        from aibench.agents.shell_agent import _snapshot
+
+        (tmp_path / "m.py").write_text("x = 1\n", encoding="utf-8")
+        before = _snapshot(tmp_path)
+        (tmp_path / "m.py").write_text("x = 2\n", encoding="utf-8")
+        assert _snapshot(tmp_path) != before

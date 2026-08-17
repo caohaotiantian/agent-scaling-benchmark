@@ -15,12 +15,25 @@ from pathlib import Path
 from aibench.agents.base import AgentAdapter
 from aibench.models import AgentRunResult, Case, StepRecord, UsageRecord
 
+#: Directories a tool writes into as a side effect of *reading* the workspace. A run that only
+#: imported the module under test appeared to have written six files, so `files_written` reported
+#: work that never happened and `empty_patch` could not fire.
+_INCIDENTAL_DIRS = frozenset(
+    {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "node_modules", ".git"}
+)
+
 
 def _snapshot(workspace: Path) -> dict[str, int]:
-    """Path -> content hash, for everything but the prompt file this adapter drops in."""
+    """Path -> content hash, for everything the agent could plausibly have authored.
+
+    Excludes the prompt file this adapter drops in, and anything under a cache directory: those
+    appear from running the code, not from changing it.
+    """
     out: dict[str, int] = {}
     for path in workspace.rglob("*"):
         if not path.is_file() or path.name == ".aibench_prompt.txt":
+            continue
+        if _INCIDENTAL_DIRS & set(path.relative_to(workspace).parts):
             continue
         try:
             out[path.relative_to(workspace).as_posix()] = hash(path.read_bytes())
