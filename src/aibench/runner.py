@@ -315,6 +315,7 @@ def run_benchmark(
     output_root: Path | None = None,
     case_workers: int | None = None,
     require_grading_env: bool = False,
+    experiment_name: str | None = None,
 ) -> Path:
     root = repo_root()
     run_cfg_path = run_config_path or (root / "configs/runs/baseline.yaml")
@@ -330,6 +331,11 @@ def run_benchmark(
 
     agent_cfg = AgentConfig.from_dict(load_yaml(agent_path))
     model_cfg = ModelConfig.from_dict(load_yaml(model_path))
+    if experiment_name:
+        # An ablation row names itself; the run config it points at may be shared with another
+        # row. Without this, two rows on `baseline.yaml` both wrote `prod-baseline` into their
+        # manifest and summary, and the artifacts could not say which row produced them.
+        run_cfg.experiment_name = experiment_name
     cs = case_set or run_cfg.case_set
     cases = load_cases(cs, validate=True)
     workers = int(case_workers if case_workers is not None else run_cfg.case_workers)

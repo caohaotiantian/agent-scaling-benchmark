@@ -162,6 +162,10 @@ def run_ablation(
             case_set=use_set,
             run_id=run_id,
             output_root=abl_dir,
+            # The matrix row's name never reached the run, so two rows sharing `baseline.yaml`
+            # both wrote `experiment_name: prod-baseline` into their manifest and summary. The
+            # ablation summary knew which row was which; the artifacts on disk did not.
+            experiment_name=exp,
         )
         summary = load_json(run_dir / "summary.json")
         if item.get("algorithm_name"):
@@ -274,8 +278,9 @@ def run_ablation(
             r["overview_row"]["相对基线收益"] = f"{lift * 100:+.1f}pp{marker}"
 
     attach_token_amplification(rows, baseline=base_name)
-    pairwise = compare_runs_pairwise(rows, baseline=base_name)
+    # Axes first: `compare_runs_pairwise` reads `axes_changed` to spot a self-repeat.
     axes = diff_axes_against_baseline(rows, baseline=base_name)
+    pairwise = compare_runs_pairwise(rows, baseline=base_name)
     tier_matrix = {r["experiment_name"]: r.get("stratified_by_tier") or {} for r in rows}
 
     # Per-case rows are only needed to build the comparisons; keep them out of the summary file.
@@ -391,6 +396,11 @@ def compare_runs_pairwise(
         both, only_b, only_a, neither = paired_outcomes(base_rows, r.get("case_rows") or [])
         test = mcnemar_test(only_b, only_a)
         comparable = bool(r.get("selection_is_oracle")) == base_oracle
+        # Two rows that moved no knob at all are the same configuration run twice. Their
+        # disagreement is this harness's own run-to-run noise — 25.8%-32.3% of cases flip
+        # between identical repeats on this corpus — and reporting it as a candidate result
+        # invites reading noise as a difference. It is still computed; it is labelled.
+        self_repeat = r.get("axes_changed") == []
         out.append(
             {
                 "baseline": baseline,
@@ -403,6 +413,7 @@ def compare_runs_pairwise(
                 # is an upper bound against a submission. The p-value is still computed — the
                 # arithmetic is not wrong — but it does not answer "is this model better".
                 "comparable": comparable,
+                "self_repeat": self_repeat,
                 "candidate_selection_is_oracle": bool(r.get("selection_is_oracle")),
                 **test,
             }
@@ -590,12 +601,16 @@ def _render_ablation_report(
             ]
         )
         for p in pairwise:
-            comparable = p.get("comparable", True)
+            if p.get("self_repeat"):
+                note = "否（同一配置的重复运行，这是噪声）"
+            elif not p.get("comparable", True):
+                note = "否（oracle vs 提交）"
+            else:
+                note = "是"
             lines.append(
                 f"| {p['candidate']} | {p['both_passed']} | {p['only_baseline']} "
                 f"| {p['only_candidate']} | {p['discordant']} | {p['p_value']:.4f} "
-                f"| {'是' if p['significant'] else '否'} "
-                f"| {'是' if comparable else '否（oracle vs 提交）'} |"
+                f"| {'是' if p['significant'] else '否'} | {note} |"
             )
     lines.extend(_render_cost_rungs_md(rows))
     lines.append("")

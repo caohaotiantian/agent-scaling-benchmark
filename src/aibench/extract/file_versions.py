@@ -416,9 +416,12 @@ def _same_file(a: str, b: str) -> bool:
     call carries the path in full. So they are compared over the components they *both* have —
     `/home/u/proj/calc.py` and `ubuntu/proj/calc.py` agree wherever they overlap.
 
-    When one side is a bare basename there is nothing to compare and this answers True. That is
-    the honest answer, not a safe one: a Windows trace touching two same-named files in
-    different directories cannot be told apart at all, which is a limit of `_key` itself.
+    When one side is a bare basename there is nothing to compare and this answers True. That
+    is right for the ordinary case — one file spelled two ways — and it is only safe because
+    the paths compared here are the ones the trace actually wrote. `extract_files_from_tool_text`
+    reduces a Windows path to its basename, so two genuinely different files under one name
+    used to collapse into a single entry and this check saw nothing to compare; it now records
+    `source_path` and the untruncated spellings reach this comparison.
     """
     pa = [c for c in re.split(r"[\\/]", a.strip()) if c and c != "."]
     pb = [c for c in re.split(r"[\\/]", b.strip()) if c and c != "."]
@@ -464,7 +467,7 @@ def replay_file_versions(
                     stats.dropped_partial_read += 1
                     continue
                 k = _key(f["path"])
-                paths_for_key.setdefault(k, set()).add(f["path"])
+                paths_for_key.setdefault(k, set()).add(f.get("source_path") or f["path"])
                 if k not in original:
                     vouched[k] = (
                         PRE_FROM_TOOL_WRITE

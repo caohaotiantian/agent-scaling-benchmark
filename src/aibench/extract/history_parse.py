@@ -228,7 +228,8 @@ def _strip_line_numbers(lines: list[str]) -> list[str]:
 def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
     files: list[dict[str, str]] = []
     for m in _PATH_CONTENT.finditer(text or ""):
-        path = m.group("path").strip().replace("\\", "/")
+        original = m.group("path").strip()
+        path = original.replace("\\", "/")
         # keep basename-ish relative path when absolute
         if ":" in path and len(path) > 2 and path[1] == ":":
             # Windows absolute
@@ -244,7 +245,18 @@ def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
         content, origin = split_read_footer("\n".join(cleaned_lines).strip("\n"))
         content = content.strip("\n")
         if path and content.strip():
-            files.append({"path": path, "content": content[:200_000] + "\n", "origin": origin})
+            files.append(
+                {
+                    "path": path,
+                    # The path before truncation. A Windows path is reduced to its basename
+                    # here, so two genuinely different files under one name collapse to a
+                    # single entry and the replay's ambiguity check has nothing left to
+                    # compare. Keeping the original is what lets it see the collision.
+                    "source_path": original,
+                    "content": content[:200_000] + "\n",
+                    "origin": origin,
+                }
+            )
     return files
 
 

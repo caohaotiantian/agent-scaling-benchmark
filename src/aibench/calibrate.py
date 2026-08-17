@@ -34,6 +34,10 @@ DEFAULT_P_MAX = 0.9
 DEFAULT_P_MIN = 0.05
 DEFAULT_MIN_RPB = 0.15
 
+#: Verdict for a case whose every attempt failed on infrastructure. Distinct from any
+#: difficulty verdict: `p_hat` is 0.0 because nothing ran, not because nothing passed.
+ALL_ATTEMPTS_INFRA = "all_attempts_infra"
+
 
 @dataclass
 class AnchorSpec:
@@ -314,10 +318,26 @@ def aggregate_calibration(
     tiers: dict[str, str | None] = {}
     fingerprints: dict[str, str | None] = {}
     has_reference: dict[str, bool | None] = {}
+    #: Every case id any pass produced a row for, whether or not that row was usable. A case
+    #: whose every attempt was an infra error has no entry in `outcomes` and used to disappear
+    #: from the report entirely — not even counted as `incomplete_panel`. `total_cases` then
+    #: silently described a smaller set than the one that was run, and the reader had no way to
+    #: see that a case had been measured at all.
+    seen_any: dict[str, dict[str, Any]] = {}
     anchor_of: list[str] = []
     for i, run in enumerate(runs):
         anchor_of.append(str(run.get("anchor", "anchor")))
         for row in run.get("rows") or []:
+            cid_any = str(row.get("case_id") or "")
+            if cid_any:
+                seen_any.setdefault(
+                    cid_any,
+                    {
+                        "tier": row.get("tier"),
+                        "fingerprint": row.get("fingerprint"),
+                        "has_reference": row.get("has_reference"),
+                    },
+                )
             if row.get("infra_error"):
                 continue
             cid = str(row.get("case_id") or "")
@@ -406,6 +426,27 @@ def aggregate_calibration(
             )
         )
 
+    # The cases every pass lost to infrastructure. Reported, not dropped: 0 usable attempts is
+    # a fact about the run, and a case that vanishes cannot be re-run deliberately.
+    unmeasured = sorted(set(seen_any) - set(outcomes))
+    for cid in unmeasured:
+        meta = seen_any[cid]
+        reports.append(
+            CaseCalibration(
+                case_id=cid,
+                tier=meta["tier"],
+                fingerprint=meta["fingerprint"],
+                has_reference=meta["has_reference"],
+                attempts=0,
+                passes=0,
+                p_hat=0.0,
+                confidence_interval=None,
+                keep=False,
+                reasons=[f"{ALL_ATTEMPTS_INFRA} — 0 usable attempts, not a difficulty verdict"],
+            )
+        )
+    reports.sort(key=lambda r: r.case_id)
+
     kept = [r for r in reports if r.keep]
     return {
         "policy": pol.to_dict(),
@@ -424,6 +465,7 @@ def aggregate_calibration(
             1 for r in reports if any(x.startswith(INCOMPLETE_PANEL) for x in r.reasons)
         ),
         "rows_dropped_by_anchor": _dropped_by_anchor(runs),
+        "all_attempts_infra_count": len(unmeasured),
         "cases": [r.to_dict() for r in reports],
     }
 

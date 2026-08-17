@@ -215,13 +215,22 @@ def mcnemar_sample_size(
 
 
 def observed_discordance(pairwise: list[dict[str, Any]]) -> float | None:
-    """Discordance rate seen in an ablation's pairwise comparisons, for planning the next run."""
+    """Discordance rate seen in an ablation's pairwise comparisons, for planning the next run.
+
+    Self-repeats are excluded. A repeat matrix McNemars every row against `*-r1`, so two runs of
+    the *same* configuration appear as a comparison — and their discordance is the harness's own
+    run-to-run noise, not a difference between configurations. Averaging that into the planner
+    understates the sample size a real comparison needs, because noise-only pairs are the ones
+    with the most discordant cases: measured on this corpus, 25.8%–32.3% of cases flip between
+    identical repeats.
+    """
+    comparable = [p for p in pairwise if not p.get("self_repeat") and p.get("comparable", True)]
     totals = [
         (
             p.get("discordant") or 0,
             (p.get("discordant") or 0) + (p.get("both_passed") or 0) + (p.get("neither") or 0),
         )
-        for p in pairwise
+        for p in (comparable or pairwise)
     ]
     usable = [(d, n) for d, n in totals if n]
     if not usable:
