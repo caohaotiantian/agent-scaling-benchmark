@@ -40,12 +40,31 @@ DEFAULT_MAX_VERBATIM = 0.05
 
 
 def _substantive_lines(case: dict[str, Any]) -> list[str]:
+    """Every substantive line the bundle would ship, from all three places it ships them.
+
+    ``context.files`` was the only one read, and `write_json` ships `grader.gold_files` and
+    `grader.hidden_tests` in full — `_scrubbed` removes only the audit detail. Measured on
+    `_clean2026`: 3,890 lines from `context.files` against 5,659 more the gate never looked at,
+    so `verbatim_share` and the headline `max_verbatim_share` described 41% of the shipped
+    source. **For a reverse case the gold file *is* the post-edit production file**, which is
+    the thing this module's own docstring calls production source by design — the exact mirror
+    of the bug that docstring claims to have fixed on the draft side.
+    """
     out: list[str] = []
-    for f in (case.get("context") or {}).get("files") or []:
-        for line in str(f.get("content") or "").splitlines():
-            s = line.strip()
-            if len(s) > _SUBSTANTIVE_LINE:
-                out.append(s)
+    grader = case.get("grader") or {}
+    groups = [
+        (case.get("context") or {}).get("files") or [],
+        grader.get("gold_files") or [],
+        grader.get("hidden_tests") or [],
+    ]
+    for group in groups:
+        for f in group:
+            if not isinstance(f, dict):
+                continue
+            for line in str(f.get("content") or "").splitlines():
+                s = line.strip()
+                if len(s) > _SUBSTANTIVE_LINE:
+                    out.append(s)
     return out
 
 
@@ -94,6 +113,14 @@ def verbatim_share(case: dict[str, Any], draft_lines: set[str]) -> float:
     return sum(1 for s in lines if s in draft_lines) / len(lines)
 
 
+#: Generation paths whose output may ship. `heuristic_case_from_draft` deep-copies the draft, so
+#: its cases *are* production code and there is deliberately no override for it. `review-choice`
+#: is a third path that produces genuine cases; whether it may ship is a policy question with a
+#: default of no, which is what `--allow-review-choice` records.
+_ALWAYS_SHIPPABLE: tuple[str, ...] = ("llm", "reverse")
+OPTIONAL_GENERATIONS: tuple[str, ...] = ("review-choice",)
+
+
 def _reject_reason(
     case: dict[str, Any],
     *,
@@ -102,6 +129,8 @@ def _reject_reason(
     max_verbatim: float,
     require_audit: bool,
     allow_production_derived: bool = False,
+    allow_secrets: bool = False,
+    allow_review_choice: bool = False,
 ) -> str | None:
     """Why this case cannot ship, or ``None`` if it can."""
     if validator is not None and list(validator.iter_errors(case)):
@@ -114,13 +143,16 @@ def _reject_reason(
         # measured 0%-91.2% verbatim. Whether that may leave the building is the owner's call
         # and not a default, so it is named for what it is rather than filed under "provenance".
         return "production_derived"
-    if generation not in ("llm", "reverse"):
-        # The heuristic path deep-copies the draft, so these cases are production code. This
-        # one has no override and is not meant to acquire one.
+    permitted = set(_ALWAYS_SHIPPABLE)
+    if allow_review_choice:
+        permitted.update(OPTIONAL_GENERATIONS)
+    if generation not in permitted:
+        # The heuristic path deep-copies the draft, so these cases are production code. That
+        # one has no override and is not meant to acquire one; `review-choice` does, above.
         return "provenance"
     if require_audit and not meta.get("validity_ok"):
         return "audit"
-    if scan_case_dict(case):
+    if scan_case_dict(case) and not allow_secrets:
         return "secrets"
     share = verbatim_share(case, draft_lines)
     if share > max_verbatim and generation != "reverse":
@@ -140,6 +172,8 @@ def export_bundle(
     require_audit: bool = True,
     dry_run: bool = False,
     allow_production_derived: bool = False,
+    allow_secrets: bool = False,
+    allow_review_choice: bool = False,
 ) -> dict[str, Any]:
     """Copy the cases that pass every gate into ``output_dir`` and write a MANIFEST.
 
@@ -173,6 +207,8 @@ def export_bundle(
             max_verbatim=max_verbatim,
             require_audit=require_audit,
             allow_production_derived=allow_production_derived,
+            allow_secrets=allow_secrets,
+            allow_review_choice=allow_review_choice,
         )
         if reason:
             rejected.setdefault(reason.split(":")[0], []).append(cid)
@@ -200,9 +236,13 @@ def export_bundle(
         "source_set": source_set,
         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "gates": {
-            "provenance": "metadata.generation == 'llm'",
+            "provenance": sorted(
+                set(_ALWAYS_SHIPPABLE)
+                | (set(OPTIONAL_GENERATIONS) if allow_review_choice else set())
+            ),
             "audit": bool(require_audit),
-            "secrets": "scan_case_dict must be empty",
+            "secrets": "acknowledged by --allow-secrets" if allow_secrets else "must be empty",
+            "verbatim_basis": "context.files + grader.gold_files + grader.hidden_tests",
             "max_verbatim_share": max_verbatim,
             "drafts_compared": str(drafts_dir) if drafts_dir else None,
             "draft_lines_indexed": len(draft_lines),

@@ -14,6 +14,9 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # `sk-ant-` values contain hyphens, which `openai_sk`'s character class stops at, so it
     # matches only the first fragment and the length floor can then miss it entirely.
     ("anthropic_key", re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}")),
+    # Same shape, same reason: `sk-proj-…` stops `openai_sk` at the hyphen after `proj`, which
+    # is four characters short of its floor, so the current project-key format matched nothing.
+    ("openai_project_key", re.compile(r"sk-proj-[A-Za-z0-9_-]{20,}")),
     ("aws_key", re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}")),
     ("private_key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     # Each of these was found in this project's own corpus with no rule to match it. The

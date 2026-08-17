@@ -23,42 +23,64 @@ def load_matrix(path: Path) -> dict[str, Any]:
     return data
 
 
-def _filter_weak_grader_case_set(case_set: str, *, skip_weak: bool) -> str:
-    """If skip_weak, materialize a temp case set without weak_grader=true cases."""
-    if not skip_weak:
-        return case_set
+def _filter_unusable_cases(
+    case_set: str,
+    *,
+    skip_weak: bool,
+    skip_invalid: bool,
+) -> tuple[str, dict[str, int]]:
+    """Materialize a temp case set without the cases that must not be measured.
+
+    Two exclusions, both of which used to be missing on the run path.
+
+    ``weak_grader`` was already handled. ``validity_ok: false`` was not: `audit-cases` writes
+    the verdict back into the case's own metadata and then nothing anywhere consulted it, so a
+    case whose stub passes its own grader, or whose hidden test demands an unknowable name,
+    sat in the denominator of every ablation. On disk when this was written: **64 of 133
+    `_rev2026` cases and 9 of 26 `_retryout` cases carry `validity_ok: false`**.
+
+    A case that was never audited has no `validity_ok` key at all. That is not a failed audit
+    and is left in — the alternative would silently empty every set that predates the gate.
+    """
     src = case_set_dir(case_set)
-    if not src.is_dir():
-        return case_set
-    weak_count = 0
-    strong: list[Path] = []
+    counts = {"weak_grader": 0, "validity_failed": 0}
+    if not (skip_weak or skip_invalid) or not src.is_dir():
+        return case_set, counts
+
     from aibench.cases import is_case_json_path
 
+    keep: list[Path] = []
     for p in sorted(src.glob("*.json")):
         if not is_case_json_path(p):
             continue
-        raw = load_json(p)
-        if (raw.get("metadata") or {}).get("weak_grader"):
-            weak_count += 1
+        meta = load_json(p).get("metadata") or {}
+        if skip_weak and meta.get("weak_grader"):
+            counts["weak_grader"] += 1
             continue
-        strong.append(p)
-    if weak_count == 0:
-        return case_set
+        if skip_invalid and meta.get("validity_ok") is False:
+            counts["validity_failed"] += 1
+            continue
+        keep.append(p)
+    if not any(counts.values()):
+        return case_set, counts
+    if not keep:
+        raise ValueError(
+            f"case set {case_set!r} has nothing left to ablate: "
+            f"{counts['weak_grader']} weak_grader, {counts['validity_failed']} validity_ok=false"
+        )
     # write filtered set under benchmarks/ai_coding/cases/.ablation-filtered-<set>
     dest_name = f".ablation-filtered-{case_set}"
     dest = repo_root() / "benchmarks/ai_coding/cases" / dest_name
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
-    for p in strong:
+    for p in keep:
         shutil.copy2(p, dest / p.name)
     # copy snapshots if any
     snap = src / "snapshots"
     if snap.is_dir():
         shutil.copytree(snap, dest / "snapshots")
-    if not strong:
-        raise ValueError(f"case set {case_set!r} has only weak_grader cases; nothing to ablate")
-    return dest_name
+    return dest_name, counts
 
 
 def run_ablation(
@@ -68,6 +90,7 @@ def run_ablation(
     case_set_override: str | None = None,
     skip_weak_grader: bool = True,
     allow_weak_grader: bool = False,
+    allow_invalid_cases: bool = False,
     parallel: int | None = None,
     baseline_experiment: str | None = None,
 ) -> Path:
@@ -77,13 +100,23 @@ def run_ablation(
     skip_weak = (
         skip_weak_grader and not allow_weak_grader and not matrix.get("allow_weak_grader", False)
     )
+    skip_invalid = not allow_invalid_cases and not matrix.get("allow_invalid_cases", False)
     # Every distinct case set is filtered up front, never inside a worker. Filtering rmtree's
     # and repopulates a shared `.ablation-filtered-<set>` directory, so two rows filtering the
     # same set concurrently would let one of them run against a half-copied case set — a wrong
     # result, not a crash.
     filtered: dict[str, str] = {}
+    excluded: dict[str, dict[str, int]] = {}
     for row_case in {item.get("case_set") or case_set for item in matrix["runs"]} | {case_set}:
-        filtered[row_case] = _filter_weak_grader_case_set(row_case, skip_weak=skip_weak)
+        filtered[row_case], counts = _filter_unusable_cases(
+            row_case, skip_weak=skip_weak, skip_invalid=skip_invalid
+        )
+        if any(counts.values()):
+            excluded[row_case] = counts
+            print(
+                f"[filter] {row_case}: excluded {counts['weak_grader']} weak_grader and "
+                f"{counts['validity_failed']} validity_ok=false case(s)"
+            )
 
     out_root = output_root or (root / "runs")
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -229,6 +262,8 @@ def run_ablation(
         {
             "matrix": str(matrix_path),
             "skip_weak_grader": skip_weak,
+            "skip_invalid_cases": skip_invalid,
+            "excluded_cases": excluded,
             "baseline_experiment": base_name,
             "parallel": parallel,
             "runs": slim_rows,
@@ -239,6 +274,7 @@ def run_ablation(
     )
     report = _render_ablation_report(
         slim_rows,
+        excluded=excluded,
         baseline=base_name,
         pairwise=pairwise,
         tier_matrix=tier_matrix,
@@ -298,6 +334,20 @@ def compare_runs_pairwise(
     return out
 
 
+#: Below this share of a run's cases actually executing, the reported rate says more about the
+#: gateway than about the model. Not a hard rule — it decides whether a warning prints, never
+#: whether a number is used.
+_EFFECTIVE_SHARE_FLOOR = 0.8
+
+
+def _infra_dominated(row: dict[str, Any]) -> bool:
+    total = int(row.get("case_count") or 0)
+    effective = int(row.get("effective_case_count") or 0)
+    if not total:
+        return True
+    return effective < _EFFECTIVE_SHARE_FLOOR * total
+
+
 def _render_ablation_report(
     rows: list[dict[str, Any]],
     *,
@@ -305,12 +355,26 @@ def _render_ablation_report(
     pairwise: list[dict[str, Any]] | None = None,
     tier_matrix: dict[str, dict[str, Any]] | None = None,
     failed: list[dict[str, Any]] | None = None,
+    excluded: dict[str, dict[str, int]] | None = None,
 ) -> str:
     lines = [
         "# Ablation Report",
         "",
         f"- Baseline experiment: `{baseline}`",
         "",
+        *(
+            [
+                "> **已排除的 case**（不进入任何分母）——",
+                *[
+                    f"> - `{cs}`：{c['weak_grader']} 条 weak_grader，"
+                    f"{c['validity_failed']} 条 `validity_ok: false`"
+                    for cs, c in sorted((excluded or {}).items())
+                ],
+                "",
+            ]
+            if excluded
+            else []
+        ),
         *(
             [
                 "> **警告**：以下实验执行失败，未计入下表——",
@@ -353,15 +417,21 @@ def _render_ablation_report(
             f"| {r['total_tokens']} | {r.get('total_cost')} | {r['run_dir']} |"
         )
 
-    # A run whose cases all failed to execute reports success_rate 0.0, which reads as "the
-    # agent could not solve anything" when it actually means the harness never ran it.
-    broken = [r for r in rows if not r.get("effective_case_count")]
+    # A run whose cases mostly failed to execute reports a rate computed on whatever survived,
+    # which reads as "the agent could not solve much" when it actually means the harness never
+    # ran it. The guard used to be `if not effective_case_count`, firing only at *exactly*
+    # zero — so 1 effective case out of 167 got a full-weight rate and no warning at all.
+    broken = [r for r in rows if _infra_dominated(r)]
     if broken:
-        lines.extend(["", "> **警告**：以下实验没有任何有效 case（全部 infra_error），"])
-        lines.append("> 其 0% 成功率与相对基线收益**不是能力结论**，请先排查环境/适配器：")
+        lines.extend(
+            ["", "> **警告**：以下实验的有效 case 数远低于 case 总数（基础设施失败为主），"]
+        )
+        lines.append("> 其成功率与相对基线收益**不是能力结论**，请先排查环境/适配器：")
         for r in broken:
+            eff = r.get("effective_case_count") or 0
             lines.append(
-                f"> - `{r['experiment_name']}`：{r.get('infra_error_count')} 个基础设施失败"
+                f"> - `{r['experiment_name']}`：有效 {eff}/{r.get('case_count')} 条，"
+                f"{r.get('infra_error_count')} 个基础设施失败"
             )
 
     if tier_matrix:

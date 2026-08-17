@@ -28,6 +28,7 @@ KEPT_DIR="$ROOT/benchmarks/ai_coding/cases/drafts-kept"
 CASE_SET_DIR="$ROOT/benchmarks/ai_coding/cases/auto-v0"
 SKIP_EXTRACT=0
 HEURISTIC_ONLY=0
+STRICT_AUDIT=0
 OUT_ROOT="$ROOT/runs"
 WORKERS=""
 TIER=""
@@ -49,6 +50,8 @@ Production defaults:
   --dry-run            Offline fixture path only (tests/fixtures mock matrix)
   --skip-extract       Reuse existing drafts in drafts-from-db
   --heuristic-only     Generate cases without LLM
+  --strict-audit       Abort if any generated case fails an error-level validity gate
+                       (default: annotate the verdict; \`ablation\` then excludes those cases)
   --limit N            DB scan limit (default 100)
   --max-cases N        Max generated cases (default 8)
   --matrix PATH        Ablation matrix YAML
@@ -71,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --skip-extract) SKIP_EXTRACT=1; shift ;;
     --heuristic-only) HEURISTIC_ONLY=1; shift ;;
+    --strict-audit) STRICT_AUDIT=1; shift ;;
     --limit) LIMIT="$2"; shift 2 ;;
     --max-cases) MAX_CASES="$2"; shift 2 ;;
     --matrix) MATRIX="$2"; shift 2 ;;
@@ -162,7 +166,15 @@ fi
 
 echo "==> validate + audit auto-v0"
 "${UV[@]}" python -m aibench validate-cases --case-set auto-v0
-"${UV[@]}" python -m aibench audit-cases --case-set auto-v0 --annotate || true
+# `|| true` used to swallow an exception here as well as the verdict. The verdict is no longer
+# lost either way: `--annotate` writes `validity_ok` back and `ablation` now excludes the cases
+# that failed, so a partly-invalid set still produces an honest measurement on what is left.
+# `--strict-audit` turns that into a hard stop for anyone who wants the pipeline to refuse.
+AUDIT_FLAGS=(--case-set auto-v0 --annotate)
+if [[ "$STRICT_AUDIT" -eq 1 ]]; then
+  AUDIT_FLAGS+=(--fail-on-error)
+fi
+"${UV[@]}" python -m aibench audit-cases "${AUDIT_FLAGS[@]}"
 
 if [[ "$CALIBRATE" -eq 1 ]]; then
   echo "==> calibrate-cases (anchors x $REPEATS runs; this is the expensive step)"

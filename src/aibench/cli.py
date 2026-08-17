@@ -220,6 +220,21 @@ def main(argv: list[str] | None = None) -> int:
         "line against them; over a 575-case build the LLM path overlapped 1.7%% and the "
         "heuristic fallback 100%%, because it deep-copies the draft.",
     )
+    p_exp.add_argument(
+        "--allow-secrets",
+        action="store_true",
+        help="Export cases the secrets scan flags. Five gates bear on a bundle and this was the "
+        "only one with no escape, while the same gate on `promote` has had one all along — so a "
+        "maintainer willing to hand the data over shipped a smaller, differently-composed set "
+        "than every published N was computed on. Off by default; the MANIFEST records the use.",
+    )
+    p_exp.add_argument(
+        "--allow-review-choice",
+        action="store_true",
+        help="Also export cases whose `metadata.generation` is `review-choice`. All 167 of "
+        "`_choice2` are rejected on `provenance` without it, because the gate admitted only "
+        "`llm` and `reverse`. Whether that path may ship is policy, so it defaults to no.",
+    )
     p_exp.add_argument("--max-verbatim", type=float, default=DEFAULT_MAX_VERBATIM)
     p_exp.add_argument(
         "--no-require-audit",
@@ -236,6 +251,14 @@ def main(argv: list[str] | None = None) -> int:
         "--allow-weak-grader",
         action="store_true",
         help="Do not strip weak_grader=true cases (default: strip)",
+    )
+    p_abl.add_argument(
+        "--allow-invalid-cases",
+        action="store_true",
+        help="Do not strip cases whose audit failed (`metadata.validity_ok: false`). The "
+        "default is to strip: `audit-cases` writes that verdict back and nothing on the run "
+        "path used to read it, so 64 of 133 `_rev2026` cases sat in the denominator of every "
+        "ablation. A case that was never audited has no verdict and is kept either way.",
     )
     p_abl.add_argument(
         "--parallel",
@@ -776,6 +799,7 @@ def main(argv: list[str] | None = None) -> int:
             output_root=args.output_root,
             case_set_override=args.case_set,
             allow_weak_grader=args.allow_weak_grader,
+            allow_invalid_cases=args.allow_invalid_cases,
             parallel=args.parallel,
             baseline_experiment=args.baseline_experiment,
         )
@@ -865,6 +889,8 @@ def main(argv: list[str] | None = None) -> int:
                 require_audit=not args.no_require_audit,
                 dry_run=args.dry_run,
                 allow_production_derived=args.allow_production_derived,
+                allow_secrets=args.allow_secrets,
+                allow_review_choice=args.allow_review_choice,
             )
         except (FileNotFoundError, ValueError) as e:
             print(str(e))

@@ -266,11 +266,24 @@ _safe_relpath = safe_relpath
 
 
 def _safe_extract_tar(tf: tarfile.TarFile, dest: Path) -> None:
+    """Extract, refusing any member that could write outside ``dest``.
+
+    Checking resolved member paths is not enough on its own. A tar may carry a symlink or a
+    hard link whose *target* points outside the destination; the link's own path passes the
+    prefix test, and a later member written through it lands wherever the link points. Python
+    only started refusing that by default in 3.14, and this project's floor is 3.11.
+    """
     dest = dest.resolve()
     for member in tf.getmembers():
         member_path = (dest / member.name).resolve()
         if not str(member_path).startswith(str(dest)):
             raise RuntimeError(f"tar member escapes workspace: {member.name}")
+        if member.issym() or member.islnk():
+            target = (member_path.parent / member.linkname).resolve()
+            if not str(target).startswith(str(dest)):
+                raise RuntimeError(
+                    f"tar member links outside workspace: {member.name} -> {member.linkname}"
+                )
     tf.extractall(dest)
 
 

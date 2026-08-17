@@ -58,13 +58,13 @@ def test_shared_case_sets_are_filtered_before_any_worker_starts(tmp_path: Path, 
     import aibench.ablation as ablation
 
     calls: list[str] = []
-    real = ablation._filter_weak_grader_case_set
+    real = ablation._filter_unusable_cases
 
-    def counting(case_set, *, skip_weak):
+    def counting(case_set, *, skip_weak, skip_invalid):
         calls.append(case_set)
-        return real(case_set, skip_weak=skip_weak)
+        return real(case_set, skip_weak=skip_weak, skip_invalid=skip_invalid)
 
-    monkeypatch.setattr(ablation, "_filter_weak_grader_case_set", counting)
+    monkeypatch.setattr(ablation, "_filter_unusable_cases", counting)
     matrix = repo_root() / "tests/fixtures/configs/runs/ablation-matrix.mock.yaml"
     ablation.run_ablation(matrix, output_root=tmp_path, allow_weak_grader=True, parallel=2)
 

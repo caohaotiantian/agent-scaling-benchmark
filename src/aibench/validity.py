@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -365,6 +366,97 @@ def required_hidden_symbols(case: Case) -> dict[str, list[str]]:
     return out
 
 
+def _calls_into_impl(tree: ast.AST, modules: set[str]) -> list[ast.Call]:
+    """Calls that reach the implementation, however the test spells the path to it.
+
+    Resolving the callee rather than matching text is what keeps `os.makedirs(p,
+    exist_ok=True)` in a fixture helper out of the interface — `exist_ok` is the standard
+    library's parameter, not the case's.
+
+    Four spellings reach it, and a first version of this function saw only two:
+
+    * ``impl.f(...)`` after ``import impl``, including under an alias;
+    * ``f(...)`` after ``from impl import f``;
+    * ``obj.method(...)`` where ``obj`` came from an implementation constructor —
+      ``r = rank.Rank({}); r.score(..., iteration_no=5)`` is how `rev-a60dac9e85e808bf` demands
+      ``iteration_no``, and the first version returned nothing for it;
+    * ``impl.Cls().method(...)``, with no intermediate name.
+
+    Only a CapWords callee binds an object. ``result = impl.discover(...)`` followed by
+    ``result.get(x, default=1)`` would otherwise put ``dict.get``'s parameter into the case's
+    interface, and a check that reports the standard library reports everything.
+    """
+    roots: set[str] = set(modules)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            roots.update(a.asname or a.name for a in node.names if a.name in modules)
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.rsplit(".", 1)[-1] in modules
+        ):
+            roots.update(a.asname or a.name for a in node.names)
+
+    def rooted(node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in roots
+        if isinstance(node, ast.Attribute):
+            return rooted(node.value)
+        if isinstance(node, ast.Call):
+            return rooted(node.func)
+        return False
+
+    def constructs(node: ast.expr) -> bool:
+        if not isinstance(node, ast.Call) or not rooted(node.func):
+            return False
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        return bool(name[:1].isupper())
+
+    # Two passes: an object bound on one line is called on a later one, and `ast.walk` makes no
+    # promise about source order.
+    for _ in range(2):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and constructs(node.value):
+                roots.update(t.id for t in node.targets if isinstance(t, ast.Name))
+
+    return [n for n in ast.walk(tree) if isinstance(n, ast.Call) and rooted(n.func)]
+
+
+def hidden_call_keywords(case: Case) -> dict[str, set[str]]:
+    """Keyword argument names each hidden test passes to the implementation, by test path.
+
+    Python only. JavaScript has no keyword arguments, so there is nothing to miss there; a
+    parse failure is recorded rather than dropped.
+    """
+    modules = _impl_modules(case)
+    out: dict[str, set[str]] = {}
+    for fb in case.grader.hidden_tests:
+        if not fb.path.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(fb.content or "")
+        except SyntaxError:
+            out.setdefault(fb.path, set())
+            continue
+        found = {
+            kw.arg for call in _calls_into_impl(tree, modules) for kw in call.keywords if kw.arg
+        }
+        if found:
+            out[fb.path] = found
+    return out
+
+
+def visible_surface(case: Case) -> str:
+    """Everything the solver can read: shipped files, visible tests, and the prompt.
+
+    Deliberately excludes the gold files. They are where the missing name is guaranteed to
+    appear — that is what makes the case pass its solvability gate — and they are exactly what
+    the solver never sees.
+    """
+    return "\n".join([fb.content or "" for fb in case.files] + [case.prompt or ""])
+
+
 def check_hidden_tests_are_inferable(case: Case) -> list[ValidityIssue]:
     """Reject hidden tests that require a name the solver has no way to learn.
 
@@ -383,12 +475,23 @@ def check_hidden_tests_are_inferable(case: Case) -> list[ValidityIssue]:
     The rule is that the *interface* must be visible even when the *behaviour* is hidden. A
     symbol counts as visible if it appears anywhere the solver can read: a shipped file, a
     visible test, or the prompt.
+
+    **A keyword argument name is interface too.** ``discover_config_files(tmp,
+    extra_skip="custom")`` cannot be answered by a solver who has never seen the string
+    ``extra_skip``, and reading only imports and attribute accesses missed exactly that:
+    `_clean2026/rev-05e88429bf55fa4d` ships a stub `discover_config_files(root,
+    extra_dirs=None)`, hidden tests calling it with ``extra_skip=``, a prompt giving only the
+    symptom, and ``validity_ok: true``. Verified in `runs/ablation_20260814_111227`: six runs,
+    `passed=False` in all six, `infra_error=False` in all six, `TypeError: unexpected keyword
+    argument 'extra_skip'` every time. It sat in the T5 denominator discriminating nothing. The
+    checker that finds this already existed in `scripts/discrimination_diagnostic.py` and was
+    wired to nothing; it lives here now and the script imports it.
     """
     # The reference solution is deliberately absent. It is the one place the missing name is
     # certain to appear -- that is what makes the case pass its solvability gate -- and it is
     # exactly what the solver cannot read. Counting it as visible is what made a first version
     # of this check report the contaminated case as clean.
-    surface = "\n".join([fb.content or "" for fb in case.files] + [case.prompt or ""])
+    surface = visible_surface(case)
     issues: list[ValidityIssue] = []
     for path, names in required_hidden_symbols(case).items():
         missing = [n for n in names if not _defines(surface, n)]
@@ -399,6 +502,17 @@ def check_hidden_tests_are_inferable(case: Case) -> list[ValidityIssue]:
                     "error",
                     f"hidden test {path} needs {', '.join(missing)}, "
                     "which appears in no visible file, test, or prompt",
+                )
+            )
+    for path, keywords in hidden_call_keywords(case).items():
+        missing = sorted(k for k in keywords if not _defines(surface, k))
+        if missing:
+            issues.append(
+                ValidityIssue(
+                    "hidden_test_requires_unknowable_kwarg",
+                    "error",
+                    f"hidden test {path} passes {', '.join(missing)} to the implementation, "
+                    "and the name appears in no visible file, test, or prompt",
                 )
             )
     return issues
@@ -620,8 +734,18 @@ def check_stub_fails(
     pandas or torch and the post-edit file did not. The tests separated the two versions by
     which packages were installed, not by the defect, and three of those cases then failed to
     collect on 8 of 9 calibration attempts.
+
+    Runs for ``gold`` and ``composite`` too, not only ``script``. Skipping them meant
+    ``audit_case`` emitted ``validity_ok: true`` for cases whose envelope it had never measured
+    — and for `match: contains_key_lines` the envelope is where the whole risk lives, because
+    ``_grade_gold`` falls back to scanning the entire workspace when no declared gold path
+    exists on disk. 1,939 of 1,941 gold cases declare exactly that, so the scan is the *normal*
+    path and 150 of them pass on a workspace nobody touched. ``llm_judge`` stays skipped: it
+    needs the gateway, and an audit that spends model calls per case is not an audit anyone runs.
     """
-    if case.grader.mode != "script" or not case.grader.command:
+    if case.grader.mode == "llm_judge":
+        return True, "skipped_llm_judge"
+    if case.grader.mode == "script" and not case.grader.command:
         return True, "skipped_non_script"
     tmp = Path(tempfile.mkdtemp(prefix="aibench_audit_"))
     try:
@@ -650,9 +774,18 @@ def check_reference_solution(case: Case, *, case_set: str | None = None) -> tupl
 
     The complement of :func:`check_stub_fails`. Without it a case with a broken hidden test
     fails every configuration and reads as a hard case when it is simply an unsolvable one.
+
+    A ``gold`` case graded on ``key_lines`` alone has no reference artifact to apply — the key
+    lines *are* the specification — so it is reported as unverifiable rather than as unsolvable.
+    Calling that a failure would restate a design choice as a defect.
     """
-    if case.grader.mode != "script" or not case.grader.command:
+    if case.grader.mode == "llm_judge":
+        return True, "skipped_llm_judge"
+    if case.grader.mode == "script" and not case.grader.command:
         return True, "skipped_non_script"
+    key_lines_only = case.grader.mode == "gold" and case.grader.match == "contains_key_lines"
+    if key_lines_only and not case.grader.gold_files:
+        return True, "skipped_key_lines_only: no reference artifact to apply"
     if not case.grader.gold_files:
         # Measured: of 18 cases no configuration could solve, 16 had no reference solution,
         # while cases that shipped one were unsolvable only 2 times in 31. Skipping the check

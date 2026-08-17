@@ -187,12 +187,41 @@ def test_a_script_case_without_a_reference_solution_is_refused():
     assert any(i.code == "solvability_gate" for i in report.issues)
 
 
-def test_non_script_graders_are_still_exempt():
-    """A gold or llm_judge case has no command to run a reference solution against."""
+def test_a_key_lines_gold_case_has_no_reference_artifact_to_apply():
+    """The key lines *are* the specification, so there is nothing to write into the workspace.
+    Reporting that as `no_reference_solution` would restate a design choice as a defect."""
     from aibench.validity import check_reference_solution
 
     raw = _t3_case_dict()
     raw["grader"] = {"mode": "gold", "match": "contains_key_lines", "key_lines": ["def clamp"]}
     ok, detail = check_reference_solution(Case.from_dict(raw))
     assert ok is True
-    assert detail == "skipped_non_script"
+    assert detail.startswith("skipped_key_lines_only")
+
+
+def test_an_llm_judge_case_is_exempt_because_the_gate_would_spend_model_calls():
+    from aibench.validity import check_reference_solution, check_stub_fails
+
+    raw = _t3_case_dict()
+    raw["grader"] = {"mode": "llm_judge", "judge_rubric": "does it clamp"}
+    assert check_reference_solution(Case.from_dict(raw)) == (True, "skipped_llm_judge")
+    assert check_stub_fails(Case.from_dict(raw)) == (True, "skipped_llm_judge")
+
+
+def test_a_gold_case_that_already_passes_untouched_is_rejected():
+    """H3 + M4. `check_stub_fails` skipped every non-script case, so `audit_case` emitted
+    `validity_ok: true` for gold cases whose envelope it had never measured — and with
+    `contains_key_lines` the grader scans the whole workspace whenever no declared gold path is
+    on disk, which is the normal shape for 1,939 of 1,941 gold cases."""
+    from aibench.validity import check_stub_fails
+
+    raw = _t3_case_dict()
+    raw["grader"] = {
+        "mode": "gold",
+        "match": "contains_key_lines",
+        # Already present in the shipped stub, so an untouched workspace satisfies the grader.
+        "key_lines": ["def clamp"],
+    }
+    ok, detail = check_stub_fails(Case.from_dict(raw))
+    assert ok is False
+    assert detail == "stub_passed_grader"
