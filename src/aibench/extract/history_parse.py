@@ -16,6 +16,33 @@ _FILE_HEADER = re.compile(
     re.I,
 )
 
+#: How a file's content reached us. A file the trace read in full is material a case can be
+#: built on; a window of one is not, and the two arrive looking identical.
+READ_COMPLETE = "read_complete"
+READ_PARTIAL = "read_partial"
+#: No footer at all, so the tool never said which of the two this is. 470 of the 23,868 files in
+#: the current pool (2.0%, and 416 of the 6,021 Python ones) are like this. Calling them complete
+#: would vouch for them on no evidence, which is the whole thing this distinction exists to stop.
+READ_UNKNOWN = "read_unknown"
+
+#: The read tool appends a line describing its own output inside `<content>`. Enumerated over
+#: every line of the 23,868 files reconstructed for `_rev_raw4`: these five shapes are the only
+#: ones present and 98.0% of files carry one.
+#:
+#: What keeps a line of real source safe is `split_read_footer` inspecting only the last
+#: non-blank line — `filesystem.py` in that same corpus is a read-tool implementation that
+#: builds one of these strings on its line 199 of 833, and it is out of reach for that reason,
+#: not because of the anchors. The anchors are the narrower second guard: they are what stops a
+#: last line that merely *contains* a footer, such as `log("(End of file - total 3 lines)")`,
+#: from being mistaken for one.
+_FOOTER_COMPLETE = re.compile(r"^\(End of file - total (?P<n>\d+) lines\)$")
+_FOOTER_PARTIAL = re.compile(
+    r"^\((?:Showing lines [\d-]+ of \d+\..*"
+    r"|File has more lines\..*"
+    r"|Output capped at .*"
+    r"|Output truncated at .*)\)$"
+)
+
 CODING_TOOLS = {
     "bash",
     "read",
@@ -133,6 +160,37 @@ def tool_names(tools: Any) -> list[str]:
     return names
 
 
+def split_read_footer(content: str) -> tuple[str, str]:
+    """Content without the read tool's trailing self-description, and how the file was read.
+
+    The declared line count is checked rather than trusted. A read issued with an ``offset`` can
+    reach the end of the file, and it is then footed "End of file" while carrying only the tail:
+    1,076 of the corpus's 17,010 such footers (6.3%, and 8.0% of the Python ones) declare more
+    lines than they hold. Reading the wording alone lets exactly the fragment this predicate
+    exists to reject back in through the other branch.
+
+    The comparison is exact. The tool leaves one blank line between the body and the footer, and
+    only that one is discounted — collapsing every trailing blank line instead made the check
+    measure "how many blank lines does this file end with" rather than "is anything missing",
+    and misfiled 61 whole files as fragments because they genuinely end in blank lines.
+    """
+    lines = content.splitlines()
+    last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    if last is None:
+        return content, READ_UNKNOWN
+    stripped = lines[last].strip()
+    body_lines = lines[:last]
+    if body_lines and not body_lines[-1].strip():
+        body_lines = body_lines[:-1]  # the separator the tool inserts, not part of the file
+    body = ("\n".join(body_lines) + "\n") if body_lines else ""
+    if _FOOTER_PARTIAL.match(stripped):
+        return body, READ_PARTIAL
+    m = _FOOTER_COMPLETE.match(stripped)
+    if m is None:
+        return content, READ_UNKNOWN
+    return body, (READ_COMPLETE if int(m.group("n")) == len(body_lines) else READ_PARTIAL)
+
+
 def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
     files: list[dict[str, str]] = []
     for m in _PATH_CONTENT.finditer(text or ""):
@@ -151,9 +209,14 @@ def extract_files_from_tool_text(text: str) -> list[dict[str, str]]:
                 cleaned_lines.append(re.sub(r"^\s*\d+:\s?", "", line))
             else:
                 cleaned_lines.append(line)
-        content = "\n".join(cleaned_lines).strip() + "\n"
+        # The footer is split off before any trimming. Trimming first ate the blank lines a file
+        # genuinely ends with, and the line count then came up short — a whole file refused as a
+        # window for ending in whitespace. Only newlines are trimmed, never indentation: the old
+        # `.strip()` dedented the first line of every file it touched.
+        content, origin = split_read_footer("\n".join(cleaned_lines).strip("\n"))
+        content = content.strip("\n")
         if path and content.strip():
-            files.append({"path": path, "content": content[:200_000]})
+            files.append({"path": path, "content": content[:200_000] + "\n", "origin": origin})
     return files
 
 

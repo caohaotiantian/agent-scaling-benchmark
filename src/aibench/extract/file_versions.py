@@ -24,12 +24,36 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from aibench.extract.history_parse import extract_files_from_tool_text, parse_jsonish
+from aibench.extract.history_parse import (
+    READ_COMPLETE,
+    READ_PARTIAL,
+    READ_UNKNOWN,
+    extract_files_from_tool_text,
+    parse_jsonish,
+)
 from aibench.languages import registered_spec, spec_for_path
 
 _EDIT_TOOLS = {"edit", "str_replace", "str_replace_editor"}
 _WRITE_TOOLS = {"write", "file_write"}
 _PATH_KEYS = ("filePath", "file_path", "path", "target_file")
+
+
+#: `pre` is the file as a read showed it in full — the only provenance the reverse-construction
+#: argument actually covers.
+PRE_FROM_READ = "read_complete"
+#: `pre` is what a `write` call put there. Either no read happened at all, or the trace wrote the
+#: file first and only read it back afterwards, which shows the tool its own output. The
+#: "defect" is then a flaw in code the model itself authored. 182 of the 737 pairs in the
+#: current draft pool are of the first kind.
+PRE_FROM_TOOL_WRITE = "tool_write"
+#: A read with no footer, so the tool never said whether it returned the whole file.
+PRE_FROM_UNLABELLED_READ = "read_unlabelled"
+#: Two files in the trace share a basename, and replay keys on basenames — so the read that
+#: would vouch for this `pre` may have been of the other file.
+PRE_FROM_AMBIGUOUS_PATH = "ambiguous_path"
+
+#: How a read's own report maps onto what it vouches for.
+_READ_ORIGIN = {READ_COMPLETE: PRE_FROM_READ, READ_UNKNOWN: PRE_FROM_UNLABELLED_READ}
 
 
 @dataclass
@@ -40,9 +64,16 @@ class FileVersion:
     pre: str
     post: str
     edits: int = 0
+    pre_origin: str = PRE_FROM_READ
 
     def to_dict(self) -> dict[str, Any]:
-        return {"path": self.path, "pre": self.pre, "post": self.post, "edits": self.edits}
+        return {
+            "path": self.path,
+            "pre": self.pre,
+            "post": self.post,
+            "edits": self.edits,
+            "pre_origin": self.pre_origin,
+        }
 
 
 @dataclass
@@ -54,6 +85,10 @@ class ReplayStats:
     unlocatable: int = 0
     dropped_unregistered: int = 0
     dropped_unparseable: int = 0
+    #: Reads that returned a window of a file rather than the file, and were therefore not
+    #: admitted as its content. Expect `unlocatable` to rise with this: an edit that used to be
+    #: matched against a fragment is now reported as unmatched, which is the honest answer.
+    dropped_partial_read: int = 0
     reasons: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +98,7 @@ class ReplayStats:
             "unlocatable": self.unlocatable,
             "dropped_unregistered": self.dropped_unregistered,
             "dropped_unparseable": self.dropped_unparseable,
+            "dropped_partial_read": self.dropped_partial_read,
         }
 
 
@@ -362,6 +398,24 @@ def _key(path: str) -> str:
     return re.split(r"[\\/]", path.strip())[-1]
 
 
+def _same_file(a: str, b: str) -> bool:
+    """Whether two spellings of a path can be the same file, on the evidence available.
+
+    The two sides are not written alike: `extract_files_from_tool_text` keeps only the last
+    three components of an absolute path and only the basename of a Windows one, while an edit
+    call carries the path in full. So they are compared over the components they *both* have —
+    `/home/u/proj/calc.py` and `ubuntu/proj/calc.py` agree wherever they overlap.
+
+    When one side is a bare basename there is nothing to compare and this answers True. That is
+    the honest answer, not a safe one: a Windows trace touching two same-named files in
+    different directories cannot be told apart at all, which is a limit of `_key` itself.
+    """
+    pa = [c for c in re.split(r"[\\/]", a.strip()) if c and c != "."]
+    pb = [c for c in re.split(r"[\\/]", b.strip()) if c and c != "."]
+    n = min(len(pa), len(pb))
+    return n > 0 and pa[-n:] == pb[-n:]
+
+
 def replay_file_versions(
     messages: list[dict[str, Any]],
     *,
@@ -378,12 +432,35 @@ def replay_file_versions(
     stats = ReplayStats()
     seen: dict[str, str] = {}
     original: dict[str, str] = {}
+    #: What `original[k]` is evidence of. Absent from `original` means nothing vouched for it.
+    vouched: dict[str, str] = {}
+    #: Keys the trace wrote before it ever read them. Reading a file back after writing it shows
+    #: the tool's own output, so such a read is not evidence of what an engineer found there.
+    written_first: set[str] = set()
+    #: Distinct paths sharing a basename. `_key` collapses them, so a read of one would
+    #: otherwise stand in as the "before" of the other — and now carry a provenance stamp
+    #: saying a read vouched for it.
+    paths_for_key: dict[str, set[str]] = {}
     current: dict[str, FileVersion] = {}
 
     for msg in messages:
         if msg.get("role") == "tool":
             for f in extract_files_from_tool_text(str(msg.get("content") or "")):
+                if f.get("origin") == READ_PARTIAL:
+                    # A window is content the trace saw *part* of. Matching an edit against it
+                    # can only reconstruct a "before" that is a fragment wearing a whole file's
+                    # name — the fiction this module exists to refuse. `rev-461e8d91390e3915`
+                    # shipped exactly that: 40 lines of a 190-line file, cut mid-expression.
+                    stats.dropped_partial_read += 1
+                    continue
                 k = _key(f["path"])
+                paths_for_key.setdefault(k, set()).add(f["path"])
+                if k not in original:
+                    vouched[k] = (
+                        PRE_FROM_TOOL_WRITE
+                        if k in written_first
+                        else _READ_ORIGIN.get(str(f.get("origin")), PRE_FROM_UNLABELLED_READ)
+                    )
                 seen.setdefault(k, f["content"])
                 original.setdefault(k, f["content"])
 
@@ -397,6 +474,8 @@ def replay_file_versions(
             if name in _WRITE_TOOLS:
                 body = args.get("content")
                 if isinstance(body, str):
+                    if k not in original:
+                        written_first.add(k)
                     seen[k] = body
                 continue
 
@@ -418,14 +497,26 @@ def replay_file_versions(
             fv = current.get(k)
             if fv is None:
                 current[k] = FileVersion(
-                    path=path, pre=original.get(k, base), post=seen[k], edits=1
+                    path=path,
+                    pre=original.get(k, base),
+                    post=seen[k],
+                    edits=1,
+                    # Nothing in `original` means `pre` came through the `base` fallback, i.e.
+                    # from a `write` call's arguments.
+                    pre_origin=vouched.get(k, PRE_FROM_TOOL_WRITE),
                 )
+                paths_for_key.setdefault(k, set()).add(path)
             else:
                 fv.post = seen[k]
                 fv.edits += 1
 
     out: list[FileVersion] = []
-    for fv in current.values():
+    for k, fv in current.items():
+        paths = sorted(paths_for_key.get(k, ()))
+        if any(not _same_file(a, b) for a in paths for b in paths):
+            # Two genuinely different files share a basename, so the read that would vouch for
+            # this `pre` may have been of the other one. Withdraw the claim rather than guess.
+            fv.pre_origin = PRE_FROM_AMBIGUOUS_PATH
         if fv.pre == fv.post:
             continue
         spec = spec_for_path(fv.path) or registered_spec(None)

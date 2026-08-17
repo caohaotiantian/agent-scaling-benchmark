@@ -2,7 +2,7 @@ from aibench.secrets_scan import scan_case_dict, scan_text
 
 
 def test_scan_detects_sk():
-    findings = scan_text("token sk-REDACTED")
+    findings = scan_text("token sk-ZZfakeFAKE0000fakeFAKE11")
     assert any(f.rule == "openai_sk" for f in findings)
 
 

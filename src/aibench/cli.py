@@ -99,6 +99,18 @@ def main(argv: list[str] | None = None) -> int:
         "after of a real fix, and sampling by recency alone yields almost none: 150 recent rows "
         "produced 1 usable pair against 21 with this predicate.",
     )
+    p_db.add_argument(
+        "--require-usable-pair",
+        action="store_true",
+        help="Only write drafts reverse construction can build from, by the same predicate "
+        "`generate-cases --reverse` applies. Of the 3,312 drafts in the current pool, 50 "
+        "qualify (1.5%%) — 2,977 carry no before/after pair at all and the rest cannot show "
+        "their `pre` came from a complete read. Off by default: this command also feeds the "
+        "forward generator, which needs no pairs and would be cut to 1.5%% of its input. "
+        "Note the predicate consults configs/grading-env.yaml: 63 further drafts are dropped "
+        "on the strength of that manifest, and with the flag off a package added later recovers "
+        "them for free — with it on they were never written.",
+    )
     p_db.add_argument("--since", type=str, default=None)
     p_db.add_argument("--until", type=str, default=None)
     p_db.add_argument("--export-raw", type=Path, default=None)
@@ -507,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
             only_opencode=not args.all_agents,
             require_gold=args.require_gold,
             require_edits=args.require_edits,
+            require_usable_pair=args.require_usable_pair,
             since=args.since,
             until=args.until,
         )

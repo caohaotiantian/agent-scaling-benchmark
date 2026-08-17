@@ -103,6 +103,8 @@ def test_reasoning_is_still_accepted_when_the_model_actually_finished(monkeypatc
 PRE = "def clamp(v, lo, hi):\n    return min(v, hi)\n"
 POST = "def clamp(v, lo, hi):\n    return max(lo, min(v, hi))\n"
 FV = {"path": "pkg/clamp.py", "pre": PRE, "post": POST, "edits": 1}
+#: Material only counts when the trace read the file in full — see `_with_vouched_pre`.
+READ = {"pre_origin": "read_complete"}
 
 
 def _draft(**over):
@@ -167,8 +169,13 @@ def test_versions_are_offered_largest_change_first():
     draft = _draft(
         metadata={
             "file_versions": [
-                {"path": "small.py", "pre": "a = 1\n", "post": "a = 2\n"},
-                {"path": "big.py", "pre": "a = 1\n", "post": "a = 1\n" + "b = 2\n" * 40},
+                {"path": "small.py", "pre": "a = 1\n", "post": "a = 2\n", **READ},
+                {
+                    "path": "big.py",
+                    "pre": "a = 1\n",
+                    "post": "a = 1\n" + "b = 2\n" * 40,
+                    **READ,
+                },
             ]
         }
     )
@@ -188,13 +195,66 @@ def test_a_pair_needing_absent_packages_is_dropped_before_generation():
                     "path": "a.py",
                     "pre": "import obstacle_avoidance\nx=1\n",
                     "post": "import obstacle_avoidance\nx=2\n",
+                    **READ,
                 },
-                {"path": "b.py", "pre": "import json\nx=1\n", "post": "import json\nx=2\n"},
+                {
+                    "path": "b.py",
+                    "pre": "import json\nx=1\n",
+                    "post": "import json\nx=2\n",
+                    **READ,
+                },
             ]
         }
     )
     assert [fv["path"] for fv in iter_file_versions(draft)] == ["b.py"]
     assert len(iter_file_versions(draft, require_imports_satisfiable=False)) == 2
+
+
+def test_a_pre_the_tool_wrote_is_not_material_for_a_case():
+    """The stub is meant to be the file as the trace found it.
+
+    When no read ever happened, `pre` is what the model's own `write` put there, so the "defect"
+    is a flaw in code it authored moments earlier. 41 of the 92 usable pairs in the current pool
+    are this shape, and nothing distinguished them.
+    """
+    draft = {
+        "metadata": {
+            "file_versions": [
+                {"path": "m.py", "pre": "v = 1\n", "post": "v = 2\n", "pre_origin": "tool_write"},
+                {
+                    "path": "n.py",
+                    "pre": "v = 1\n",
+                    "post": "v = 2\n",
+                    "pre_origin": "read_complete",
+                },
+            ]
+        }
+    }
+    assert [fv["path"] for fv in iter_file_versions(draft)] == ["n.py"]
+    assert len(iter_file_versions(draft, require_read_pre=False)) == 2
+
+
+def test_a_draft_predating_provenance_is_judged_by_the_footer_it_still_carries():
+    """All 3,312 drafts on disk were built before `pre_origin` existed.
+
+    They are not exempt: an unvouched-for `pre` is the thing this predicate refuses. They do not
+    need to be, either — the read tool's footer is still sitting in the stored text, which is
+    how the pool was classified in the first place (346 complete / 113 window / 278 no footer).
+    """
+    fvs = [
+        {"path": "ok.py", "pre": "v = 1\n\n(End of file - total 1 lines)", "post": "v = 2\n"},
+        {
+            "path": "frag.py",
+            "pre": "v = 1\n\n(Showing lines 1-1 of 90. Use offset=2 to continue.)",
+            "post": "v = 2\n",
+        },
+        {"path": "unknown.py", "pre": "v = 1\n", "post": "v = 2\n"},
+    ]
+    draft = {"metadata": {"file_versions": fvs}}
+    kept = iter_file_versions(draft)
+    assert [fv["path"] for fv in kept] == ["ok.py"]
+    assert kept[0]["pre"] == "v = 1\n", "the footer is not part of the file"
+    assert len(iter_file_versions(draft, require_read_pre=False)) == 3
 
 
 def test_a_sibling_import_counts_as_unsatisfiable_for_js():
@@ -293,3 +353,105 @@ def test_redaction_never_hands_back_source_that_stopped_parsing():
 
     already_broken = 'x = "/home/tc/a\n'
     assert "/home/tc" not in redact_paths(already_broken, path="m.py")
+
+
+class TestTestsAreCheckedBeforeTheCaseIsAccepted:
+    """Two of the validity gates judge only the test file the model wrote.
+
+    Both are static — no workspace, no runner — yet they ran after generation had been paid
+    for. Of the 64 cases that failed audit in the `_rev2026` build, 30 failed on nothing else:
+    19 on a hidden test naming a symbol the solver cannot learn, 11 on a suite that greps the
+    implementation's source instead of running it. Each cost a model call and was discarded.
+    """
+
+    def _serving(self, *replies):
+        """A chat that returns each reply in turn, recording what it was asked."""
+        seen = []
+
+        def _chat(messages):
+            seen.append(messages)
+            return json.dumps(replies[min(len(seen) - 1, len(replies) - 1)])
+
+        return _chat, seen
+
+    def _answer(self, test_content):
+        return {
+            "prompt": "Values below the lower bound are returned unchanged.",
+            "test_path": "test_clamp.py",
+            "test_content": test_content,
+        }
+
+    TRANSCRIPTION = (
+        "from pathlib import Path\n"
+        "src = Path('clamp.py').read_text()\n"
+        "def test_x():\n"
+        "    assert 'max(lo' in src\n"
+    )
+    # Four tests, because a one-test suite passes the hidden-symbol gate for the wrong reason:
+    # `split_tests_for_hiding` has nothing to hide, so the case ships with its whole grading
+    # signal visible — the ceiling hiding exists to break. A fixture like that would have the
+    # suite endorsing the degenerate answer.
+    BEHAVIOUR = (
+        "import clamp\n\n\n"
+        "def test_low():\n    assert clamp.clamp(-5, 0, 10) == 0\n\n\n"
+        "def test_high():\n    assert clamp.clamp(99, 0, 10) == 10\n\n\n"
+        "def test_inside():\n    assert clamp.clamp(4, 0, 10) == 4\n\n\n"
+        "def test_edge():\n    assert clamp.clamp(0, 0, 10) == 0\n"
+    )
+
+    def test_a_transcription_suite_is_sent_back_before_the_case_is_built(self):
+        chat, seen = self._serving(self._answer(self.TRANSCRIPTION), self._answer(self.BEHAVIOUR))
+        case = reverse_case_from_versions(FV, draft=_draft(), chat=chat)
+        assert len(seen) == 2, "the model must be asked again, not the case discarded"
+        assert "clamp.py" not in case["context"]["files"][1]["content"]
+        # Asserted against the rewrite message alone. The whole conversation also contains the
+        # original system prompt, so searching it would let the *first* instructions satisfy a
+        # claim about the second — the rewrite could say nothing and still pass.
+        rewrite = seen[1][-1]["content"]
+        assert "reads the implementation by name" in rewrite, (
+            "the gate's own complaint is what makes a second call worth paying for; boilerplate "
+            "advice alone is the same request twice"
+        )
+        assert "at least 4 tests" in rewrite and "BEFORE" in rewrite, (
+            "taking source reading away without restating the invariants trades a free "
+            "rejection for one that costs a workspace to find"
+        )
+        convo = "\n".join(m["content"] for m in seen[1])
+        assert "--- BEFORE ---" in convo, "the rewrite still needs the source it is testing"
+        # The rejected file is echoed back as JSON, so its newlines arrive escaped.
+        assert "read_text()" in convo, "the model cannot revise a file it can no longer see"
+
+    def test_a_suite_that_passes_costs_exactly_one_call(self):
+        chat, seen = self._serving(self._answer(self.BEHAVIOUR))
+        reverse_case_from_versions(FV, draft=_draft(), chat=chat)
+        assert len(seen) == 1
+
+    def test_a_model_that_will_not_comply_yields_no_case(self):
+        chat, seen = self._serving(self._answer(self.TRANSCRIPTION))
+        with pytest.raises(ValueError, match="reads the implementation by name") as e:
+            reverse_case_from_versions(FV, draft=_draft(), chat=chat)
+        assert "static test gates" in str(e.value)
+        assert len(seen) == 2, "one retry, then give up rather than spend without bound"
+
+    def test_a_hidden_test_naming_an_unknowable_symbol_is_sent_back(self):
+        """The half that gets hidden is where this hides, so the check must run after the split."""
+        unknowable = (
+            "import clamp\n\n\n"
+            "def test_a():\n    assert clamp.clamp(5, 0, 10) == 5\n\n\n"
+            "def test_b():\n    assert clamp.rescale_to_bounds(5) == 5\n\n\n"
+            "def test_c():\n    assert clamp.clamp(1, 0, 10) == 1\n\n\n"
+            "def test_d():\n    assert clamp.clamp(2, 0, 10) == 2\n"
+        )
+        chat, seen = self._serving(self._answer(unknowable), self._answer(self.BEHAVIOUR))
+        case = reverse_case_from_versions(FV, draft=_draft(), chat=chat, hide_tests=True)
+        assert len(seen) == 2
+        assert case["grader"]["hidden_tests"], (
+            "a suite short enough to hide nothing satisfies this gate vacuously"
+        )
+
+    def test_a_rewrite_that_cannot_be_read_still_names_the_gate_that_rejected(self):
+        """Otherwise the log shows only the retry's own failure and the recovery rate is
+        unmeasurable — which is the number this whole change exists to move."""
+        chat, _ = self._serving(self._answer(self.TRANSCRIPTION), "not json at all")
+        with pytest.raises(ValueError, match="reads the implementation by name"):
+            reverse_case_from_versions(FV, draft=_draft(), chat=chat)

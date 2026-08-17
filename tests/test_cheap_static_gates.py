@@ -19,7 +19,11 @@ import json
 from aibench.extract.file_versions import defect_is_not_semantic, unsatisfiable_imports
 from aibench.extract.reverse_case import iter_file_versions, reverse_case_from_versions
 from aibench.models import Case
-from aibench.validity import check_hidden_tests_are_inferable, check_test_reads_source
+from aibench.validity import (
+    check_hidden_tests_are_inferable,
+    check_test_reads_source,
+    check_tool_output_footer,
+)
 
 
 def _case(*, tests, impls=(("impl.py", "def f():\n    return 1\n"),), hidden=(), language="python"):
@@ -171,6 +175,89 @@ class TestReadsSourceText:
         assert check_test_reads_source(case) == []
 
 
+class TestToolOutputFooter:
+    """A read tool's trailing self-description, shipped inside a case's own files.
+
+    39 cases across five sets carry one. It is only a defect where it lands on the artefact
+    being graded: `rev-d098848d56868e13` shipped a stub that `node --check` rejects with
+    `SyntaxError: Unexpected token 'of'`, so its stub gate passed because the file would not
+    load. In `auto-v0` and `retrieval-v0` every hit is in a context or distractor file, where a
+    line of noise changes nothing — and rejecting those would invalidate 28 published cases for
+    a defect that does not touch what they measure. `docs/REFERENCE.md` §14.3.7 records this
+    same distinction for rule 3 of the transcription gate.
+    """
+
+    def _case_with(self, *, impl_body=None, distractor_body=None, gold=True, protected=()):
+        files = [
+            {"path": "impl.py", "content": impl_body or "def f():\n    return 1\n", "role": "impl"}
+        ]
+        if distractor_body is not None:
+            files.append(
+                {"path": "notes.md", "content": distractor_body, "role": "distractor"},
+            )
+        for path, body in protected:
+            files.append({"path": path, "content": body, "role": "test"})
+        grader = {
+            "mode": "script",
+            "command": "python -m pytest -q",
+            "protected_paths": [p for p, _ in protected],
+        }
+        if gold:
+            grader["gold_files"] = [{"path": "impl.py", "content": "def f():\n    return 2\n"}]
+        return Case.from_dict(
+            {
+                "case_id": "c1",
+                "schema_version": "0.1",
+                "task_type": "bugfix",
+                "language": "python",
+                "prompt": "something is wrong",
+                "context": {"files": files},
+                "grader": grader,
+            }
+        )
+
+    def test_a_footer_on_the_graded_file_is_an_error(self):
+        case = self._case_with(impl_body="def f():\n    return 1\n\n(End of file - total 2 lines)")
+        assert [i.code for i in check_tool_output_footer(case)] == [
+            "case_contains_tool_output_footer"
+        ]
+
+    def test_a_footer_in_a_distractor_is_not(self):
+        case = self._case_with(distractor_body="notes\n\n(End of file - total 1 lines)")
+        assert check_tool_output_footer(case) == []
+
+    def test_a_window_footer_on_the_graded_file_is_an_error(self):
+        body = "def f():\n    return 1\n\n(Showing lines 1-2 of 190. Use offset=3 to continue.)"
+        assert check_tool_output_footer(self._case_with(impl_body=body))
+
+    def test_source_that_merely_builds_such_a_line_is_not_a_hit(self):
+        """`filesystem.py` in the corpus is a read-tool implementation; its source says this."""
+        body = 'def show(n):\n    return f"(End of file - total {n} lines)"\n'
+        assert check_tool_output_footer(self._case_with(impl_body=body)) == []
+
+    def test_a_case_with_no_reference_solution_is_still_checked(self):
+        """Matching gold paths alone was a proxy, and 22 published cases have no gold file.
+
+        One of them ships three `role: impl` Python files that do not parse because of a footer,
+        while the case itself is marked valid.
+        """
+        case = self._case_with(
+            impl_body="def f():\n    return 1\n\n(End of file - total 2 lines)", gold=False
+        )
+        assert check_tool_output_footer(case)
+
+    def test_a_protected_file_is_graded_and_therefore_checked(self):
+        """A footer in the visible test makes the suite uncollectable, so the stub "fails" by
+        not loading — `auto-v0/db-0cf7e420-…` ships exactly that and passes today.
+        """
+        case = self._case_with(
+            protected=(
+                ("test_impl.py", "def test_a():\n    assert 1\n\n(End of file - total 2 lines)"),
+            )
+        )
+        assert check_tool_output_footer(case)
+
+
 class TestDefectIsNotSemantic:
     def test_python_comment_and_layout_only(self):
         assert defect_is_not_semantic(
@@ -318,7 +405,11 @@ class TestVisibleTestsAreProtected:
 
 class TestIterFileVersionsPredicates:
     def _draft(self, versions):
-        return {"metadata": {"file_versions": versions}}
+        # Every pair claims a `pre` the trace read in full, so these tests exercise the
+        # predicate under study rather than the provenance check that runs ahead of it.
+        return {
+            "metadata": {"file_versions": [{"pre_origin": "read_complete", **v} for v in versions]}
+        }
 
     def test_test_files_are_dropped(self):
         draft = self._draft(

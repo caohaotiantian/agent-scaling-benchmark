@@ -465,6 +465,8 @@ runs:
 | `--max-messages` | int | `60` | 同上上限，过滤超长轨迹 |
 | `--all-agents` | flag | 关 | 默认 `only_opencode=true`（User-Agent 含 opencode）；打开则不限 |
 | `--require-gold` | flag | 关 | 只保留能从 assistant 抽出代码块的草稿 |
+| `--require-edits` | flag | 关 | 只取真正编辑过代码的会话（SQL 谓词 `full_history LIKE '%"name": "edit"%'`）。反向构造需要编辑前后两个版本，按时间抽样几乎取不到 |
+| `--require-usable-pair` | flag | 关 | 只写出反向构造真能建题的草稿，判据就是 `generate-cases --reverse` 用的那条 `iter_file_versions`。**实测 `_rev_raw4` 3,312 条里只有 50 条合格（1.5%）**，2,977 条根本没有 pre/post 对，其余的 `pre` 无法证明来自一次完整 read。<br>⚠️ 默认关：本命令同时喂正向生成器，那条路线不需要 `file_versions`，默认开会把它**静默清空**。<br>⚠️ **不要照搬到既有草稿池上读数**：`_rev_raw4` 建于页脚修复之前，它里面的 Python 素材**全部**是无页脚、无从证明的那一类，所以按新判据 50 条里 **0 条是 Python**。要拿回 Python 素材必须重跑一次 `extract-from-db`（不花模型钱） |
 | `--since` | str | 无 | `start_time >=`，`YYYY-MM-DD` |
 | `--until` | str | 无 | `start_time <`，`YYYY-MM-DD` |
 | `--export-raw` | Path | 无 | 额外写 meta 清单（id、预览、是否有 gold 等） |
@@ -654,16 +656,39 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 
 ### 8.11 `secrets-scan`
 
-**作用**：用正则扫描 prompt / context.files / gold_files 中疑似密钥。
+**作用**：用正则扫描 case JSON 里**每一个字符串值**中疑似密钥。
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
 | `--case-set` | str | 无 | 与 `--input-dir` 二选一 |
-| `--input-dir` | Path | 无 | 直接扫目录下 `*.json` |
+| `--input-dir` | Path | 无 | 直接扫目录下 `*.json`（草稿目录同样可用） |
 | `--report` | Path | 无 | 报告路径；stdout 也打印 |
 
-规则示例：`sk-…`、`AKIA…`、PRIVATE KEY、password/api_key 赋值、Bearer token。  
+**扫描范围是整份文档，不是字段清单。** 早先版本只读 prompt / context.files / gold_files /
+hidden_tests 四个字段，而 `metadata.file_versions[].pre/post`（草稿里唯一未经消毒的 trace 原文）
+不在其中 —— 三个真实 `sk-` 密钥、一个邮箱授权码由此进入草稿池而无人报告。
+字段清单在新增字段时要同步修改，这一步被跳过过；遍历没有这一步。
+
+**两处例外**，按位置而非按名字排除：`grader.key_lines` 与 `metadata.validity_issues`。
+前者可能存着消毒器自己的 `sk-***` 占位符，后者是 runner 的原始输出且 `export-bundle`
+写盘前就删掉 —— 报它们等于让门禁因自己产生的文本拒绝用例。
+只按名字排除会连带豁免任何恰好用了这两个键名的子树，所以匹配的是完整路径。
+
+**规则**（`secrets_scan.py`）：
+
+| 类别 | 规则 |
+|---|---|
+| 固定格式 | `sk-…`、`sk-ant-…`、`AKIA/ASIA…`、PRIVATE KEY、`github_pat_…`、`gh[pousr]_…`、`glpat-…`、`xox[abpres]-…`、`AIza…`、JWT、带口令的数据库连接串 |
+| 赋值形状 | `password`/`passwd`/`pwd` 与 `api_key`/`secret`/`token` 的赋值、`Bearer` |
+
+固定格式类不走 `_is_code_not_credential` 的代码判别；赋值形状类走。
 `clean=false` → exit 2。
+
+> **已知精度问题（未修）**：赋值形状两条规则在生产源码上误报率高 ——
+> `apiKey: config['X']`、`token = github_token`、`password: newPassword` 一类
+> 「引用凭证的代码」被判成「写死的凭证」。`db_url_password` 在现有语料上
+> **26 处命中全是误报**（README 的 `.env.example`、Rust 文档注释、测试断言）。
+> 收紧它们需要一份对抗性召回语料先落盘，否则放宽会同时漏掉真凭证 —— 单独一轮处理。
 
 ### 8.12 `snapshot-skeleton`
 
@@ -1203,6 +1228,7 @@ tier 分布、case_id 清单。收到包的人据此可自行核对筛选过程�
 | Key line 污染 | `contamination_keyline_in_context` | error | 是 | gold 模式下关键行已在 context |
 | 测试抄写源码 | `test_reads_source_text` | error | 是 | §14.3.7；测试 grep 实现的源码文本而非运行它 |
 | 隐藏测试索要不可知符号 | `hidden_test_requires_unknowable_symbol` | error | 是 | §14.3.8；隐藏了行为可以，隐藏了接口不行 |
+| 判分文件带工具页脚 | `case_contains_tool_output_footer` | error | 是 | §14.3.9；stub 可能因加载不了而「失败」，不是因为缺陷 |
 | Prompt 过短 | `prompt_too_short` | error | 是 | `len(strip)<20` |
 | Prompt 大代码块 | `prompt_contains_large_code_fence` | warn | 否 | 疑似泄漏，人工看 |
 | 弱 grader 标记 | `weak_grader_flag` | warn | 否 | script 却标 weak_grader |
@@ -1432,7 +1458,59 @@ JS 侧的模板字面量内容**逐字节比较**，只有它周围的代码走�
 > 各自对自己也会翻转的用例 —— 实测区分度为零。**这道门禁提高的是难度的成色，不是区分度。**
 > 详见 `docs/HANDOFF.md` §0.0b。
 
-#### 14.3.9 `annotate` 写回字段
+#### 14.3.9 判分文件带工具页脚（`case_contains_tool_output_footer`）
+
+规则一句话：**被判分的文件里不能有 read 工具对它自己输出的描述。**
+
+反向构造用 trace 读到的内容重建文件，而 read 工具会在内容末尾追加一行自述。
+把那行当成文件内容留下来，代价不是「多一行噪声」：
+
+- `rev-d098848d56868e13` 发出去的 stub 末尾是 `(End of file - total 152 lines)`，
+  `node --check` 报 `SyntaxError: Unexpected token 'of'` —— **它根本不是合法 JavaScript**。
+  于是 `check_stub_fails` 是因为**文件加载不了**而通过的，不是因为有缺陷。
+  删掉那一行后重跑该用例自己的 grader：5 个测试 1 过 4 挂，挂的是真的 `ERR_ASSERTION`。
+- `rev-461e8d91390e3915` 的 stub 末尾是 `(Showing lines 1-40 of 190. Use offset=41 to continue.)`,
+  它是一个 190 行文件的**前 40 行**，断在 `success: false,` 中间，而参考解是完整文件。
+  这道题实际在问「把片段补成整文件」。
+
+**范围绑定判分标的**：`role: impl` 的 `context.files`、`grader.gold_files`、
+`grader.hidden_tests`、`grader.protected_paths`，路径按 `safe_relpath` 归一后比较。
+**`role: distractor` 与 `role: spec` 不在范围内** —— 干扰文件本来就是噪声，
+多一行不改变用例测的东西。这与 §14.3.7 记的「规则 3 该绑定到读取目标」是同一件事。
+
+早先一版用「与某个 gold 文件同路径」做代理，有两个洞：
+**22 条已发布用例根本没有 gold 文件**（`solvability_gate` 已判它们不合格），代理对它们完全失效；
+而 `auto-v0/db-0cf7e420-…` 的 `protected_paths` 里那个可见测试带页脚，
+它的三个 `role: impl` Python 文件**都不能 `ast.parse`**，该用例却标着 `validity_ok: true`。
+
+实测命中 / 其中「此前未被判负」：
+
+| 集合 | 命中 | 新增判负 |
+|---|---:|---:|
+| `_revclean` | 2 | 2 |
+| `_revmixed` | 9 | 2 |
+| `_rev6` | 61 | 12 |
+| `auto-v0`（已发布） | 12 | **2** |
+| `disc-v0`（已发布） | 1 | 0 |
+| `retrieval-v0`（已发布） | **0** | 0 |
+| `_scaleprobe` | 14 | 5 |
+
+`retrieval-v0` 那 6 条命中页脚的文件全是 `role: distractor`，因此正确地不判负。
+
+匹配**行锚定** `^\(…\)$`：语料里有一个 `filesystem.py` 是 read 工具自身的实现，
+源码里就含 `result += f"\n\n(Showing lines {offset}-…)"`，子串匹配会误伤它。
+
+> **它什么时候才生效**：`calibrate.py` 不读 `validity_ok`，
+> `export_bundle` 与 `compose` 读的是**落盘的旧值**，只有 `promote` 会重跑 `audit_case`。
+> 所以这条门禁要到重跑一次 `audit-cases --annotate` 之后才对既有集合起作用。
+>
+> ⚠️ **而 `scripts/e2e_pipeline.sh:165` 会自动跑 `audit-cases --case-set auto-v0 --annotate`。**
+> `annotate` 原地改 case 文件，而所有 case 集合都在 `.gitignore` 里、git 从未跟踪过 ——
+> 旧判定无法从版本库恢复。**跑它之前先 `cp -a` 一份集合目录。**
+> 下游 `compose.load_verified_cases` 会**静默**丢掉判负的用例（不打任何诊断），
+> `export-bundle` 则会把理由记进 manifest。
+
+#### 14.3.10 `annotate` 写回字段
 
 | metadata 键 | 值 |
 |-------------|-----|

@@ -484,6 +484,74 @@ def check_test_reads_source(case: Case) -> list[ValidityIssue]:
     ]
 
 
+def check_tool_output_footer(case: Case) -> list[ValidityIssue]:
+    """Reject a case whose graded artefact carries a read tool's description of its own output.
+
+    Reverse construction rebuilds files from what a trace read, and the read tool appends a line
+    saying what it returned. Kept as content it is not merely cosmetic: `rev-d098848d56868e13`
+    shipped a stub ending `(End of file - total 152 lines)`, which `node --check` rejects with
+    `SyntaxError: Unexpected token 'of'` — so its stub gate passed because the file would not
+    load, not because of any defect. `rev-461e8d91390e3915` shipped a stub footed
+    `(Showing lines 1-40 of 190. …)`: the first 40 lines of a 190-line file, cut mid-expression,
+    against a complete reference solution.
+
+    Scoped to what the case declares as the thing under test: ``role: impl``, the reference
+    solution, the hidden tests, and anything protected. Distractor and spec files stay out —
+    noise inside the haystack a retrieval case exists to contain changes nothing it measures,
+    and all six `retrieval-v0` hits are distractors. That is the same distinction §14.3.7
+    records for rule 3 of the transcription gate.
+
+    Keying on gold paths alone was the first attempt and was blind twice over: 22 published
+    cases carry no reference solution, and a `mode: gold` case ships a synthetic `solution.py`
+    while the implementation keeps its real name, so the two sets never intersect. Newly failed,
+    counting only cases not already invalid: `_revclean` 2, `_revmixed` 2, `auto-v0` 2,
+    `disc-v0` 0, `retrieval-v0` 0, `_rev6` 12, `_scaleprobe` 5.
+    """
+    from aibench.extract.history_parse import split_read_footer
+    from aibench.workspace import safe_relpath
+
+    def _norm(p: str) -> str:
+        try:
+            return safe_relpath(p)
+        except Exception:
+            # Not a usable workspace path at all; compare it as written rather than crash.
+            return p
+
+    g = case.grader
+    # Paths are compared as the workspace will lay them out. `./impl.py` and `impl.py` are one
+    # file everywhere else in the pipeline, and string equality alone would call them two.
+    graded = {_norm(gf.path) for gf in g.gold_files if gf.path}
+    protected = {_norm(p) for p in g.protected_paths or []}
+    suspect = [(fb.path, fb.content or "") for fb in g.gold_files + g.hidden_tests]
+    for fb in case.files:
+        here = _norm(fb.path)
+        # `role: impl` is the artefact under test by declaration, which is what this gate is
+        # about; matching gold paths alone was a proxy that failed wherever a case has no
+        # reference solution — 22 published cases — and `auto-v0/db-0cf7e420-…` ships three
+        # `role: impl` Python files that do not parse because of a footer while the case is
+        # marked valid. Protected files are graded too: a footer there makes the suite
+        # uncollectable, so the stub "fails" by not loading rather than for the defect.
+        # Distractors and spec files are deliberately out: noise in the haystack a retrieval
+        # case exists to contain changes nothing it measures.
+        if fb.role == "impl" or here in graded or here in protected:
+            suspect.append((fb.path, fb.content or ""))
+
+    # A footer was found exactly when stripping changed the text. Asking instead whether the
+    # verdict is "complete" would condemn every ordinary file, because a file with no footer
+    # carries no verdict at all.
+    hits = [path for path, content in suspect if split_read_footer(content)[0] != content]
+    if not hits:
+        return []
+    return [
+        ValidityIssue(
+            "case_contains_tool_output_footer",
+            "error",
+            "graded file carries a read tool's own output footer, so the stub may fail for "
+            f"loading rather than for the defect: {', '.join(dict.fromkeys(hits))}",
+        )
+    ]
+
+
 #: Detail prefixes the audit keys off. Defined once so the reported reason and the boolean
 #: derived from it cannot drift apart.
 STUB_UNCOLLECTABLE = "stub_uncollectable"
@@ -602,6 +670,7 @@ def audit_case(
     issues.extend(check_contamination(case))
     issues.extend(check_test_reads_source(case))
     issues.extend(check_hidden_tests_are_inferable(case))
+    issues.extend(check_tool_output_footer(case))
 
     # The reference solution runs first: whether it makes the workspace collectable is what
     # tells an incomplete stub apart from a broken one.

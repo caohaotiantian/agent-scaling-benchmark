@@ -336,7 +336,20 @@ def record_to_case_draft(rec: ChatRecord) -> dict[str, Any] | None:
             # What the engineer actually changed, replayed from the trace's own edits. This is
             # the material reverse construction builds on: the defect is then whatever they
             # really got wrong, not what a model invents when asked for a benchmark case.
-            "file_versions": [fv.to_dict() for fv in file_versions],
+            #
+            # Redacted like every other body on this path. It was the one that was not, and
+            # being raw trace content it is the likeliest to carry a credential: three live keys
+            # and a mail authorization code reached the draft pool through here. Reverse
+            # construction redacts the same text again when it builds a case, so the published
+            # artefact is unchanged — what changes is that the key never touches the disk.
+            "file_versions": [
+                {
+                    **fv.to_dict(),
+                    "pre": redact_source(fv.pre, path=fv.path),
+                    "post": redact_source(fv.post, path=fv.path),
+                }
+                for fv in file_versions
+            ],
             "file_versions_stats": replay_stats.to_dict(),
         },
     }
@@ -377,13 +390,23 @@ def extract_case_drafts_from_db(
     since: str | None = None,
     until: str | None = None,
     require_edits: bool = False,
+    require_usable_pair: bool = False,
     on_draft: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Build drafts from the trace store.
 
     ``on_draft`` is called with each draft the moment it is built. Without it a run that dies
     part-way leaves nothing behind, however long it ran.
+
+    ``require_usable_pair`` spends the ``max_cases`` budget only on traces reverse construction
+    can actually build from — the same predicate ``generate-cases --reverse`` applies, so no new
+    judgement is introduced, only an earlier one. Measured on the 3,312-draft ``_rev_raw4`` pool,
+    50 qualify (1.5%): 2,977 carry no before/after pair at all, and of the rest only those whose
+    ``pre`` a complete read vouched for survive. It is off by default because this command also
+    feeds the forward generator, which needs no pairs and would be cut to 1.5% of its input.
     """
+    from aibench.extract.reverse_case import iter_file_versions
+
     records = fetch_chat_records(
         db_url,
         limit=limit,
@@ -401,6 +424,8 @@ def extract_case_drafts_from_db(
         if not draft:
             continue
         if require_gold and not draft["metadata"].get("has_gold_code"):
+            continue
+        if require_usable_pair and not iter_file_versions(draft):
             continue
         fp = draft["metadata"]["fingerprint"]
         if fp in seen:

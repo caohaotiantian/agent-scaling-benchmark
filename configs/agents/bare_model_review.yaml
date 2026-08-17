@@ -1,0 +1,35 @@
+# The same adapter as `bare_model.yaml`, pointed at a judgement instead of a repair.
+#
+# Only the system prompt changes. The user turn is built by the adapter and ends with
+# "Reply with the complete corrected answer.py in one fenced code block" (bare_model.py:92),
+# which cannot be overridden and happens to be exactly what this task wants: the submission is
+# a one-line `answer.py`.
+#
+# `show_tests: true` shows the visible test, which here checks only that the reply names one of
+# YES or NO. That is well-posedness, not the answer key — the graded assertion is hidden.
+#
+# The verdict is recovered from the file's text by a shipped conftest rather than by importing
+# it. Measured against 14 plausible reply shapes, importing survives 4 and reading survives 12:
+# `extract_code` writes back the *largest* fenced block, so a bare `B`, a sentence, or a quoted
+# diff all produce a collection error, which is indistinguishable from a wrong answer in the
+# pass rate. That is the failure this adapter's own docstring exists to avoid.
+name: bare_model_review
+version: "1.0.0"
+adapter: bare_model
+description: >
+  One call. The model is shown an issue, the file as it was when the issue was reported, and one
+  candidate patch, and answers whether that patch is the real fix. The reply is the complete
+  contents of a one-line answer.py.
+# Reading a patch against a stated symptom: comprehension and specification, no retrieval and no
+# second turn. Same axes the repair condition exercises under this adapter, minus construction.
+capability_axes: [A1, A5, A6]
+options:
+  max_tokens: 16384
+  max_tokens_ceiling: 49152
+  show_tests: true
+  system_prompt: >
+    You judge whether a proposed patch fixes a reported defect. You are given the issue, the
+    file as it was when the issue was reported, and exactly one candidate patch. Decide whether
+    that patch makes the project's own test suite pass. Reply with the complete contents of
+    answer.py inside a single fenced code block and nothing else: either VERDICT = "YES" or
+    VERDICT = "NO". No explanation, no diff, no quoting of the patch.

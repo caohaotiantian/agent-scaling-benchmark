@@ -1,0 +1,53 @@
+# The widest capability gap the gateway offers, with no scaffold, three repeats each.
+#
+# GLM-5 against GLM-5.2 rather than a pair of neighbours. The question this answers is whether
+# the case set has any scale at all, and a narrow pair cannot separate "the cases cannot
+# discriminate" from "these two models are the same" — the ambiguity HANDOFF §0.0c resolved
+# exactly this way. On the 19-case `_revclean` it read 3/19 discordant, direction 3:0.
+#
+# `bare_model` because the scaffold contributed nearly all the variance measured so far: the
+# tool loop moved the same model by 12.9pp across repeats where this adapter moved it by 0.0pp.
+#
+# Three repeats are mandatory. One pass of a comparison reported p = 0.0312 and three passes of
+# the same comparison returned p = 0.167.
+case_set: _clean2026
+baseline_experiment: bare-glm52-r1
+parallel: 3
+allow_weak_grader: false
+runs:
+  - experiment_name: bare-glm5-r1
+    algorithm_name: GLM-5
+    agent_config: configs/agents/bare_model.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: bare-glm5-r1
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: bare-glm52-r1
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/bare_model.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: bare-glm52-r1
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: bare-glm5-r2
+    algorithm_name: GLM-5
+    agent_config: configs/agents/bare_model.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: bare-glm5-r2
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: bare-glm52-r2
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/bare_model.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: bare-glm52-r2
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: bare-glm5-r3
+    algorithm_name: GLM-5
+    agent_config: configs/agents/bare_model.yaml
+    model_config: configs/models/glm5.yaml
+    run_id: bare-glm5-r3
+    run_config: configs/runs/baseline-bare.yaml
+  - experiment_name: bare-glm52-r3
+    algorithm_name: GLM-5.2
+    agent_config: configs/agents/bare_model.yaml
+    model_config: configs/models/glm52.yaml
+    run_id: bare-glm52-r3
+    run_config: configs/runs/baseline-bare.yaml

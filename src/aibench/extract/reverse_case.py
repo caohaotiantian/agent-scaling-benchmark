@@ -14,6 +14,7 @@ existing gates reject. The model cannot make the task easier, only fail to descr
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -24,10 +25,14 @@ from aibench.extract.sessions import (
     task_fingerprint,
 )
 from aibench.extract.tier_shaping import protect_visible_tests, split_tests_for_hiding
-from aibench.languages import spec_for_path
+from aibench.languages import LanguageSpec, spec_for_path
 
 #: Enough of each version for the model to see the change without paying for whole large files.
 _MAX_FILE_CHARS = 6000
+
+#: Rewrites bought when the model's tests fail a static gate. One, because the second request
+#: carries new information — the gate's own complaint — and a third would carry none.
+_MAX_TEST_REWRITES = 1
 
 
 def _unified_ish_diff(pre: str, post: str, limit: int = 60) -> str:
@@ -111,6 +116,56 @@ def build_prompt(
     return system, user
 
 
+def _test_gate_failures(case: dict[str, Any]) -> list[str]:
+    """The static gates that judge only the test file the model wrote.
+
+    Both need no workspace and no runner, yet they ran after generation had been paid for. Of
+    the 64 cases that failed audit in the 133-case build, 30 failed on nothing else — 19 on a
+    hidden test naming a symbol the solver cannot learn, 11 on a suite that greps the
+    implementation instead of running it. Each of those cost a model call and was discarded.
+
+    The case handed here is the finished one, split and protected, so what passes in the loop
+    is byte-for-byte what `audit-cases` will judge afterwards.
+    """
+    from aibench.models import Case
+    from aibench.validity import check_hidden_tests_are_inferable, check_test_reads_source
+
+    parsed = Case.from_dict(case)
+    return [
+        i.message
+        for i in (*check_test_reads_source(parsed), *check_hidden_tests_are_inferable(parsed))
+    ]
+
+
+def _rewrite_request(problems: list[str]) -> str:
+    """What to send back. Naming the fault is the only reason a second call is worth paying for.
+
+    The original instructions are restated rather than assumed. Rule 1 takes away the easiest
+    way to separate the two versions — reading the source — so a rewrite told only that will
+    reach for a suite that passes on both, trading a free static rejection for one that costs a
+    workspace to find. And a shorter suite satisfies the hidden-symbol rule trivially, because
+    a single test leaves nothing to hide.
+    """
+    return (
+        "Your test file was rejected:\n"
+        + "\n".join(f"- {p}" for p in problems)
+        + "\n\nWrite it again, same JSON keys, keeping everything the first instructions asked "
+        "for: at least 4 tests, failing on the BEFORE version and passing on the AFTER one, "
+        "importing the module from the same flat directory.\n"
+        "Two further rules decide it:\n"
+        "- Never read the implementation's source text — no readFileSync, no read_text, no "
+        "inspect.getsource, no asserting on substrings of the file. Import the module and call "
+        "it, and assert on what it returns or raises. Source text always separates the two "
+        "versions, so such a suite grades transcription rather than behaviour.\n"
+        "- Every symbol your tests call must appear in the BEFORE version, or in your own "
+        "prompt. The solver is given BEFORE, not AFTER, so a test for a name that only the "
+        "fix introduces is unanswerable rather than difficult — if the fix adds a name, say "
+        "what it should be called in the prompt.\n"
+        "Note the suite is split before grading: the first test stays visible to the solver and "
+        "the rest are hidden, so put a test that exercises each name you rely on first."
+    )
+
+
 def reverse_case_from_versions(
     fv: dict[str, Any],
     *,
@@ -140,15 +195,62 @@ def reverse_case_from_versions(
     system, user = build_prompt(
         fv, str(draft.get("prompt") or ""), language=spec.name, test_name=prescribed_test
     )
-    data = _extract_json_object(
-        chat(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    data = _extract_json_object(chat(messages))
+
+    for attempt in range(_MAX_TEST_REWRITES + 1):
+        case = _assemble_case(
+            data,
+            spec=spec,
+            fv=fv,
+            draft=draft,
+            module=module,
+            prescribed_test=prescribed_test,
+            tier=tier,
+            hide_tests=hide_tests,
         )
+        problems = _test_gate_failures(case)
+        if not problems:
+            return case
+        if attempt == _MAX_TEST_REWRITES:
+            # The rewrite failed too. Asking again buys nothing new to tell the model.
+            break
+        # One rewrite, and only because the request changes: it now names what was wrong.
+        # Asking again unchanged would just repeat the bill — the lesson `chat_json` already
+        # records for truncation.
+        messages = [
+            *messages,
+            {"role": "assistant", "content": json.dumps(data, ensure_ascii=False)},
+            {"role": "user", "content": _rewrite_request(problems)},
+        ]
+        try:
+            data = _extract_json_object(chat(messages))
+        except Exception as e:
+            # Without this the rewrite's own failure is all the caller sees, and the static
+            # gate that actually rejected the material never appears in the log — which is
+            # exactly the number this change exists to move.
+            raise ValueError(
+                f"rewrite after static test gates failed ({'; '.join(problems)}): {e}"
+            ) from e
+    raise ValueError(
+        "suite still fails the static test gates after a rewrite: " + "; ".join(problems)
     )
 
+
+def _assemble_case(
+    data: dict[str, Any],
+    *,
+    spec: LanguageSpec,
+    fv: dict[str, Any],
+    draft: dict[str, Any],
+    module: str,
+    prescribed_test: str,
+    tier: str,
+    hide_tests: bool,
+) -> dict[str, Any]:
+    """Turn one model answer into a case, or raise if the answer is unusable."""
+    path = str(fv.get("path") or "")
+    pre, post = str(fv.get("pre") or ""), str(fv.get("post") or "")
     test_content = str(data.get("test_content") or "")
     if not test_content.strip():
         raise ValueError("model returned no test_content")
@@ -313,8 +415,37 @@ def _is_test_file(path: str) -> bool:
     return bool(spec and spec.is_test_path(path))
 
 
+def _with_vouched_pre(fv: dict[str, Any]) -> dict[str, Any] | None:
+    """``fv`` with a ``pre`` the trace demonstrably read in full, or None if it has none.
+
+    Drafts written before provenance was recorded carry no ``pre_origin``. They are not exempt —
+    an unvouched-for ``pre`` is exactly what this refuses — but they do not need to be, because
+    the read tool's footer is still in the stored text and says which of the three cases it is.
+    """
+    from aibench.extract.file_versions import PRE_FROM_READ
+    from aibench.extract.history_parse import READ_COMPLETE, split_read_footer
+
+    pre, post = str(fv.get("pre") or ""), str(fv.get("post") or "")
+    origin = fv.get("pre_origin")
+    if origin is not None:
+        return fv if origin == PRE_FROM_READ else None
+    pre_body, how = split_read_footer(pre)
+    if how != READ_COMPLETE:
+        # No footer at all means the text is not evidence of a read: 182 of the 278 such pairs
+        # in the pool name a file that appears in no read anywhere, and the rest cannot be told
+        # apart from those. Refusing what cannot be vouched for is the whole point.
+        return None
+    # `post` is stripped too. It becomes `grader.gold_files`, and leaving the footer there while
+    # cleaning the stub ships a valid stub against a reference solution that does not parse —
+    # the same failure as `rev-d098848d56868e13`, moved to the other side and paid for first.
+    return {**fv, "pre": pre_body, "post": split_read_footer(post)[0]}
+
+
 def iter_file_versions(
-    draft: dict[str, Any], *, require_imports_satisfiable: bool = True
+    draft: dict[str, Any],
+    *,
+    require_imports_satisfiable: bool = True,
+    require_read_pre: bool = True,
 ) -> list[dict[str, Any]]:
     """The before/after pairs a draft carries, largest change first.
 
@@ -341,6 +472,8 @@ def iter_file_versions(
         for fv in ((draft.get("metadata") or {}).get("file_versions") or [])
         if isinstance(fv, dict)
     ]
+    if require_read_pre:
+        fvs = [g for fv in fvs if (g := _with_vouched_pre(fv)) is not None]
     fvs = [fv for fv in fvs if not _is_test_file(str(fv.get("path") or ""))]
     fvs = [
         fv
