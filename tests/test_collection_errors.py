@@ -124,9 +124,23 @@ class TestPythonAgainstRealPytest:
         assert spec_for("python").is_uncollectable(code, out) is True
 
 
+#: node's default reporter is TAP below v23 and `spec` from v23 on, and the two disagree about
+#: exactly the text this module reads: TAP folds the dead subprocess's stderr into the stream as
+#: comments (`# Node.js v20.19.5`), while `spec` leaves the banner bare and colours the totals.
+#: Testing only the default means testing whichever node the machine happens to have — which is
+#: how both shapes reached main broken at once, each invisible on the other's node. `None` keeps
+#: the default covered, since that is the command cases actually ship with.
+NODE_REPORTERS = [None, "spec", "tap"]
+
+
+def _node_cmd(reporter: str | None) -> str:
+    return "node --test" if reporter is None else f"node --test --test-reporter={reporter}"
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.parametrize("reporter", NODE_REPORTERS)
 class TestJavaScriptAgainstRealNode:
-    def test_failing_test_is_a_verdict_not_a_collection_error(self, tmp_path):
+    def test_failing_test_is_a_verdict_not_a_collection_error(self, tmp_path, reporter):
         # node prints its totals for a failing test but crashes before them on a load error,
         # so the totals are the signal. A test asserting on a thrown SyntaxError — the classic
         # JSON.parse bugfix — must not be mistaken for a workspace that would not load.
@@ -143,13 +157,13 @@ class TestJavaScriptAgainstRealNode:
                     "});\n"
                 ),
             },
-            "node --test",
+            _node_cmd(reporter),
         )
         assert code != 0
         assert "SyntaxError" in out
         assert spec_for("javascript").is_uncollectable(code, out) is False
 
-    def test_missing_module_is_a_collection_error(self, tmp_path):
+    def test_missing_module_is_a_collection_error(self, tmp_path, reporter):
         # node reports the dead file as a failing test and still prints totals, so only its
         # crash banner distinguishes this from an ordinary failure.
         code, out = _run(
@@ -161,12 +175,12 @@ class TestJavaScriptAgainstRealNode:
                     "test('t', () => { nope(); });\n"
                 )
             },
-            "node --test",
+            _node_cmd(reporter),
         )
         assert spec_for("javascript").tally_counts(out)["failed"] >= 1
         assert spec_for("javascript").is_uncollectable(code, out) is True
 
-    def test_syntax_error_in_a_loaded_file_is_a_collection_error(self, tmp_path):
+    def test_syntax_error_in_a_loaded_file_is_a_collection_error(self, tmp_path, reporter):
         code, out = _run(
             tmp_path,
             {
@@ -178,11 +192,11 @@ class TestJavaScriptAgainstRealNode:
                     "test('t', () => { assert.equal(f(), 1); });\n"
                 ),
             },
-            "node --test",
+            _node_cmd(reporter),
         )
         assert spec_for("javascript").is_uncollectable(code, out) is True
 
-    def test_a_failure_naming_a_module_error_code_is_still_a_verdict(self, tmp_path):
+    def test_a_failure_naming_a_module_error_code_is_still_a_verdict(self, tmp_path, reporter):
         # The assertion diff quotes ERR_MODULE_NOT_FOUND, but nothing failed to load.
         code, out = _run(
             tmp_path,
@@ -195,10 +209,54 @@ class TestJavaScriptAgainstRealNode:
                     "});\n"
                 )
             },
-            "node --test",
+            _node_cmd(reporter),
         )
         assert "ERR_MODULE_NOT_FOUND" in out
         assert spec_for("javascript").is_uncollectable(code, out) is False
+
+
+class TestBothNodeReporterShapesAreRead:
+    """The regexes, pinned against captured output, for machines with no node at all.
+
+    Everything above skips without a node binary, and each real-node test only ever sees the
+    reporter its own node defaults to — so a shape can break with the suite fully green. These
+    lines are copied verbatim from `node --test --test-reporter=<r>` on v24.16.0, both of whose
+    formats are stable and version-selected rather than negotiated.
+    """
+
+    SPEC_TOTALS = "\x1b[34mℹ tests 1\x1b[39m\n\x1b[34mℹ pass 0\x1b[39m\n\x1b[34mℹ fail 1\x1b[39m\n"
+    TAP_TOTALS = "# tests 1\n# pass 0\n# fail 1\n"
+
+    def test_colour_codes_do_not_hide_the_totals(self):
+        # node 23+ colours the summary whether or not stdout is a terminal, so the marker the
+        # tally anchors on stops being the first character of the line.
+        assert spec_for("javascript").tally_counts(self.SPEC_TOTALS) == {
+            "passed": 0,
+            "failed": 1,
+            "error": 0,
+        }
+
+    def test_the_tap_totals_are_still_read(self):
+        assert spec_for("javascript").tally_counts(self.TAP_TOTALS) == {
+            "passed": 0,
+            "failed": 1,
+            "error": 0,
+        }
+
+    @pytest.mark.parametrize(
+        ("banner", "reporter"),
+        [("Node.js v24.16.0", "spec"), ("# Node.js v24.16.0", "tap")],
+    )
+    def test_the_crash_banner_is_seen_through_either_reporter(self, banner, reporter):
+        # TAP comments out the dead subprocess's stderr; `spec` leaves it bare. Miss it and the
+        # totals below say `fail 1`, which reads as a verdict — an unloadable workspace then
+        # ships as a merely hard case.
+        totals = self.TAP_TOTALS if reporter == "tap" else self.SPEC_TOTALS
+        assert spec_for("javascript").is_uncollectable(1, f"{banner}\n{totals}") is True
+
+    @pytest.mark.parametrize("totals", [SPEC_TOTALS, TAP_TOTALS])
+    def test_a_plain_failure_stays_a_verdict_under_either_reporter(self, totals):
+        assert spec_for("javascript").is_uncollectable(1, totals) is False
 
 
 class TestOnlyThisRunnersOutputIsJudged:

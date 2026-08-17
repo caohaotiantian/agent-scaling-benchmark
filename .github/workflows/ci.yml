@@ -13,8 +13,12 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      # `grading` too, not just `dev`: `configs/grading-env.yaml` promises the grading
+      # environment provides numpy, pandas, requests, matplotlib, flask and av, and
+      # tests/test_grading_env.py holds that promise to an actual import. Installing only `dev`
+      # left the declaration untestable here and the check red on every run since 2026-08-10.
       - name: Install
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra grading
       - name: Ruff format check
         run: uv run ruff format --check src tests
       - name: Ruff lint

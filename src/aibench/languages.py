@@ -16,6 +16,19 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+#: ECMA-48 CSI sequences, stripped before any output is matched against a spec's patterns.
+#: node's default reporter became `spec` (from TAP) in node 23 and colours its totals whether
+#: or not stdout is a terminal, so on node 24 the summary arrives as
+#: `\x1b[34m<U+2139> pass 1\x1b[39m` — the line no longer *starts* with the marker the tally
+#: anchors on, every count reads 0, and a suite that ran fine is reported as never collected.
+#: Runner output is only ever read for counts and banners here, so dropping colour costs
+#: nothing and makes the parsing independent of the runner's terminal detection.
+_CSI = re.compile(r"\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]")
+
+
+def _plain(output: str | None) -> str:
+    return _CSI.sub("", output or "")
+
 
 @dataclass(frozen=True)
 class LanguageSpec:
@@ -48,7 +61,7 @@ class LanguageSpec:
     def tally_counts(self, output: str) -> dict[str, int]:
         """Passed / failed / errored test counts as the runner reported them."""
         counts = {"passed": 0, "failed": 0, "error": 0}
-        for a, b in self.tally.findall(output or ""):
+        for a, b in self.tally.findall(_plain(output)):
             # Specs differ on which capture group holds the number.
             label, number = (a, b) if not a.isdigit() else (b, a)
             key = self.tally_groups.get(label)
@@ -98,9 +111,10 @@ class LanguageSpec:
         """
         if exit_code in self.uncollectable_exit_codes:
             return True
-        if self.uncollectable_output and self.uncollectable_output.search(output or ""):
+        text = _plain(output)
+        if self.uncollectable_output and self.uncollectable_output.search(text):
             return True
-        counts = self.tally_counts(output)
+        counts = self.tally_counts(text)
         # `error` is not consulted separately: pytest also counts teardown errors for tests
         # that ran and passed, so it is only evidence of non-collection when nothing else ran —
         # which the check below already covers.
@@ -199,10 +213,15 @@ JAVASCRIPT = LanguageSpec(
     # inside an assertion diff. Matching the error codes themselves instead would condemn any
     # case whose test merely names one.
     uncollectable_exit_codes=(),
+    # Under the TAP reporter — node's default below 23, and so what CI sees — the dead
+    # subprocess's stderr is folded into the stream as TAP comments, so the banner arrives as
+    # `# Node.js v20.19.5` and an anchored match misses it. The tally then reads `# fail 1` as
+    # a verdict and the unloadable workspace ships as a merely hard case. The prefix is
+    # optional because the spec reporter (node 23+) leaves the banner unprefixed.
     # Known bound: a test that spawns a child node process which crashes has the child's
     # banner forwarded into this output, and is then read as a load failure. Nothing shipped
     # does that, and the misreading only ever rejects a case, never ships one.
-    uncollectable_output=re.compile(r"^Node\.js v\d", re.M),
+    uncollectable_output=re.compile(r"^(?:#\s*)?Node\.js v\d", re.M),
     # node --test discovers `*.test.*`, `*-test.*`, `*_test.*`, `test-*.*` and `test.*`, and
     # nothing else. Notably NOT `test_app.js`, which every pytest habit produces: verified
     # against node v24, `test_app.js` exits 0 having run no tests while `app.test.js` runs and
