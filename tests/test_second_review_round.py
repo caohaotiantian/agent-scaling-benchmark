@@ -1,7 +1,10 @@
 """The findings four reviewers raised against the first ten commits.
 
-Grouped by what each one is about rather than by reviewer. Every test here fails at `982a9c4`
-or at the commit that introduced the defect it names, whichever is later.
+Grouped by what each one is about rather than by reviewer. All but two fail at `982a9c4` or at
+the commit that introduced the defect they name. The two that pass there are deliberate guards
+against over-correcting — that a genuinely different file still compares different after the
+path-window change, and that required sample size really does rise with discordance, which is
+what makes M10's stated reason impossible rather than merely unmeasured.
 """
 
 from __future__ import annotations
@@ -224,11 +227,18 @@ class TestTheRunSurvivesAMachineThatCannotGradeEverything:
     without node, though `_grade_script` refuses per case anyway."""
 
     def test_a_mixed_set_is_a_warning_not_a_refusal(self, tmp_path, monkeypatch, capsys):
+        """Both halves. Patching only the runner's view of the language left every case grading
+        normally as Python, so the test proved the run completes and nothing else — while the
+        property the whole downgrade rests on is that the ungradable cases become `infra_error`
+        rather than failures."""
+        import aibench.grading as grading_mod
         import aibench.runner as runner_mod
         from aibench.runner import run_benchmark
 
         monkeypatch.setattr(runner_mod, "unsupported_node_reason", lambda: "node 20 < 22.18")
+        monkeypatch.setattr(grading_mod, "unsupported_node_reason", lambda: "node 20 < 22.18")
         monkeypatch.setattr(runner_mod, "case_language_is_javascript", lambda lang: True)
+        monkeypatch.setattr(grading_mod, "case_language_is_javascript", lambda lang: True)
         run_dir = run_benchmark(
             run_config_path=ROOT / "tests/fixtures/configs/runs/baseline.mock.yaml",
             case_set="seed-v0",
@@ -236,6 +246,16 @@ class TestTheRunSurvivesAMachineThatCannotGradeEverything:
         )
         assert run_dir.is_dir()
         assert "node 20 < 22.18" in capsys.readouterr().out
+
+        rows = [
+            json.loads(ln)
+            for ln in (run_dir / "results.jsonl").read_text().splitlines()
+            if ln.strip()
+        ]
+        assert rows and all(r.get("infra_error") for r in rows), (
+            "ungradable cases must be infra_error, not failures"
+        )
+        assert not any(r.get("passed") for r in rows)
 
 
 class TestADerivedSubsetIsNotACorpusMismatch:
@@ -766,3 +786,34 @@ class TestAMachineThatCanGradeNothingDoesNotPublishZero:
         result = grade_case(Case.from_dict(raw), tmp_path)
         assert result.infra_error is True, "a gold JS case was graded on a machine without node"
         assert not result.passed
+
+
+class TestBareModelPosabilityOnTheCommittedFixtures:
+    """F26. The `role`-defaults-to-impl fix changed posability in both directions, and only the
+    improvement was documented. `seed-v0-004-snapshot-div` became unposable — correctly: it
+    ships only `test_calc.py` inline and takes its implementation from a snapshot, so once the
+    test file is excluded there is nothing for a one-file prompt to paste."""
+
+    def _agent(self):
+        from aibench.agents.bare_model import BareModelAgent
+        from aibench.io_util import load_yaml
+        from aibench.models import AgentConfig, ModelConfig
+
+        return BareModelAgent(
+            AgentConfig.from_dict(load_yaml(ROOT / "configs/agents/bare_model.yaml")),
+            ModelConfig.from_dict(load_yaml(ROOT / "configs/models/glm52.yaml")),
+        )
+
+    def test_three_of_four_are_posable_and_the_fourth_is_not(self):
+        from aibench.cases import load_cases
+
+        agent = self._agent()
+        posable = {
+            c.case_id: agent._prompt(c) is not None for c in load_cases("seed-v0", validate=False)
+        }
+        assert posable == {
+            "seed-v0-001-fizzbuzz": True,
+            "seed-v0-002-fix-avg": True,
+            "seed-v0-003-normalize-name": True,
+            "seed-v0-004-snapshot-div": False,
+        }, posable

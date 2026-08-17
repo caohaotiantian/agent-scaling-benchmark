@@ -95,8 +95,10 @@ def git_revision() -> str:
     return f"{sha}-dirty" if dirty else sha
 
 
-# Two entries: the live tree, plus whatever copy a probe is asking about.
-@functools.lru_cache(maxsize=2)
+# Four entries. `harness_digest()` and `harness_digest(None)` are distinct cache keys and
+# both occur in normal use, so a 2-entry cache is already full before any probe runs and
+# each probe evicts a live entry. Correctness is unaffected; this is re-hashing cost.
+@functools.lru_cache(maxsize=4)
 def harness_digest(source_root: Path | None = None) -> str:
     """Content hash of the code that decides what a run means.
 

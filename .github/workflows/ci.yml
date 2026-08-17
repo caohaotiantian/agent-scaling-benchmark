@@ -49,8 +49,12 @@ jobs:
           uv run python scripts/instrument_check.py
           status=$?
           set -e
-          if [ "$status" -eq 1 ]; then exit 1; fi
-          echo "instrument_check exited $status (0=PASS, 2=INCOMPLETE in a clone)"
+          # 0 = PASS, 2 = INCOMPLETE (a check skipped for want of a gitignored run directory).
+          # Anything else is a broken invocation — 127 for a missing `uv` used to pass silently.
+          case "$status" in
+            0|2) echo "instrument_check exited $status (0=PASS, 2=INCOMPLETE in a clone)" ;;
+            *)   echo "instrument_check exited $status — unexpected"; exit 1 ;;
+          esac
       - name: Docs links
         run: uv run python scripts/check_doc_links.py
       # The site builds only from `docs/html/_src/*.html`, so a committed page can drift from

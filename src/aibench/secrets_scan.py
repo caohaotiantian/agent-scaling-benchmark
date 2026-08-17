@@ -272,7 +272,8 @@ _BINARY_SUFFIXES = frozenset(
 #: and so was one pasted into a file that merely quotes the marker.
 SYNTHETIC_MARKER = "aibench: synthetic-secrets"
 
-#: How far into a file the declaration may sit. All three fixtures declare it on line 2 or 3.
+#: How far into a file the declaration may sit. All four tracked fixtures — `.env.example`
+#: and three test modules — declare it on line 2 or 3.
 _MARKER_HEADER_LINES = 5
 
 

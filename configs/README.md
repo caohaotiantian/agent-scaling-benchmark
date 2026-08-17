@@ -54,7 +54,7 @@ uv run python -m aibench run --run-config configs/runs/baseline.yaml
 # 并行：对网关的实际并发 ≈ parallel × case_workers，本网关实测 16 并发仍线性
 # 注意：消融矩阵里的 `parallel:` 直到 2026-08-17 才真正生效 —— 此前 CLI 的默认值 1 会短路掉它，
 # 所以**只写 YAML 而不在命令行传 `--parallel` 的人拿到的是串行**。已落盘的实验不是这一类：
-# 16 份 `ablation_summary.json` 里 13 份记着 `parallel: 3`，且每一份都有 3 个 run 目录共用同一
+# 16 份 `ablation_summary.json` 里 13 份记着 `parallel: 3`（这 16 份不含 `runs/e2e-dry-run/` 下 CI 自己跑出来的那些；连它们一起数是 48 份），且每一份都有 3 个 run 目录共用同一
 # 秒级时间戳 —— 它们确实是三路并发跑的，因为命令行显式传了 `--parallel 3`。
 uv run python -m aibench calibrate-cases --case-set auto-v0 --repeats 2 \
   --parallel 3 --workers 5

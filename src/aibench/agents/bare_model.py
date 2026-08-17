@@ -102,7 +102,13 @@ class BareModelAgent(AgentAdapter):
         "Implementation file" is decided by filename as well as by label. ``role`` is optional
         and :meth:`FileBlob.from_dict` defaults it to ``impl``, so a case that omits it — which
         all four committed `seed-v0` cases do — has every file counted as an implementation,
-        `test_fizzbuzz.py` included. Counting labels alone made two of those four unposable.
+        `test_fizzbuzz.py` included.
+
+        Measured on those four: counting labels alone posed 2 of 4; counting filenames too poses
+        3 of 4. The fourth, `seed-v0-004-snapshot-div`, moves the other way and that is correct —
+        it ships only `test_calc.py` inline and its implementation comes from a snapshot, so
+        after the test file is excluded it has *no* implementation to paste into a prompt. An
+        adapter that pastes one file cannot pose a case whose file it has not been given.
         """
         impls = [f for f in case.files if f.role == "impl" and not _is_test_file(f.path)]
         if len(impls) != 1:

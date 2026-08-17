@@ -409,13 +409,15 @@ def _key(path: str) -> str:
     return re.split(r"[\\/]", path.strip())[-1]
 
 
-def _same_file(a: str, b: str) -> bool:
+def _same_file(a: str, b: str, *, capped: bool = True) -> bool:
     """Whether two spellings of a path can be the same file, on the evidence available.
 
     The two sides are not written alike: `extract_files_from_tool_text` keeps only the last
     three components of an absolute path and only the basename of a Windows one, while an edit
-    call carries the path in full. So they are compared over the components they *both* have —
-    `/home/u/proj/calc.py` and `ubuntu/proj/calc.py` agree wherever they overlap.
+    call carries the path in full. So they are compared over the components they *both* have,
+    bounded by what the truncating side records: `/home/u/proj/calc.py` and `u/proj/calc.py`
+    agree over their overlap, while `/home/u/proj/calc.py` and `ubuntu/proj/calc.py` do not —
+    `u` and `ubuntu` are different directories, and the old docstring claimed otherwise.
 
     When one side is a bare basename there is nothing to compare and this answers True. That
     is right for the ordinary case — one file spelled two ways — and it is only safe because
@@ -426,12 +428,13 @@ def _same_file(a: str, b: str) -> bool:
     """
     pa = [c for c in re.split(r"[\\/]", a.strip()) if c and c != "."]
     pb = [c for c in re.split(r"[\\/]", b.strip()) if c and c != "."]
-    # At most three components, because three is all the truncating side ever records. Once
-    # `source_path` began preserving the untruncated spelling, two *full* paths could reach here
-    # and disagree above that window — `/Users/a/proj/src/calc.py` against
-    # `/Users/b/proj/src/calc.py` — and be called two different files on evidence that the
-    # comparison could not have had before. Differences above the window are not evidence.
-    n = min(len(pa), len(pb), PATH_TAIL_COMPONENTS)
+    # `capped` says whether either spelling went through extraction's three-component
+    # truncation. If one did, a difference above that window is not evidence — it is a
+    # difference between what one side recorded and what the other kept, and comparing them
+    # called one file two. If neither did, the extra components are real and are compared:
+    # capping unconditionally made `x/y/pkg/src/index.ts` and `q/w/pkg/src/index.ts` the same
+    # file, which retains a `pre` claim on weaker evidence than the data supports.
+    n = min(len(pa), len(pb), PATH_TAIL_COMPONENTS if capped else len(pa) + len(pb))
     return n > 0 and pa[-n:] == pb[-n:]
 
 
@@ -473,7 +476,11 @@ def replay_file_versions(
                     stats.dropped_partial_read += 1
                     continue
                 k = _key(f["path"])
-                paths_for_key.setdefault(k, set()).add(f.get("source_path") or f["path"])
+                # `source_path` is the spelling as the trace wrote it, untruncated.
+                # `path` has already been reduced to its last three components (or a basename,
+                # for a Windows path), so a difference above that window is not evidence.
+                source = f.get("source_path")
+                paths_for_key.setdefault(k, set()).add((source or f["path"], source is None))
                 if k not in original:
                     vouched[k] = (
                         PRE_FROM_TOOL_WRITE
@@ -533,7 +540,8 @@ def replay_file_versions(
                     # from a `write` call's arguments.
                     pre_origin=vouched.get(k, PRE_FROM_TOOL_WRITE),
                 )
-                paths_for_key.setdefault(k, set()).add(path)
+                # An edit call carries `filePath` in full.
+                paths_for_key.setdefault(k, set()).add((path, False))
             else:
                 fv.post = seen[k]
                 fv.edits += 1
@@ -546,7 +554,11 @@ def replay_file_versions(
     out: list[FileVersion] = []
     for k, fv in current.items():
         paths = sorted(paths_for_key.get(k, ()))
-        if any(not _same_file(a, b) for a in paths for b in paths):
+        if any(
+            not _same_file(a, b, capped=a_trunc or b_trunc)
+            for a, a_trunc in paths
+            for b, b_trunc in paths
+        ):
             # Two genuinely different files share a basename, so the read that would vouch for
             # this `pre` may have been of the other one. Withdraw the claim rather than guess.
             fv.pre_origin = PRE_FROM_AMBIGUOUS_PATH

@@ -78,20 +78,20 @@ def require_a_bare_python() -> None:
 
 
 #: Names a real `.env` would set, and which a test reading them must not silently inherit.
-_DOTENV_NAMES = (
-    "AIBENCH_API_KEY",
-    "AIBENCH_BASE_URL",
-    "AIBENCH_CASE_RETRY",
-    "AIBENCH_DB_URL",
-    "AIBENCH_REQUEST_TIMEOUT",
-    "AIBENCH_USD_PER_MTOK",
-    "AIBENCH_USD_PER_MTOK_INPUT",
-    "AIBENCH_USD_PER_MTOK_OUTPUT",
-    "DATABASE_URL",
-    "OPENAI_API_KEY",
-    "OPENAI_BASE_URL",
-    "OPENAI_MODEL",
-)
+#: Derived from `.env.example` rather than listed here, so the two cannot drift. A hand-written
+#: list covered 12 of the 18 names that file documents, and the omissions included
+#: `AIBENCH_ALLOW_UNSANDBOXED` — the one whose presence changes whether a run is refused.
+def _dotenv_names() -> tuple[str, ...]:
+    import re
+
+    example = ROOT / ".env.example"
+    if not example.is_file():
+        return ()
+    names = re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", example.read_text(encoding="utf-8"), re.M)
+    return tuple(sorted(set(names)))
+
+
+_DOTENV_NAMES = _dotenv_names()
 
 
 @pytest.fixture(autouse=True)
