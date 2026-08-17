@@ -194,10 +194,11 @@ class TestAGateThatCannotRunIsNotAVerdict:
 
 
 class TestAGoldCaseCannotVouchForItself:
-    """The gate applies `grader.gold_files` and then grades; `gold` mode grades by comparing
-    the workspace against those same files."""
+    """The gate applies `grader.gold_files` and then grades, so an *exact* comparison checks the
+    files it just wrote against themselves. `contains_key_lines` is a different matter and is
+    still checked — 38 of 4,994 such cases ship gold that misses its own key lines."""
 
-    def test_gold_mode_is_skipped_with_a_reason(self):
+    def test_an_exact_comparison_is_skipped_with_a_reason(self):
         from aibench.models import Case
         from aibench.validity import check_reference_solution
 
@@ -215,7 +216,7 @@ class TestAGoldCaseCannotVouchForItself:
             "metadata": {"tier": "T2"},
         }
         ok, detail = check_reference_solution(Case.from_dict(raw))
-        assert ok and detail.startswith("skipped_gold_mode")
+        assert ok and detail.startswith("skipped_gold_exact")
 
 
 class TestTheRunSurvivesAMachineThatCannotGradeEverything:
@@ -592,3 +593,176 @@ class TestEveryAuditIdHasATrackedDisposition:
         assert not missing, (
             f"dispositioned only in gitignored .agent/, which no clone receives: {missing}"
         )
+
+
+class TestTheFooterIsSplitBeforeTheGutterIsTested:
+    """F19. `_strip_line_numbers` ran on the un-split body, so the footer never matched and no
+    gutter was stripped for the 98% of files that carry one. Every existing gutter test uses a
+    body *without* a footer — the one shape the fix is about — so reverting it left the suite
+    green."""
+
+    #: The complete-read footer, the shape 98% of the corpus carries.
+    FOOTER = "\n\n(End of file - total 2 lines)"
+
+    def _read(self, body: str) -> str:
+        from aibench.extract.history_parse import extract_files_from_tool_text
+
+        text = f"<path>/a/b/calc.py</path>\n<type>file</type>\n<content>{body}</content>"
+        files = extract_files_from_tool_text(text)
+        assert files, "the read did not parse at all"
+        return files[0]["content"]
+
+    def test_a_gutter_is_stripped_when_a_footer_follows_it(self):
+        gutter = "1: def f():\n2:     return 1\n"
+        assert self._read(gutter + self.FOOTER) == "def f():\n    return 1\n"
+
+    def test_the_same_body_without_a_footer_behaves_the_same(self):
+        gutter = "1: def f():\n2:     return 1\n"
+        assert self._read(gutter) == "def f():\n    return 1\n"
+
+
+class TestTheGraderActuallyRunsInThePinnedEnvironment:
+    """F18/F23. `_grader_env()` was tested directly; nothing checked `_grade_script` passes it,
+    so removing `env=_grader_env()` from the subprocess call left the suite green."""
+
+    def test_the_subprocess_receives_the_pinned_seed(self, tmp_path):
+        from aibench.grading import _grade_script
+        from aibench.models import Case
+
+        probe = tmp_path / "probe.py"
+        probe.write_text(
+            "import os, sys\nsys.exit(0 if os.environ.get('PYTHONHASHSEED') == '0' else 3)\n",
+            encoding="utf-8",
+        )
+        raw = {
+            "case_id": "env-probe",
+            "task_type": "bugfix",
+            "prompt": "p",
+            "language": "python",
+            "context": {"files": []},
+            "grader": {"mode": "script", "command": f"python {probe}"},
+            "metadata": {"tier": "T2"},
+        }
+        result = _grade_script(Case.from_dict(raw), tmp_path)
+        assert result.passed, f"the grader did not run with PYTHONHASHSEED=0: {result.detail}"
+
+
+class TestTheRetryBudgetReachesTheAttemptLoop:
+    """F18/F4. `case_retry` was asserted only on `RunConfig`; removing the line that threads it
+    into `_run_one_case` left the suite green, and the manifest never carried it."""
+
+    def test_the_manifest_records_what_was_used(self, tmp_path):
+        from aibench.io_util import load_json, load_yaml, write_text
+        from aibench.runner import run_benchmark
+
+        cfg = load_yaml(ROOT / "tests/fixtures/configs/runs/baseline.mock.yaml")
+        cfg["case_retry"] = 4
+        path = tmp_path / "run.yaml"
+        write_text(path, json.dumps(cfg))
+        run_dir = run_benchmark(run_config_path=path, case_set="seed-v0", output_root=tmp_path)
+        assert load_json(run_dir / "run_manifest.json")["case_retry"] == 4
+
+    def test_the_configured_number_of_attempts_actually_happens(self, tmp_path, monkeypatch):
+        """The manifest field is written independently of the plumbing, so asserting it does not
+        prove the retries occur — removing the line that threads `case_retry` into the attempt
+        loop leaves a manifest-only test green. Count the attempts instead."""
+        import aibench.runner as runner_mod
+        from aibench.io_util import load_yaml, write_text
+        from aibench.models import AgentRunResult
+        from aibench.runner import run_benchmark
+
+        calls: list[str] = []
+
+        class _AlwaysInfra:
+            def __init__(self, *a, **k) -> None: ...
+
+            def run(self, case, workspace, **kw) -> AgentRunResult:
+                calls.append(case.case_id)
+                return AgentRunResult(status="infra_error", error_message="gateway down")
+
+        monkeypatch.setattr(runner_mod, "create_agent", lambda *a, **k: _AlwaysInfra())
+        monkeypatch.delenv("AIBENCH_CASE_RETRY", raising=False)
+
+        cfg = load_yaml(ROOT / "tests/fixtures/configs/runs/baseline.mock.yaml")
+        cfg["case_retry"] = 3
+        path = tmp_path / "run.yaml"
+        write_text(path, json.dumps(cfg))
+        run_benchmark(run_config_path=path, case_set="seed-v0", output_root=tmp_path)
+
+        per_case = {c: calls.count(c) for c in set(calls)}
+        assert per_case, "the agent was never invoked"
+        assert set(per_case.values()) == {3}, (
+            f"`case_retry: 3` must produce 3 attempts per case, got {per_case}"
+        )
+
+    def test_zero_is_clamped_rather_than_crashing(self, tmp_path):
+        from aibench.io_util import load_json, load_yaml, write_text
+        from aibench.runner import run_benchmark
+
+        cfg = load_yaml(ROOT / "tests/fixtures/configs/runs/baseline.mock.yaml")
+        cfg["case_retry"] = 0
+        path = tmp_path / "run.yaml"
+        write_text(path, json.dumps(cfg))
+        run_dir = run_benchmark(run_config_path=path, case_set="seed-v0", output_root=tmp_path)
+        # `0` meant a loop that never ran, and `_run_one_attempt` returned None into an assert —
+        # which `python -O` strips, turning the crash into a None row.
+        assert load_json(run_dir / "run_manifest.json")["case_retry"] == 1
+
+
+class TestAnUnknownStrategyIsRefusedBeforeAnythingIsSpent:
+    """F6. `_select_attempt` raised only after every case had run, leaving the run without
+    `results.jsonl` or `summary.json` — the measurements lost along with the money."""
+
+    def test_no_run_directory_is_created(self, tmp_path):
+        from aibench.io_util import load_yaml, write_text
+        from aibench.runner import run_benchmark
+
+        cfg = load_yaml(ROOT / "tests/fixtures/configs/runs/baseline.mock.yaml")
+        cfg["selection_strategy"] = "best-of-K"
+        path = tmp_path / "run.yaml"
+        write_text(path, json.dumps(cfg))
+        out = tmp_path / "out"
+        with pytest.raises(ValueError, match="unknown selection_strategy"):
+            run_benchmark(run_config_path=path, case_set="seed-v0", output_root=out)
+        assert not out.exists() or not list(out.iterdir()), "cases ran before the refusal"
+
+
+class TestAMachineThatCanGradeNothingDoesNotPublishZero:
+    """F1, blocking. Downgrading the run-start node refusal to a warning let a run on a corpus
+    it cannot grade publish `success_rate = 0.0%` — a claim that everything was attempted and
+    everything failed. And `_grade_gold` had no node check at all, so a `gold` JavaScript case
+    was graded anyway."""
+
+    def test_a_rate_from_zero_measurements_is_none(self):
+        from aibench.report import build_summary
+
+        rows = [{"case_id": c, "passed": False, "infra_error": True} for c in ("a", "b")]
+        summary = build_summary(run_id="r", run_manifest={}, case_results=rows)
+        assert summary["success_rate"] is None
+        assert summary["primary_metric_value"] is None
+        assert summary["effective_case_count"] == 0
+        assert summary["case_count"] == 2
+
+    def test_a_gold_javascript_case_is_not_graded_without_node(self, tmp_path, monkeypatch):
+        import aibench.grading as grading_mod
+        from aibench.grading import grade_case
+        from aibench.models import Case
+
+        monkeypatch.setattr(grading_mod, "unsupported_node_reason", lambda: "node 20 < 22.18")
+        raw = {
+            "case_id": "js-gold",
+            "task_type": "bugfix",
+            "prompt": "p",
+            "language": "typescript",
+            "context": {"files": [{"path": "a.ts", "content": "export const x = 1\n"}]},
+            "grader": {
+                "mode": "gold",
+                "match": "contains_key_lines",
+                "key_lines": ["export const x"],
+            },
+            "metadata": {"tier": "T2"},
+        }
+        (tmp_path / "a.ts").write_text("export const x = 2\n", encoding="utf-8")
+        result = grade_case(Case.from_dict(raw), tmp_path)
+        assert result.infra_error is True, "a gold JS case was graded on a machine without node"
+        assert not result.passed

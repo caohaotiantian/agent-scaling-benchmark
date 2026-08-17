@@ -721,7 +721,17 @@ def _merge_reused(
             "total_cases": len(cases),
             "kept_count": len(kept),
             "dropped_count": len(cases) - len(kept),
-            "p_hat_distribution": _p_buckets_from_rows(cases),
+            # Measured cases only, matching `aggregate_calibration`. A case whose every pass
+            # failed on infrastructure carries `p_hat=0.0` as a placeholder for "unknown", and
+            # this path recomputed the histogram without that filter — so `--reuse-from` put the
+            # exclusion back and an outage read as a harder corpus again.
+            #
+            # `!= 0`, not truthiness: a row reused from an export predating the field has no
+            # `attempts` at all, and dropping those would lose real measurements — the same
+            # mistake in the other direction.
+            "p_hat_distribution": _p_buckets_from_rows(
+                [c for c in cases if c.get("attempts") != 0]
+            ),
             "kept_p_hat_distribution": _p_buckets_from_rows(kept),
             "tier_distribution": _count_by_tier(kept),
             # Recomputed for the same reason as the counts above: a reused row can be judged

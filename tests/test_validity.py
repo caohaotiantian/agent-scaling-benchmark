@@ -187,24 +187,50 @@ def test_a_script_case_without_a_reference_solution_is_refused():
     assert any(i.code == "solvability_gate" for i in report.issues)
 
 
-def test_a_gold_case_cannot_verify_its_own_solvability():
-    """The gate writes `grader.gold_files` and then grades — and `gold` mode grades by comparing
-    the workspace against those same files, so it can only fail if writing a file does not make
-    it present. A pass here is not evidence, and reporting the `key_lines` variant as
-    `no_reference_solution` would restate a design choice as a defect."""
+def test_an_exact_gold_comparison_cannot_verify_its_own_solvability():
+    """The gate writes `grader.gold_files` and then grades. Under `match: exact` that compares
+    the files it just wrote against themselves, so it can only fail if writing a file does not
+    make it present — a pass is not evidence."""
+    from aibench.validity import check_reference_solution
+
+    raw = _t3_case_dict()
+    raw["grader"] = {
+        "mode": "gold",
+        "match": "exact",
+        "gold_files": [{"path": "clamp.py", "content": "def clamp(): ...\n"}],
+    }
+    ok, detail = check_reference_solution(Case.from_dict(raw))
+    assert (ok, detail.split(":")[0]) == (True, "skipped_gold_exact")
+
+
+def test_a_key_lines_gold_case_is_still_checked():
+    """`contains_key_lines` is a separate specification, and the reference solution can fail it:
+    38 of the 4,994 such cases on disk ship gold files that do not contain their own key lines.
+    Skipping them would drop a live gate, not an empty one."""
+    from aibench.validity import check_reference_solution
+
+    raw = _t3_case_dict()
+    raw["grader"] = {
+        "mode": "gold",
+        "match": "contains_key_lines",
+        "key_lines": ["def clamp"],
+        "gold_files": [{"path": "clamp.py", "content": "def unrelated():\n    pass\n"}],
+    }
+    ok, detail = check_reference_solution(Case.from_dict(raw))
+    assert ok is False, "a reference solution missing its own key line is not solvable"
+    assert "reference_solution_failed" in detail or "key_lines" in detail, detail
+
+
+def test_a_key_lines_case_with_no_artifact_is_unverifiable_not_broken():
+    """The key lines *are* the specification, so there is nothing to write into the workspace.
+    Reporting that as `no_reference_solution` would restate a design choice as a defect."""
     from aibench.validity import check_reference_solution
 
     raw = _t3_case_dict()
     raw["grader"] = {"mode": "gold", "match": "contains_key_lines", "key_lines": ["def clamp"]}
     ok, detail = check_reference_solution(Case.from_dict(raw))
     assert ok is True
-    assert detail.startswith("skipped_gold_mode")
-
-    raw["grader"]["gold_files"] = [{"path": "clamp.py", "content": "def clamp(): ...\n"}]
-    ok, detail = check_reference_solution(Case.from_dict(raw))
-    assert (ok, detail.split(":")[0]) == (True, "skipped_gold_mode"), (
-        "shipping a gold artifact does not make the comparison informative"
-    )
+    assert detail.startswith("skipped_key_lines_only")
 
 
 def test_an_llm_judge_case_is_exempt_because_the_gate_would_spend_model_calls():

@@ -276,7 +276,14 @@ def run_ablation(
         or (rows[0]["experiment_name"] if rows else None)
     )
     base_row = next((r for r in rows if r["experiment_name"] == base_name), None)
-    base_sr = float(base_row["success_rate"]) if base_row else None
+    # `success_rate` is `None` when the baseline measured nothing (every case infra_error), and
+    # the lift against an unmeasured baseline is not 0 — it is unknown. The `base_sr is None`
+    # branch below already says that; this used to raise before reaching it.
+    base_sr = (
+        float(base_row["success_rate"])
+        if base_row and base_row.get("success_rate") is not None
+        else None
+    )
     base_oracle = bool((base_row or {}).get("selection_is_oracle"))
     for r in rows:
         # A row whose selection strategy consulted the grader's verdict is an upper bound, not
@@ -309,9 +316,18 @@ def run_ablation(
             # produced it is checkable but not attributable.
             "provenance": environment(),
             "case_set": case_set,
-            # Which corpus, byte for byte. `case_set` is a name, and names get reused: two
-            # ablations of "_revmixed" a week apart are not a comparison unless this matches.
-            "case_set_fingerprint": _case_set_fingerprint(case_set),
+            # Which corpus, byte for byte — of the set that was actually *run*, which is the
+            # filtered subset, not the name asked for. Fingerprinting `case_set` made two
+            # ablations match on this field while having measured different subsets, because
+            # `audit-cases --annotate` had changed `validity_ok` in between and the filter then
+            # removed different cases. That is precisely the drift the field exists to catch.
+            "case_set_fingerprint": _case_set_fingerprint(filtered.get(case_set, case_set)),
+            # Every distinct set any row ran on, so a matrix with per-row `case_set` overrides
+            # is not summarised by whichever one the top-level key happened to name.
+            "case_set_fingerprints": {
+                name: _case_set_fingerprint(materialized)
+                for name, materialized in sorted(filtered.items())
+            },
             "skip_weak_grader": skip_weak,
             "skip_invalid_cases": skip_invalid,
             "excluded_cases": excluded,
@@ -459,10 +475,16 @@ _EFFECTIVE_SHARE_FLOOR = 0.8
 
 
 def _infra_dominated(row: dict[str, Any]) -> bool:
+    """Whether infrastructure failures ate enough of a run to make its rate unreadable.
+
+    A run with zero cases is *not* this. It used to return True, so an empty case set produced
+    "most of this run failed on infrastructure" — a diagnosis of a problem that did not happen,
+    pointing the reader at the gateway instead of at the empty set.
+    """
     total = int(row.get("case_count") or 0)
     effective = int(row.get("effective_case_count") or 0)
     if not total:
-        return True
+        return False
     return effective < _EFFECTIVE_SHARE_FLOOR * total
 
 

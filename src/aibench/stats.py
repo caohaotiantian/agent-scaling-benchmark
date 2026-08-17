@@ -229,12 +229,17 @@ def observed_discordance(pairwise: list[dict[str, Any]]) -> float | None:
     pooling them pulls ψ down, and a lower ψ asks for fewer cases than the comparison needs.
     """
     comparable = [p for p in pairwise if not p.get("self_repeat") and p.get("comparable", True)]
+    if not comparable:
+        # `comparable or pairwise` fell back to the full list here, which means a matrix of
+        # nothing but self-repeats planned its next run on exactly the pairs this function
+        # exists to exclude — and said nothing. No usable pair is `None`, same as no data.
+        return None
     totals = [
         (
             p.get("discordant") or 0,
             (p.get("discordant") or 0) + (p.get("both_passed") or 0) + (p.get("neither") or 0),
         )
-        for p in (comparable or pairwise)
+        for p in comparable
     ]
     usable = [(d, n) for d, n in totals if n]
     if not usable:

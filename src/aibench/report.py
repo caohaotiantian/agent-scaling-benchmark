@@ -52,7 +52,10 @@ def build_summary(
     successes = [r for r in effective if r.get("passed")]
     effective_n = len(effective)
     success_n = len(successes)
-    success_rate = (success_n / effective_n) if effective_n else 0.0
+    # `None`, not 0.0. A run in which every case failed on infrastructure measured nothing, and
+    # 0.0 is a claim that everything was attempted and everything failed — the reading a machine
+    # that cannot grade the corpus at all would otherwise publish as a headline.
+    success_rate = (success_n / effective_n) if effective_n else None
 
     total_tokens = sum(int(r.get("total_tokens") or 0) for r in case_results)
     agent_wall_s = sum(float(r.get("wall_time_s") or 0.0) for r in case_results)

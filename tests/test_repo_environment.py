@@ -26,6 +26,7 @@ _INSTALL_SITES = (
     "docs/html/_src/manual.html",
     "docs/html/manual.html",
     "docs/html/_src/project-overview.html",
+    "docs/html/_src/reference.html",
     ".github/workflows/ci.yml",
     ".github/workflows/live-smoke.yml",
     "scripts/install-hooks.sh",
@@ -35,19 +36,33 @@ _INSTALL_SITES = (
 _UV_SYNC = re.compile(r"uv sync(?P<flags>[^\n<&|]*)")
 
 
+#: A line that names `uv sync` in order to warn against it is not a documented install command.
+#: `reference.html` says "`uv sync --extra dev` 会把这 6 个卸掉" — the incomplete command is the
+#: subject of the warning, and rewriting it to satisfy this check would delete the warning.
+_COUNTEREXAMPLE_MARKERS = ("卸掉", "会把", "prunes", "removes them", "would remove")
+
+
 def _invocations(relative: str) -> list[str]:
     """The `uv sync` flag strings a reader would actually run, by file.
 
-    Comment lines are skipped: the fix for this finding *explains itself* in a comment beside
-    the corrected command, and a checker that reads the explanation as an invocation would
-    report the fix as the bug.
+    Two kinds of line are skipped. Comment lines: the fix for this finding *explains itself* in
+    a comment beside the corrected command, and a checker that read the explanation as an
+    invocation would report the fix as the bug. And counterexample lines, for the same reason
+    one level up — a document that warns "this command removes them" must be able to quote the
+    command it is warning about.
     """
     out: list[str] = []
     for line in (ROOT / relative).read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped.startswith(("#", "//", "*")):
             continue
-        out.extend(m.group("flags") for m in _UV_SYNC.finditer(line))
+        for m in _UV_SYNC.finditer(line):
+            # Per occurrence, not per line: one HTML table cell is a single line and can hold
+            # both the recommended command and the incomplete one it warns against.
+            trailer = line[m.end() : m.end() + 40]
+            if any(marker in trailer for marker in _COUNTEREXAMPLE_MARKERS):
+                continue
+            out.append(m.group("flags"))
     return out
 
 

@@ -55,14 +55,28 @@ def _draft_query_params(paths: list[Path]) -> dict[str, Any] | None:
     fix, but it breaks every existing invocation and does not help the sets already on disk;
     recording what the query actually was identifies the slice just as well and can be applied
     retroactively by whoever holds the drafts.
+
+    Returns ``None`` when the drafts disagree. Taking the *first* draft's window and stamping it
+    on every case in the run is worse than recording nothing: an `--input-dir` holding drafts
+    from two extractions would label all of them with one of the two windows, and the label is
+    the thing a reader would use to identify the slice. Silence is honest; a confident wrong
+    answer is not.
     """
+    seen: list[dict[str, Any]] = []
     for path in paths:
         try:
             meta = (load_json(path).get("metadata") or {}).get("db_query")
         except (OSError, json.JSONDecodeError):
             continue
-        if meta:
-            return dict(meta)
+        if meta and dict(meta) not in seen:
+            seen.append(dict(meta))
+    if len(seen) == 1:
+        return seen[0]
+    if len(seen) > 1:
+        print(
+            f"[warn] drafts carry {len(seen)} different `db_query` windows; "
+            f"recording none rather than labelling every case with one of them"
+        )
     return None
 
 
@@ -560,9 +574,11 @@ def main(argv: list[str] | None = None) -> int:
                 case_workers=args.workers,
                 require_grading_env=args.require_grading_env,
             )
-        except (FileNotFoundError, RuntimeError) as e:
-            # A missing case set is the *expected* state in a fresh clone, and an unusable node
-            # is a machine problem — neither is worth a traceback the reader has to decode.
+        except (FileNotFoundError, RuntimeError, ValueError) as e:
+            # A missing case set is the *expected* state in a fresh clone, an unusable node is a
+            # machine problem, and a name that exists both as a fixture and as a generated set is
+            # a `ValueError` carrying the two paths and the way out — none is worth a traceback
+            # the reader has to decode.
             print(str(e))
             return 1
         summary = load_json(run_dir / "summary.json")

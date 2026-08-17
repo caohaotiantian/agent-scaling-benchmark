@@ -818,12 +818,24 @@ def check_reference_solution(case: Case, *, case_set: str | None = None) -> tupl
         return True, "skipped_llm_judge"
     if case.grader.mode == "script" and not case.grader.command:
         return True, "skipped_non_script"
-    if case.grader.mode == "gold":
-        # Vacuous by construction: this gate applies `grader.gold_files` and then grades, and
-        # `gold` mode grades by comparing the workspace against those same gold files. It can
-        # only fail if writing a file does not make that file present. Reporting a pass here
-        # would be reporting that a case is solvable on evidence that says nothing.
-        return True, "skipped_gold_mode: applying gold and then comparing to gold is vacuous"
+    if case.grader.mode == "gold" and case.grader.match != "contains_key_lines":
+        # Vacuous by construction *for an exact comparison*: this gate applies
+        # `grader.gold_files` and then grades, and an exact `gold` comparison then checks the
+        # files it just wrote against themselves. It can only fail if writing a file does not
+        # make that file present.
+        #
+        # `contains_key_lines` is NOT vacuous and must still run. The key lines are a separate
+        # specification, and the reference solution can fail to satisfy it: measured on this
+        # corpus, **38 of 4,994** such cases ship gold files that do not contain their own key
+        # lines. Skipping those was not removing an empty check, it was dropping a live one —
+        # a case whose reference solution cannot pass its own grader is unsolvable, which is
+        # exactly what this gate exists to catch.
+        return True, "skipped_gold_exact: applying gold and then comparing to gold is vacuous"
+    if case.grader.mode == "gold" and not case.grader.gold_files:
+        # `contains_key_lines` with no artifact: the key lines *are* the specification, so there
+        # is nothing to write into the workspace. Reporting it as `no_reference_solution` would
+        # restate a design choice as a defect.
+        return True, "skipped_key_lines_only: no reference artifact to apply"
     if not case.grader.gold_files:
         # Measured: of 18 cases no configuration could solve, 16 had no reference solution,
         # while cases that shipped one were unsolvable only 2 times in 31. Skipping the check
@@ -884,10 +896,15 @@ def audit_case(
     # tells an incomplete stub apart from a broken one.
     ref_ok, ref_detail = check_reference_solution(case, case_set=case_set)
     ref_uncollectable = ref_detail.startswith(REFERENCE_UNCOLLECTABLE)
+    ref_unverified = ref_detail.startswith(f"{INFRA_UNVERIFIED}:")
     checks["reference_solution"] = {
-        "ok": ref_ok,
+        # `ok: true` for a gate that never ran is the same lie as `validity_ok: false` for one,
+        # in the other direction: `export-bundle --require-audit` reads only the verdict, so an
+        # unverified case would have shipped in a delivered bundle looking checked.
+        "ok": None if ref_unverified else ref_ok,
         "detail": ref_detail,
         "uncollectable": ref_uncollectable,
+        "unverified": ref_unverified,
     }
     if ref_detail.startswith(f"{INFRA_UNVERIFIED}:"):
         issues.append(
@@ -923,10 +940,12 @@ def audit_case(
         reference_collects=reference_collects,
         stub_is_complete=stub_is_complete,
     )
+    stub_unverified = stub_detail.startswith(f"{INFRA_UNVERIFIED}:")
     checks["stub_fail"] = {
-        "ok": stub_ok,
+        "ok": None if stub_unverified else stub_ok,
         "detail": stub_detail,
         "uncollectable": stub_detail.startswith(STUB_UNCOLLECTABLE),
+        "unverified": stub_unverified,
     }
     if stub_detail.startswith(f"{INFRA_UNVERIFIED}:"):
         issues.append(
@@ -1046,6 +1065,14 @@ def annotate_case_metadata(case_path: Path, report: CaseValidityReport) -> None:
     meta["difficulty_scale"] = "size_heuristic"
     meta["fingerprint"] = report.fingerprint
     meta["validity_ok"] = report.ok
+    # Whether a gate could not run on the machine that wrote this verdict. `validity_ok` alone
+    # cannot say so — an unrun gate leaves it true — and `export-bundle --require-audit` reads
+    # only `validity_ok`, so without this a case nothing verified ships looking verified.
+    meta["validity_unverified"] = sorted(
+        name
+        for name, c in (report.checks or {}).items()
+        if isinstance(c, dict) and c.get("unverified")
+    )
     meta["validity_issues"] = [i.to_dict() for i in report.issues]
     # Without these the reason a case was rejected is lost the moment the audit run ends, and
     # "broken workspace" becomes indistinguishable from "hard" again on the next read.

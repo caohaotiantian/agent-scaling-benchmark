@@ -299,11 +299,12 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 
 ### 7.1 布局
 
-`configs/` 下**全部 40 个 YAML**，由目录列表生成（此前这张表只列了 9 个）。早前写的 39 漏掉了 `configs/grading-env.yaml`。
+`configs/` 下**全部 40 个 YAML**，由目录列表生成（此前这张表只列了 9 个）。写过 39 两次：第一次漏 `grading-env.yaml`，第二次改了数字没补行。
 说明取自每个文件的第一行注释。
 
 | 路径 | 用途 |
 |------|------|
+| `grading-env.yaml` | What the grading environment provides beyond each runtime's standard library. |
 | `agents/bare_model.yaml` | The model with no scaffold between it and the grader. |
 | `agents/bare_model_choice.yaml` | The same adapter as `bare_model.yaml`, pointed at a judgement instead of a repair. |
 | `agents/bare_model_review.yaml` | The same adapter as `bare_model.yaml`, pointed at a judgement instead of a repair. |
@@ -1747,12 +1748,16 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 | 字段 | 含义 |
 |------|------|
 | `code_version` | 运行时 `git rev-parse --short HEAD`，工作树脏时加 `-dirty`。仓库根与 `repo_root()` 不一致、或 git 不可用时为 `unknown-worktree`；无法判定干净与否时为 `<sha>-unknown-cleanliness` |
-| `harness_digest` | 决定「一次跑测意味着什么」的源码摘要：`agents/` + `grading.py` + `workspace.py` + `runner.py` + `languages.py` + `retry.py` + `models.py` + `env_config.py`。也并入 `anchor_fingerprint` |
+| `harness_digest` | 决定「一次跑测意味着什么」的源码摘要：`agents/` + `grading.py` + `workspace.py` + `runner.py` + `languages.py` + `retry.py` + `models.py` + `env_config.py` + `calibrate.py` + `stats.py`（**十项**；后两项 2026-08-17 补入 —— 它们决定一次校准意味着什么，漏掉会让 `--reuse-from` 把旧的点二列相关系数带过一次估计器变更）。也并入 `anchor_fingerprint` |
 | `dependency_digest` | `uv.lock` 的哈希，依赖变动可见 |
 | `python_version` / `node_version` / `opencode_version` | 实际运行时版本。`opencode_version` 记录脚手架本身——不同版本是不同的仪器 |
 | `venv_digest` | 解释器所在虚拟环境的内容哈希，取代了原来的 `python_executable`：回答「是不是同一套依赖」而不写出本机路径 |
 | `platform` | 操作系统与架构。macOS 有 `sandbox-exec`，Linux 没有，两边量的不是同一个边界 |
 | `gateway_base_url` | 环境里解析到的网关地址。**API key 从不进入产物**，有测试锁住 |
+| `grading_env_digest` | `configs/grading-env.yaml` 与它承诺的每个包的**已安装版本**的哈希。两次跑测因为一边 numpy 2.1、一边 2.3 而结论不同时，此前没有任何产物说得出来 |
+| `grading_env_unsatisfied` | 该清单里本机导入不了的名字。非空意味着导入这些包的用例会在判分时失败，读起来像难度 |
+| `case_retry` | 单条 case 因 `infra_error` 整体重跑的次数（run YAML 的 `case_retry` 优先于 `AIBENCH_CASE_RETRY`）|
+| `expected_case_set_fingerprint` | run 配置声明它应当测的语料指纹；与实测不符即拒跑。`.` 开头的派生子集跳过该比较 |
 
 > 2026-08-17 起 manifest 里**不再有本机路径**：`python_executable` 与 `working_directory` 已由
 > `venv_digest` 与 `platform` 取代。历史 manifest 仍带 —— `runs/` 已 gitignore 且没有 manifest

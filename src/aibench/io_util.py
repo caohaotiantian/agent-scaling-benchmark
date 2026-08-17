@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import uuid
@@ -49,9 +50,11 @@ def atomic_write(path: Path, *, newline: str | None = None) -> Generator[TextIO,
             yield handle
         os.replace(tmp, path)
     finally:
-        # A raise inside the body (or in `os.replace`) must not leave the scratch file behind.
-        if tmp.exists():
-            tmp.unlink()
+        # A raise inside the body (or in `os.replace`) must not leave the scratch file behind —
+        # and cleaning up must not *replace* that exception with its own. An unlink that loses
+        # a race, or hits a read-only directory, would otherwise hide the real failure.
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -85,7 +88,7 @@ def relative_to_repo(path: Path | str) -> str:
     """``path`` as the repository sees it, or unchanged when it lies outside.
 
     Two tracked calibration files embed
-    ``/Users/deepsky/Documents/projects/agent-scaling-benchmark/runs/...`` in `run_dir` and
+    an absolute path under the author's home directory in `run_dir` and
     结果目录. That is an engineer's home directory published in the repository, and it is also
     useless to a reader: the run directories are gitignored, so the only actionable part of the
     string is the part after the repository root.

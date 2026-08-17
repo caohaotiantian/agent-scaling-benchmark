@@ -220,10 +220,26 @@ def grade_case(
 
     ``baseline`` is :func:`workspace_inventory` taken right after materialization. Without
     it the interference check cannot tell a file the workspace was built with from one the
-    submission added, so it is only armed for cases that declared `protected_paths` — the
-    conservative behaviour, and the one every caller had before.
+    submission added, so without a baseline it falls back to arming only for cases that declared
+    `protected_paths`.
+
+    That fallback is *narrower* than what callers had before this parameter existed — then the
+    gate was armed for every `script` and `composite` case. Both callers in this repository pass
+    a baseline, so nothing in-tree lost coverage; a caller that does not pass one gets the
+    conservative gate and should pass one.
     """
     mode = case.grader.mode
+
+    # Above the mode dispatch, not inside `_grade_script`. A `gold` JavaScript case was graded
+    # anyway on a machine with no usable node — `_grade_gold` compares files and never runs the
+    # suite, so it returned a verdict about a case whose tests could not execute.
+    if case_language_is_javascript(case.language) and (reason := unsupported_node_reason()):
+        return GradeResult(
+            passed=False,
+            mode=mode,
+            detail=f"javascript grading unavailable: {reason}",
+            infra_error=True,
+        )
 
     violation = check_protected_paths(case, workspace)
     arm_interference = bool(case.grader.protected_paths) or (

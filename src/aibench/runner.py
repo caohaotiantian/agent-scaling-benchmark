@@ -50,9 +50,15 @@ def _run_one_attempt(
     # an outage is absorbed was an env var — invisible in the manifest the run is reconstructed
     # from. Two runs whose rows differ because one retried four times and the other twice
     # looked like the same configuration.
-    max_case_tries = case_retries
-    if max_case_tries is None:
-        max_case_tries = max(1, int(os.environ.get("AIBENCH_CASE_RETRY", "2")))
+    if case_retries is None:
+        case_retries = os.environ.get("AIBENCH_CASE_RETRY", "2")
+    # `max(1, ...)` on both paths, not only the env one. `case_retry: 0` in a run YAML meant a
+    # loop that never ran, and `_run_one_attempt` returned `None` into an `assert` — which
+    # `python -O` strips, turning a crash into a `None` row.
+    try:
+        max_case_tries = max(1, int(case_retries))
+    except (TypeError, ValueError):
+        max_case_tries = 2
 
     last_row: dict[str, Any] | None = None
 
@@ -358,6 +364,16 @@ def run_benchmark(
         # row. Without this, two rows on `baseline.yaml` both wrote `prod-baseline` into their
         # manifest and summary, and the artifacts could not say which row produced them.
         run_cfg.experiment_name = experiment_name
+    if run_cfg.selection_strategy not in KNOWN_STRATEGIES:
+        # Checked before a single case runs. `_select_attempt` raises too, but that is reached
+        # only after the whole matrix has been executed and paid for, and it leaves the run
+        # without `results.jsonl` or `summary.json` — the measurements are lost along with the
+        # money. A typo in a config is knowable at load time.
+        raise ValueError(
+            f"unknown selection_strategy {run_cfg.selection_strategy!r} in "
+            f"{run_cfg_path.name if run_cfg_path else 'the run config'}; "
+            f"known: {sorted(KNOWN_STRATEGIES)}"
+        )
     cs = case_set or run_cfg.case_set
     cases = load_cases(cs, validate=True)
     workers = int(case_workers if case_workers is not None else run_cfg.case_workers)
@@ -472,6 +488,21 @@ def run_benchmark(
 
     unmet = unsatisfied_promises()
     manifest["grading_env_unsatisfied"] = unmet
+    # How many times an infra failure was retried. The docs say this field is why `case_retry`
+    # is worth having in the config at all; it was not being written.
+    import os as _os
+
+    try:
+        manifest["case_retry"] = max(
+            1,
+            int(
+                run_cfg.case_retry
+                if run_cfg.case_retry is not None
+                else _os.environ.get("AIBENCH_CASE_RETRY", "2")
+            ),
+        )
+    except (TypeError, ValueError):
+        manifest["case_retry"] = 2
     # Which builds satisfied the promises, not only which names were promised. Two runs of the
     # same case set can disagree because one had numpy 2.1 and the other 2.3; no artifact said.
     manifest["grading_env_digest"] = grading_env_digest()

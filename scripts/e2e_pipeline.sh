@@ -71,9 +71,10 @@ Tiering (discrimination):
 Calibration (measures real discrimination; costs anchors x repeats full runs):
   --calibrate          Run calibrate-cases + select-cases, then ablate the selected set
   --repeats N          Repeats per anchor (default 3)
-  --difficulty-quota S Band composition for select-cases, e.g. "easy=2,mid=4,hard=2".
-                       Without it select-cases takes whatever the pool happens to contain,
-                       so the selected set's band mix is an accident of the draft sample.
+  --difficulty-quota S Band composition for select-cases as **shares summing to 1**, e.g.
+                       "easy=0.15,mid=0.70,hard=0.15". Counts are rejected: `_validate_shares`
+                       requires each value in (0, 1]. Without it select-cases takes whatever the
+                       pool happens to contain, so the band mix is an accident of the sample.
   --anchors PATH       Anchor panel YAML (default configs/runs/anchor-panel.yaml)
 EOF
 }
@@ -100,6 +101,32 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown: $1"; usage; exit 1 ;;
   esac
 done
+
+# Validated here, not at the point of use. `select-cases` runs inside an `if ... then ... else`
+# so that "the calibration kept nothing" stays a legitimate verdict rather than a pipeline
+# failure — which also swallows a malformed quota and prints it as that same verdict, after the
+# expensive calibration has already been paid for.
+if [[ -n "$DIFFICULTY_QUOTA" ]]; then
+  if ! "${UV[@]}" python - "$DIFFICULTY_QUOTA" <<'VALIDATE_QUOTA'; then
+import sys
+
+from aibench.calibrate import _validate_shares, parse_tier_quota
+
+# `parse_tier_quota` only parses. `_validate_shares` is what refuses counts, and it is reached
+# deep inside `select-cases`, where the error is swallowed by the surrounding `if`.
+try:
+    _validate_shares(parse_tier_quota(sys.argv[1]), "difficulty quota")
+except Exception as exc:
+    print(f"bad --difficulty-quota {sys.argv[1]!r}: {exc}", file=sys.stderr)
+    print(
+        "shares are fractions summing to 1, e.g. easy=0.15,mid=0.70,hard=0.15",
+        file=sys.stderr,
+    )
+    raise SystemExit(2) from None
+VALIDATE_QUOTA
+    exit 2
+  fi
+fi
 
 echo "==> e2e pipeline dry_run=$DRY_RUN"
 

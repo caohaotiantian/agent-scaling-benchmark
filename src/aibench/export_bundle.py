@@ -152,6 +152,11 @@ def _reject_reason(
         return "provenance"
     if require_audit and not meta.get("validity_ok"):
         return "audit"
+    if require_audit and meta.get("validity_unverified"):
+        # `validity_ok` is true and means nothing: at least one gate could not run on the
+        # machine that annotated this case. Shipping it would deliver an unchecked case in a
+        # bundle whose whole promise is that every case was checked.
+        return "audit_unverified"
     if scan_case_dict(case) and not allow_secrets:
         return "secrets"
     share = verbatim_share(case, draft_lines)

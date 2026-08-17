@@ -37,10 +37,22 @@ def fixture_case_set_root() -> Path:
 
 
 def case_root_is_overridden() -> bool:
-    """Whether the operator pointed the corpus root somewhere deliberately."""
+    """Whether the operator pointed the corpus root *somewhere else* deliberately.
+
+    Pointing it at the default location is not an override — `AIBENCH_CASE_ROOT` set to
+    `benchmarks/ai_coding/cases` used to switch the fixture-shadow guard off entirely while
+    changing nothing about where cases are read from.
+    """
     import os
 
-    return bool(os.environ.get(CASE_ROOT_ENV))
+    override = os.environ.get(CASE_ROOT_ENV)
+    if not override:
+        return False
+    default = repo_root() / "benchmarks/ai_coding/cases"
+    try:
+        return Path(override).resolve() != default.resolve()
+    except OSError:
+        return True
 
 
 def case_set_dir(case_set: str) -> Path:
