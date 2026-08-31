@@ -38,4 +38,5 @@ def test_parallel_matches_serial_on_seed(tmp_path: Path):
     assert s1["success_count"] == s2["success_count"]
     assert s1.get("confidence_interval")
     assert s1.get("stratified_by_task_type")
+    assert s1.get("stratified_by_problem_type")
     assert "case_set_fingerprint" in s1

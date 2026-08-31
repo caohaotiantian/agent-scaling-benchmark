@@ -29,6 +29,10 @@ from aibench.extract.llm_chat_records import (
     resolve_db_url,
 )
 from aibench.extract.llm_soft_filter import llm_soft_filter_draft
+from aibench.extract.problem_type import (
+    distribution as problem_type_distribution,
+    stamp_problem_type,
+)
 from aibench.extract.reverse_case import (
     chat_json,
     iter_file_versions,
@@ -412,6 +416,19 @@ def main(argv: list[str] | None = None) -> int:
         "--fail-on-error",
         action="store_true",
         help="Exit 2 if any case fails error-level gates",
+    )
+
+    p_pt = sub.add_parser(
+        "classify-cases",
+        help="Label cases with a closed defect-mechanism vocabulary and report the distribution",
+    )
+    p_pt.add_argument("--case-set", type=str, default=None)
+    p_pt.add_argument("--input-dir", type=Path, default=None)
+    p_pt.add_argument("--report", type=Path, default=None)
+    p_pt.add_argument(
+        "--annotate",
+        action="store_true",
+        help="Write problem_type into each case's metadata",
     )
 
     p_doc = sub.add_parser(
@@ -824,6 +841,7 @@ def main(argv: list[str] | None = None) -> int:
             path: Path, case: dict[str, Any], label: str, *, model_called: bool = True
         ) -> dict[str, Any] | None:
             """Write the case now. A run killed later keeps everything it already paid for."""
+            stamp_problem_type(case)
             _stamp_generation_provenance(case, draft_query=draft_query, model_called=model_called)
             status = sink.emit(path.name, case)
             if status == "full":
@@ -944,6 +962,14 @@ def main(argv: list[str] | None = None) -> int:
                 "tier distribution: "
                 + ", ".join(f"{k}={v}" for k, v in sorted(tier_counts.items()))
             )
+        written_cases = [
+            load_json(p) for p in sorted(out.glob("*.json")) if not p.name.startswith("_")
+        ]
+        pt_counts = problem_type_distribution(written_cases)
+        if pt_counts:
+            print(
+                "problem_type distribution: " + ", ".join(f"{k}={v}" for k, v in pt_counts.items())
+            )
         if n_ok == 0 and args.min_tier:
             print(
                 f"Nothing settled at {args.min_tier} or above (see the skip lines). A case only "
@@ -1054,6 +1080,45 @@ def main(argv: list[str] | None = None) -> int:
         if args.fail_on_error and rep["failed"] > 0:
             return 2
         return 0
+
+    if args.cmd == "classify-cases":
+        from aibench.cases import case_set_dir, is_case_json_path
+
+        if args.input_dir:
+            directory = args.input_dir
+        elif args.case_set:
+            directory = case_set_dir(args.case_set)
+        else:
+            print("provide --case-set or --input-dir")
+            return 1
+        if not directory.is_dir():
+            print(f"not a directory: {directory}")
+            return 1
+        paths = sorted(p for p in directory.glob("*.json") if is_case_json_path(p))
+        items: list[dict[str, Any]] = []
+        for path in paths:
+            case = load_json(path)
+            result = stamp_problem_type(case)
+            if args.annotate:
+                write_json(path, case)
+            items.append(
+                {
+                    "case_id": case.get("case_id"),
+                    "problem_type": result.problem_type,
+                    "reasons": result.reasons,
+                    "path": path.name,
+                }
+            )
+        counts = problem_type_distribution(
+            [{"metadata": {"problem_type": i["problem_type"]}} for i in items]
+        )
+        report = {"total": len(items), "counts": counts, "items": items}
+        if args.report:
+            write_json(args.report, report)
+        print(f"classified {len(items)} cases" + (f" -> {directory}" if args.annotate else ""))
+        if counts:
+            print("problem_type distribution: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+        return 0 if items else 1
 
     if args.cmd == "export-bundle":
         try:

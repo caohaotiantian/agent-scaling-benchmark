@@ -18,6 +18,7 @@ import json
 import re
 from typing import Any
 
+from aibench.extract.problem_type import stamp_problem_type
 from aibench.extract.sessions import (
     redact_paths,
     redact_source,
@@ -343,6 +344,7 @@ def _assemble_case(
     if not settled:
         # Honest, and rare: two files with a symptom-only prompt and no defect marker meets T2.
         case["metadata"].pop("tier", None)
+    stamp_problem_type(case)
     return case
 
 

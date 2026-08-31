@@ -85,6 +85,11 @@ class Case:
         t = self.metadata.get("tier")
         return str(t) if t else None
 
+    @property
+    def problem_type(self) -> str | None:
+        t = self.metadata.get("problem_type")
+        return str(t) if t else None
+
 
 @dataclass
 class ModelConfig:

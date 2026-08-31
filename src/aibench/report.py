@@ -126,6 +126,7 @@ def build_summary(
         "stratified_by_task_type": stratify_results(case_results, key="task_type"),
         "stratified_by_difficulty": stratify_results(case_results, key="difficulty"),
         "stratified_by_tier": stratify_results(case_results, key="tier"),
+        "stratified_by_problem_type": stratify_results(case_results, key="problem_type"),
         "reward_hack_count": sum(1 for r in case_results if r.get("reward_hack")),
         "judgment_agreement": None,
         "baseline_win_rate": None,
@@ -411,6 +412,7 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
         ("tier", "stratified_by_tier"),
         ("task_type", "stratified_by_task_type"),
         ("difficulty", "stratified_by_difficulty"),
+        ("problem_type", "stratified_by_problem_type"),
     ):
         strata = summary.get(key) or {}
         lines.append(f"### by {title}")
@@ -423,6 +425,12 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
             lines.append(
                 "> 口径：`estimate_difficulty` 的**体量启发式**（行数 + `def test_` 个数），"
                 "不是校准测出的 `p_hat` 分档。二者共用 `easy`/`hard` 两个词，不可横比。"
+            )
+            lines.append("")
+        if title == "problem_type":
+            lines.append(
+                "> 口径：`metadata.problem_type` 的缺陷机制（missing_cli_wiring / off_by_one / …），"
+                "不是 `task_type` 的动作类型（bugfix / feature）。未标注的落在 `unknown`。"
             )
             lines.append("")
         lines.append("| 分层 | n | 成功 | 成功率 | 95% CI |")
