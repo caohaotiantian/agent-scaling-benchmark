@@ -188,6 +188,12 @@ def test_i18n_lines_are_copy_change():
     assert classify_problem_type(_case(stub, gold)).problem_type == "copy_change"
 
 
+def test_translated_message_list_is_copy_change_not_schema_gap():
+    stub = "MSGS = ['初始化完成', '搜索开始']\n"
+    gold = "MSGS = ['Initialization complete', 'Search started']\n"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "copy_change"
+
+
 def test_dotdot_path_is_wrong_path_base():
     stub = "import os\nP = os.path.join(os.path.dirname(__file__), '..')\n"
     gold = "import os\nP = os.path.join(os.path.dirname(__file__), '..', '..')\n"

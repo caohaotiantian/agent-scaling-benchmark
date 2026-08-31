@@ -92,7 +92,6 @@ _CONST_ASSIGN = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=", re.M)
 _CJK = re.compile(r"[\u4e00-\u9fff]")
 _STRINGY = re.compile(r"""(['"]{1,3}).+\1""")
 _WHOLESALE_RATIO = 0.35
-_REVIEW_GENERATION = frozenset({"review", "review-choice"})
 
 
 @dataclass(frozen=True)
@@ -126,9 +125,6 @@ def classify_problem_type(case: dict[str, Any] | Any) -> ProblemTypeResult:
         return ProblemTypeResult("other", ["malformed_case"])
     if str(raw.get("task_type") or "") == "pairwise":
         return ProblemTypeResult("review_choice", ["task_type=pairwise"])
-    meta = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
-    if str(meta.get("generation") or "") in _REVIEW_GENERATION:
-        return ProblemTypeResult("review_choice", ["generation=review"])
 
     try:
         pairs = _impl_gold_pairs(raw)
@@ -287,6 +283,13 @@ def _defined_names(src: str) -> set[str]:
     return names
 
 
+def _schema_token(value: str) -> bool:
+    """Identifiers, paths, flags — not user-facing sentences."""
+    if not value or _CJK.search(value) or " " in value:
+        return False
+    return bool(re.fullmatch(r"[\w./-]+", value))
+
+
 def _schema_keys(src: str) -> set[str]:
     keys: set[str] = set()
     try:
@@ -298,21 +301,31 @@ def _schema_keys(src: str) -> set[str]:
                         keys.add(stmt.target.id)
             if isinstance(node, ast.Dict):
                 for k in node.keys:
-                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                    if (
+                        isinstance(k, ast.Constant)
+                        and isinstance(k.value, str)
+                        and _schema_token(k.value)
+                    ):
                         keys.add(k.value)
             if isinstance(node, ast.List):
                 for elt in node.elts:
-                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                    if (
+                        isinstance(elt, ast.Constant)
+                        and isinstance(elt.value, str)
+                        and _schema_token(elt.value)
+                    ):
                         keys.add(elt.value)
     except SyntaxError:
         pass
     for ln in src.splitlines():
-        if m := _KEY_LINE.match(ln):
+        if (m := _KEY_LINE.match(ln)) and _schema_token(m.group(1)):
             keys.add(m.group(1))
-        if m := _LIST_ENTRY.match(ln):
+        if (m := _LIST_ENTRY.match(ln)) and _schema_token(m.group(1)):
             keys.add(m.group(1))
         for m in _TS_UNION.finditer(ln):
-            keys.add(next(g for g in m.groups() if g))
+            tok = next(g for g in m.groups() if g)
+            if _schema_token(tok):
+                keys.add(tok)
     keys.update(_CONST_ASSIGN.findall(src))
     return keys
 
