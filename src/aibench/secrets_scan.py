@@ -186,13 +186,12 @@ def scan_text(
     return out
 
 
-#: Text the harness wrote about a case, not text the case ships. `key_lines` can hold the
-#: redactor's own `sk-***` placeholder, and `validity_issues` holds verbatim runner output —
-#: which `export_bundle` deletes before writing anyway. Reporting either makes the gate refuse
-#: a case for something it produced itself.
+#: Text the harness wrote about a case, not text the case ships. `validity_issues` holds
+#: verbatim runner output — which `export_bundle` deletes before writing anyway. Reporting it
+#: makes the gate refuse a case for something it produced itself.
 #:
-#: Matched by their exact position. Excluding the names wherever they appear would exempt any
-#: subtree a case happened to give one of them — a case about a validation library, say.
+#: Matched by exact position. Excluding a name wherever it appears would exempt any subtree a
+#: case happened to give that name — a case about a validation library, say.
 #: `grader.key_lines` is NOT here: `grading.py` decides pass/fail from it and both `promote`
 #: and `export-bundle` write it, so it is case content. What it needed was for the redactor's
 #: own placeholder to stop reading as a credential — see `_REDACTED`.

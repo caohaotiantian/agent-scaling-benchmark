@@ -3,6 +3,8 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
+import shlex
 import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -77,6 +79,55 @@ def write_text(path: Path, text: str) -> None:
     """
     with atomic_write(path) as f:
         f.write(text)
+
+
+#: `\Z`, not `$`: `$` also matches before a trailing newline, which let `"..\n"` through the
+#: inner guard while the schema's lookahead refused it — the two layers failing in opposite
+#: directions is the one thing having two of them was supposed to prevent.
+CASE_ID_PATTERN = re.compile(r"\A[A-Za-z0-9._-]{1,128}\Z")
+
+
+def safe_case_id(case_id: str) -> str:
+    """Confine a case-supplied id that is also a directory name and a file name.
+
+    `run_dir / "cases" / case_id` absorbs an absolute id whole and follows `..` out of the
+    run directory, and the first thing `materialize_workspace` does with the result is
+    `shutil.rmtree` it. `assert_disposable` refuses only paths that are or contain the
+    checkout, so everything else was reachable. Enforced here rather than at each of the
+    five places that spell `f"{case_id}.json"`.
+    """
+    if not CASE_ID_PATTERN.match(case_id or "") or set(case_id) == {"."}:
+        raise ValueError(
+            f"unsafe case_id {case_id!r}: expected 1-128 chars of [A-Za-z0-9._-], not all dots"
+        )
+    return case_id
+
+
+#: Characters that meant something to the shell and no longer do. A case set written when
+#: the grader ran through `sh -c` is refused rather than silently reinterpreted: `pytest -q >
+#: out` would otherwise become pytest's argument list, failing for a reason unrelated to the
+#: one the author would look for. Quotes are absent on purpose — `shlex.split` still groups.
+_SHELL_SYNTAX = (";", "&", "|", ">", "<", "`", "$", "(", ")", "*", "?", "~", "\n", "\r")
+
+
+def safe_command(command: str, *, field: str) -> list[str]:
+    """Split a case-supplied command into argv, refusing anything that wanted a shell.
+
+    The command comes from the case JSON, and the case JSON comes from whoever handed you the
+    case set. Running it through a shell made that string arbitrary code on the host; splitting
+    it here is what lets the caller pass `shell=False`.
+    """
+    found = [c for c in _SHELL_SYNTAX if c in command]
+    if found:
+        shown = ", ".join(repr(c) for c in found)
+        raise ValueError(f"{field} is not run through a shell; remove {shown} from {command!r}")
+    try:
+        argv = shlex.split(command)
+    except ValueError as e:
+        raise ValueError(f"{field} cannot be parsed as a command: {command!r} ({e})") from e
+    if not argv:
+        raise ValueError(f"{field} is empty: {command!r}")
+    return argv
 
 
 def repo_root() -> Path:

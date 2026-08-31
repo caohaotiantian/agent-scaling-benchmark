@@ -260,7 +260,7 @@ class ToolLoopAgent(AgentAdapter):
         if tool == "list":
             rel = str(data.get("path") or ".")
             target = (workspace / rel).resolve()
-            if not str(target).startswith(str(workspace.resolve())):
+            if not target.is_relative_to(workspace.resolve()):
                 return "error: path escape"
             if not target.exists():
                 return "error: not found"
@@ -271,7 +271,7 @@ class ToolLoopAgent(AgentAdapter):
         if tool == "read":
             rel = str(data.get("path") or "")
             target = (workspace / rel).resolve()
-            if not str(target).startswith(str(workspace.resolve())):
+            if not target.is_relative_to(workspace.resolve()):
                 return "error: path escape"
             if not target.is_file():
                 return "error: not a file"
@@ -279,7 +279,7 @@ class ToolLoopAgent(AgentAdapter):
         if tool == "write":
             rel = str(data.get("path") or "")
             target = (workspace / rel).resolve()
-            if not str(target).startswith(str(workspace.resolve())):
+            if not target.is_relative_to(workspace.resolve()):
                 return "error: path escape"
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(str(data.get("content") or ""), encoding="utf-8")

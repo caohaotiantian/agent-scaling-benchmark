@@ -36,7 +36,6 @@ refused, because the point is to tell "did not happen" apart from "was not measu
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -48,9 +47,19 @@ from pathlib import Path
 from typing import Any
 
 from aibench.agents.base import AgentAdapter
+from aibench.agents.cli_sandbox import (
+    SANDBOX_EXEC as _SANDBOX_EXEC,
+    changed_paths,
+    checkout_above as _checkout_above,
+    escapes_workspace as _escapes_workspace,
+    mirror_into as _mirror_into,
+    protected_root,
+    resolve_endpoint,
+    sandbox_profile,
+    snapshot,
+)
 from aibench.io_util import repo_root
 from aibench.models import AgentConfig, AgentRunResult, Case, ModelConfig, StepRecord, UsageRecord
-from aibench.workspace import assert_disposable
 
 #: Identifiers for the generated config. Fixed rather than derived: they appear in the
 #: ``-m provider/model`` argument, and a name that varies per run would make the command line
@@ -66,11 +75,6 @@ DEFAULT_SYSTEM = (
     "You are a coding agent working in the given directory. Fix the defect so the project's "
     "tests pass. Edit files directly. Do not modify the tests."
 )
-
-#: Directory entries no agent authored: interpreter and test-runner caches. Counting them as
-#: edits would make ``empty_patch`` false for a run that changed nothing but executed pytest.
-_IGNORED_DIRS = {"__pycache__", ".pytest_cache", "node_modules", ".git", ".opencode"}
-_IGNORED_SUFFIXES = (".pyc", ".pyo")
 
 #: Programs a coding agent needs to inspect a workspace and run its tests. Deliberately the
 #: same set ``tool_loop`` settled on, so switching adapters does not silently change what a
@@ -241,46 +245,6 @@ def child_environment(staging: Path, config_path: Path) -> dict[str, str]:
     return env
 
 
-def _tool_paths(tool: str, payload: dict[str, Any]) -> list[str]:
-    """Filesystem-ish strings an opencode tool call names, for the out-of-workspace check."""
-    if tool == "bash":
-        return [str(payload.get("command") or "")]
-    return [
-        str(payload.get(key) or "")
-        for key in ("filePath", "path", "pattern", "include")
-        if payload.get(key)
-    ]
-
-
-def _escapes_workspace(tool: str, payload: dict[str, Any], workspace: Path) -> bool:
-    """True when a tool call names a path that resolves outside the workspace.
-
-    Deliberately independent of opencode's own refusal wording: this counts what was
-    *attempted*, so a version that stops denying does not silently read as "clean".
-
-    Three things the first version got wrong, each of which it reported as clean:
-    ``../../secret`` was ignored for not starting with ``/``; ``~/secret`` likewise; and a
-    prefix test on the raw string called ``/tmp/ws-other/x`` inside ``/tmp/ws``. Tokens are
-    expanded and resolved, and containment is asked of the path rather than of the string.
-    """
-    for text in _tool_paths(tool, payload):
-        for raw in text.replace("'", " ").replace('"', " ").replace("=", " ").split():
-            token = raw.strip(",;:()")
-            if not token or token.startswith("-"):
-                continue
-            if not (token.startswith(("/", "~", ".")) or "/" in token):
-                continue
-            candidate = Path(os.path.expanduser(token))
-            if not candidate.is_absolute():
-                candidate = workspace / candidate
-            # Lexical, not filesystem: the path need not exist to have been asked for, and a
-            # symlink inside the workspace is the agent's own to follow.
-            resolved = Path(os.path.normpath(candidate))
-            if not resolved.is_relative_to(workspace):
-                return True
-    return False
-
-
 def parse_events(stdout: str, workspace: Path) -> dict[str, Any]:
     """Fold opencode's JSON event stream into usage, steps, and the two counters we audit.
 
@@ -368,82 +332,6 @@ def _int(value: Any) -> int:
         return 0
 
 
-def snapshot(root: Path) -> dict[str, str]:
-    """Content hashes of everything an agent could have authored under ``root``."""
-    out: dict[str, str] = {}
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(root)
-        if any(part in _IGNORED_DIRS for part in rel.parts):
-            continue
-        if path.suffix in _IGNORED_SUFFIXES:
-            continue
-        out[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-    return out
-
-
-def changed_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
-    """Paths the agent added, rewrote, or deleted."""
-    return sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
-
-
-def _mirror_into(source: Path, target: Path) -> None:
-    """Make ``target`` hold exactly ``source``'s contents, deletions included.
-
-    ``target`` itself is kept, because the grader was handed that path before the agent ran.
-
-    Symlinks are copied as links rather than followed. Following them raised
-    ``IsADirectoryError`` on a link to a directory, and by then the loop above had already
-    emptied the target -- the graded workspace was destroyed on the way to reproducing it.
-    """
-    assert_disposable(target)
-    for entry in target.iterdir():
-        if entry.is_dir() and not entry.is_symlink():
-            shutil.rmtree(entry)
-        else:
-            entry.unlink()
-    for entry in source.iterdir():
-        destination = target / entry.name
-        if entry.is_symlink():
-            destination.symlink_to(os.readlink(entry))
-        elif entry.is_dir():
-            shutil.copytree(entry, destination, symlinks=True)
-        else:
-            shutil.copy2(entry, destination)
-
-
-#: Apple deprecated the binary but it still works, and it is the only kernel-level file
-#: boundary available here without a container.
-_SANDBOX_EXEC = Path("/usr/bin/sandbox-exec")
-
-
-def sandbox_profile(protected: Path, *, readable: tuple[Path, ...]) -> str:
-    """A seatbelt profile that hides ``protected`` from the process and its descendants.
-
-    Narrow on purpose. The threat is one specific thing -- the agent reading the case's own
-    gold solution out of this repository -- so the profile denies that subtree and leaves the
-    rest of the machine alone. An allowlist sandbox would be stronger and would also have to
-    enumerate every path a Python or Node toolchain touches, which is how a sandbox ends up
-    disabled in practice.
-
-    ``readable`` are subtrees inside ``protected`` that must stay reachable: the virtualenv,
-    because the grader's command is ``python -m pytest -q`` and an agent that cannot run the
-    tests is a differently-shaped instrument.
-    """
-    lines = [
-        "(version 1)",
-        "(allow default)",
-        # Contents, not metadata. Denying `file-read*` also denies `lstat`, and opencode stats
-        # the repository on the way up its own PATH -- it exited before reaching the gateway
-        # with `EPERM: operation not permitted, lstat`. Metadata reveals nothing that matters
-        # here; the gold solution is bytes inside a file.
-        f'(deny file-read-data file-write* (subpath "{protected}"))',
-    ]
-    lines += [f'(allow file-read-data (subpath "{path}"))' for path in readable]
-    return "\n".join(lines) + "\n"
-
-
 def _run_to_completion(
     command: list[str], *, env: dict[str, str], cwd: Path, timeout_s: float
 ) -> tuple[str, str, int | None, bool]:
@@ -482,14 +370,6 @@ def _run_to_completion(
             return stdout, stderr, None, True
 
 
-def _checkout_above(path: Path) -> Path | None:
-    """The nearest ancestor that is a git checkout, if any."""
-    for parent in [path, *path.parents]:
-        if (parent / ".git").exists():
-            return parent
-    return None
-
-
 class OpenCodeAgent(AgentAdapter):
     """A real coding agent, driven as a subprocess and confined to a mirrored workspace."""
 
@@ -506,23 +386,7 @@ class OpenCodeAgent(AgentAdapter):
 
     def _resolve_endpoint(self) -> tuple[str, str, str] | str:
         """``(api_key, base_url, model_name)`` or the reason it cannot be assembled."""
-        model = self.model_config
-        api_key_env = model.api_key_env or "OPENAI_API_KEY"
-        api_key = os.environ.get(api_key_env) or os.environ.get("AIBENCH_API_KEY")
-        if not api_key:
-            return f"missing API key env: {api_key_env} or AIBENCH_API_KEY"
-        base_url = (
-            model.base_url
-            or os.environ.get("OPENAI_BASE_URL")
-            or os.environ.get("AIBENCH_BASE_URL")
-            or "https://api.openai.com/v1"
-        ).rstrip("/")
-        # Config wins over env, so a multi-model matrix cannot silently run one model under
-        # several labels -- the defect that made an earlier ablation compare a model to itself.
-        model_name = model.model or os.environ.get("OPENAI_MODEL")
-        if not model_name:
-            return "no model name in model config or OPENAI_MODEL"
-        return api_key, base_url, model_name
+        return resolve_endpoint(self.model_config)
 
     def _version_mismatch(self) -> str | None:
         """Refuse a scaffold version other than the one the configs pin.
@@ -589,10 +453,12 @@ class OpenCodeAgent(AgentAdapter):
             return command, False
         if not _SANDBOX_EXEC.is_file():
             return command, False
-        repo = repo_root()
+        # The whole checkout, not just this module's subtree: the git object store above
+        # it serves the case's gold solution to anyone who asks `git show`.
+        protected = protected_root()
         profile = staging / "sandbox.sb"
         profile.write_text(
-            sandbox_profile(repo, readable=(repo / ".venv",)),
+            sandbox_profile(protected, readable=(repo_root() / ".venv",)),
             encoding="utf-8",
         )
         return [str(_SANDBOX_EXEC), "-f", str(profile), *command], True

@@ -1,0 +1,27 @@
+# Production single-run defaults for the pi adapter.
+#
+# max_steps, max_wall_time_s and case_workers deliberately match baseline-opencode.yaml, so a
+# later pi-vs-opencode comparison varies the agent axis and nothing else. Note the budget is
+# enforced differently on each side (see configs/agents/pi.yaml) — the numbers are comparable,
+# the mechanism is not identical, and a report comparing them has to say so.
+#
+# The case-set fingerprint is pinned, which no other run config does. `_clean2026` is a local
+# production set (not committed here); a run that silently measured a drifted copy of it would
+# be published against the wrong baseline.
+experiment_name: prod-pi
+algorithm_name: Baseline
+algorithm_version: v1.0
+budget_axis: steps
+budget_value: "max_steps=40, max_wall_time_s=900"
+branches: 1
+max_attempts: 1
+max_steps: 40
+max_wall_time_s: 900
+selection_strategy: first-submit
+case_set: _clean2026
+expected_case_set_fingerprint: "9149d02169845dc5"
+benchmark_name: AI-Coding-Assist
+grouping: task_type
+agent_config: configs/agents/pi.yaml
+model_config: configs/models/glm52.yaml
+case_workers: 3

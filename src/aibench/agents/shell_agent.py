@@ -8,6 +8,7 @@ Config options:
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -62,12 +63,15 @@ class ShellAgent(AgentAdapter):
         prompt_file = workspace / ".aibench_prompt.txt"
         prompt_file.write_text(case.prompt, encoding="utf-8")
         before = _snapshot(workspace)
+        # The template is the operator's and may legitimately use shell syntax — that is what
+        # this adapter is for. The values substituted into it are not: `case_id` comes from the
+        # case JSON, and the paths from a workspace whose name contains it.
         cmd = (
             str(tmpl)
-            .replace("{workspace}", str(workspace))
-            .replace("{prompt_file}", str(prompt_file))
-            .replace("{case_id}", case.case_id)
-            .replace("{max_steps}", str(max_steps))
+            .replace("{workspace}", shlex.quote(str(workspace)))
+            .replace("{prompt_file}", shlex.quote(str(prompt_file)))
+            .replace("{case_id}", shlex.quote(case.case_id))
+            .replace("{max_steps}", str(int(max_steps)))
         )
         env = os.environ.copy()
         env.update(

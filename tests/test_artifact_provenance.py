@@ -186,7 +186,7 @@ class TestARunThatNeverRanSaysSo:
     """RP-60. `aibench run` exited 0 and wrote a complete report when 100% of cases failed on
     missing credentials, so `success_rate: 0.0` read as a capability result."""
 
-    def test_the_exit_code_is_non_zero(self, tmp_path, monkeypatch):
+    def test_the_exit_code_is_non_zero(self, tmp_path, monkeypatch, capsys):
         from aibench import cli
 
         def _fake_run(**kwargs):
@@ -195,7 +195,11 @@ class TestARunThatNeverRanSaysSo:
             (run_dir / "summary.json").write_text(
                 json.dumps(
                     {
-                        "success_rate": 0.0,
+                        # What `build_summary` actually writes when nothing was effective:
+                        # `effective_n == 0` yields None, never 0.0. The fixture said 0.0, so
+                        # this test never reached the format string that production reached,
+                        # and the `TypeError` there went unseen while the test stayed green.
+                        "success_rate": None,
                         "success_count": 0,
                         "effective_case_count": 0,
                         "case_count": 12,
@@ -210,8 +214,16 @@ class TestARunThatNeverRanSaysSo:
 
         monkeypatch.setattr(cli, "run_benchmark", _fake_run)
         assert cli.main(["run", "--case-set", "seed-v0"]) == 1
+        # Exit 1 alone did not distinguish the diagnosis from a crash on the way to it.
+        out = capsys.readouterr().out
+        assert "FAILED: no case executed. All 12 died on infrastructure" in out
+        assert "(12 infra errors)" in out
+        assert "this is not a 0% pass rate" in out
+        # The rate line must be absent, not merely reordered: leaving it above the guard as
+        # well would satisfy every assertion above while restoring the crash.
+        assert "success_rate=" not in out
 
-    def test_a_real_run_still_exits_zero(self, tmp_path):
+    def test_a_real_run_still_exits_zero(self, tmp_path, capsys):
         from aibench import cli
 
         assert (
@@ -228,6 +240,12 @@ class TestARunThatNeverRanSaysSo:
             )
             == 0
         )
+        # A run that measured something still reports the rate. Only the exit code was checked
+        # here, so moving the line that prints it — or dropping it into an unreachable branch —
+        # would not have been caught.
+        out = capsys.readouterr().out
+        assert "success_rate=1.000 (4/4)" in out
+        assert "FAILED" not in out
 
 
 class TestTheGradingEnvironmentPromiseIsChecked:

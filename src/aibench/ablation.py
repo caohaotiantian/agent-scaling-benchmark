@@ -292,11 +292,16 @@ def run_ablation(
         # lift, the token multiple and the overview table all put an oracle rate beside three
         # honest ones in `configs/runs/ablation-matrix.yaml` as it ships.
         r["comparable_with_baseline"] = bool(r.get("selection_is_oracle")) == base_oracle
-        if base_sr is None:
+        # Symmetric with the baseline: a candidate that measured nothing has no lift either.
+        # `or 0` read its `None` as a 0% rate, so a row with 0 effective cases and every case
+        # an infra error was published as `-100.0pp` — a capability comparison against a
+        # measurement that does not exist. `ablation_report.md` warns about such rows; the CSV
+        # and XLSX carry neither the warning nor an `effective_case_count` column.
+        if base_sr is None or r.get("success_rate") is None:
             r["relative_success_lift"] = None
             r["overview_row"]["相对基线收益"] = None
         else:
-            lift = float(r["success_rate"] or 0) - base_sr
+            lift = float(r["success_rate"]) - base_sr
             r["relative_success_lift"] = lift
             marker = "" if r["comparable_with_baseline"] else "（oracle，不可比）"
             r["overview_row"]["相对基线收益"] = f"{lift * 100:+.1f}pp{marker}"
@@ -442,7 +447,16 @@ def compare_runs_pairwise(
         if r["experiment_name"] == baseline:
             continue
         both, only_b, only_a, neither = paired_outcomes(base_rows, r.get("case_rows") or [])
+        # `paired_outcomes` drops infra_error rows on both sides, so a run that measured
+        # nothing shares no case with the baseline and all four cells are 0. `mcnemar_test`
+        # then answers p = 1.0, "not significant" — which reads as "no difference found"
+        # when the truth is that no comparison happened. Say the second thing.
+        paired_n = both + only_b + only_a + neither
+        # `b`, `c` and `discordant` stay — they are honest counts of an empty pairing.
+        # Only the verdict is withheld, because there is nothing to be significant about.
         test = mcnemar_test(only_b, only_a)
+        if not paired_n:
+            test = {**test, "p_value": None, "significant": None}
         comparable = bool(r.get("selection_is_oracle")) == base_oracle
         # Two rows that moved no knob at all are the same configuration run twice. Their
         # disagreement is this harness's own run-to-run noise — 4.8% of cases on this corpus,
@@ -461,6 +475,7 @@ def compare_runs_pairwise(
                 # is an upper bound against a submission. The p-value is still computed — the
                 # arithmetic is not wrong — but it does not answer "is this model better".
                 "comparable": comparable,
+                "paired_case_count": paired_n,
                 "self_repeat": self_repeat,
                 "candidate_selection_is_oracle": bool(r.get("selection_is_oracle")),
                 **test,
@@ -533,14 +548,13 @@ def _render_ablation_report(
     ]
     for r in rows:
         o = r.get("overview_row") or {}
-        sr = float(r.get("success_rate") or 0) * 100
         lift = o.get("相对基线收益")
         if lift is None and r.get("relative_success_lift") is not None:
             lift = f"{float(r['relative_success_lift']) * 100:+.1f}pp"
         lines.append(
             f"| {o.get('算法名称')} | {o.get('Agent与模型')} | {o.get('基础/主模型')} "
             f"| {o.get('Benchmark')} | {o.get('Case数')} | {o.get('主指标名称')} "
-            f"| {sr:.1f}% | {format_hours(o.get('总体耗时(h)'))} "
+            f"| {format_pct(r.get('success_rate'))} | {format_hours(o.get('总体耗时(h)'))} "
             f"| {o.get('总体Token消耗')} | {lift if lift is not None else ''} |"
         )
     lines.extend(
@@ -555,8 +569,10 @@ def _render_ablation_report(
     )
     for r in rows:
         basis = "oracle 上界" if r.get("selection_is_oracle") else "提交"
+        # `0.000` beside `有效Case 0` is a rate for a run that never produced one.
+        rate = "-" if r.get("success_rate") is None else f"{float(r['success_rate']):.3f}"
         lines.append(
-            f"| {r['experiment_name']} | {r['run_id']} | {float(r['success_rate'] or 0):.3f} "
+            f"| {r['experiment_name']} | {r['run_id']} | {rate} "
             f"| {basis} | {r.get('effective_case_count')} | {r.get('infra_error_count')} "
             f"| {r['total_tokens']} | {r.get('total_cost')} | {r['run_dir']} |"
         )
@@ -661,10 +677,15 @@ def _render_ablation_report(
                 note = "否（oracle vs 提交）"
             else:
                 note = "是"
+            if p.get("p_value") is None:
+                pval, verdict = "-", "-"
+                note = "否（两侧没有共同测到的 case）"
+            else:
+                pval, verdict = f"{p['p_value']:.4f}", ("是" if p["significant"] else "否")
             lines.append(
                 f"| {p['candidate']} | {p['both_passed']} | {p['only_baseline']} "
-                f"| {p['only_candidate']} | {p['discordant']} | {p['p_value']:.4f} "
-                f"| {'是' if p['significant'] else '否'} | {note} |"
+                f"| {p['only_candidate']} | {p['discordant']} | {pval} "
+                f"| {verdict} | {note} |"
             )
     lines.extend(_render_cost_rungs_md(rows))
     lines.append("")

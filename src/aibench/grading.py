@@ -5,8 +5,10 @@ import json
 import re
 import shutil
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
+from aibench.io_util import safe_command
 from aibench.languages import (
     case_language_is_javascript,
     pass_ratio,
@@ -14,7 +16,7 @@ from aibench.languages import (
     unsupported_node_reason,
 )
 from aibench.models import Case, GradeResult
-from aibench.workspace import safe_relpath as _safe_relpath
+from aibench.workspace import confined_path as _confined_path, safe_relpath as _safe_relpath
 
 
 def _normalize(text: str) -> str:
@@ -51,10 +53,16 @@ def check_protected_paths(case: Case, workspace: Path) -> str | None:
 # Files that change how pytest collects or runs, rather than what the code does. A solver
 # has no legitimate reason to introduce one in these self-contained cases, and each is a
 # well-known way to make a suite pass without fixing anything.
+#: Every name in `_pytest.config.findpaths.locate_config`'s `config_names`, plus the two
+#: import hooks. Checking only `pytest.ini` left `.pytest.ini` — same effect, same directory —
+#: silencing the hidden tests with the gate reporting nothing.
 _COLLECTION_CONTROL_FILES = frozenset(
     {
         "conftest.py",
         "pytest.ini",
+        ".pytest.ini",
+        "pytest.toml",
+        ".pytest.toml",
         "setup.cfg",
         "tox.ini",
         "pyproject.toml",
@@ -72,6 +80,15 @@ _SKIP_MARKERS = re.compile(
     r"\bpytest\.skip\s*\(|"
     r"\bpytest\.exit\s*\(|\braise\s+unittest\.SkipTest\b"
 )
+
+
+def is_collection_control(name: str) -> bool:
+    """Whether a filename is one pytest reads to decide what it collects.
+
+    Case-folded: macOS and Windows hand pytest `PYTEST.INI` when it asks for `pytest.ini`, so an
+    exact comparison saw nothing while the file did its work.
+    """
+    return name.lower() in _COLLECTION_CONTROL_FILES
 
 
 def workspace_inventory(workspace: Path) -> dict[str, str]:
@@ -153,12 +170,20 @@ def detect_grading_interference(
             return False
 
     for path in sorted(workspace.rglob("*")):
-        # Symlinks are resolved, not skipped: `is_file()` follows one, and a link is the
+        rel_any = path.relative_to(workspace).as_posix()
+        if path.is_symlink() and path.is_dir():
+            # `rglob` will not descend into it, and pytest's `is_dir()` will. Everything behind
+            # it — a `conftest.py` that patches the runner, a replacement for a hidden test —
+            # is imported by the grader and invisible to this loop. Nothing legitimate ships one.
+            return f"grading_interference_symlinked_dir: {rel_any}"
+        # File symlinks are resolved, not skipped: `is_file()` follows one, and a link is the
         # cheapest way to put content pytest will import somewhere this loop does not read.
         if not path.is_file():
             continue
         rel = path.relative_to(workspace).as_posix()
-        if path.name in _COLLECTION_CONTROL_FILES:
+        # macOS and Windows resolve `PYTEST.INI` to the same file pytest reads, so an exact
+        # comparison let an agent ship one and silence the hidden tests.
+        if is_collection_control(path.name):
             if path.is_symlink():
                 # Nothing legitimate needs one, and its target is outside what the case ships.
                 return f"grading_interference_symlink: {rel}"
@@ -200,6 +225,13 @@ def inject_hidden_tests(case: Case, workspace: Path) -> list[str]:
     for fb in case.grader.hidden_tests:
         rel = _safe_relpath(fb.path)
         path = workspace / rel
+        # The *parent*, resolved, and before anything is created. A symlinked parent sends the
+        # write outside the workspace while every component name stays relative; creating the
+        # intermediate directories first would leave them out there even on the refusal path.
+        # The leaf is deliberately not resolved: a symlink planted there is replaced below,
+        # which is the anti-cheat behaviour and the thing this function exists to do.
+        if not path.parent.resolve().is_relative_to(workspace.resolve()):
+            raise ValueError(f"hidden test escapes workspace: {fb.path}")
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.is_symlink() or path.is_file():
             path.unlink()
@@ -215,6 +247,7 @@ def grade_case(
     workspace: Path,
     *,
     baseline: dict[str, str] | None = None,
+    env_passthrough: Sequence[str] = (),
 ) -> GradeResult:
     """Grade one submission.
 
@@ -267,7 +300,7 @@ def grade_case(
         inject_hidden_tests(case, workspace)
 
     if mode == "script":
-        return _grade_script(case, workspace)
+        return _grade_script(case, workspace, env_passthrough=env_passthrough)
     if mode == "gold":
         return _grade_gold(case, workspace)
     if mode == "llm_judge":
@@ -275,7 +308,7 @@ def grade_case(
     if mode == "composite":
         # Prefer script if present, else gold.
         if case.grader.command:
-            r = _grade_script(case, workspace)
+            r = _grade_script(case, workspace, env_passthrough=env_passthrough)
             # Falling through on an uncollectable workspace lets the gold check pass a case
             # whose tests never ran, and drops the collection verdict on the floor.
             if r.passed or r.infra_error or r.collection_error:
@@ -286,10 +319,21 @@ def grade_case(
     return GradeResult(passed=False, mode=mode, detail=f"unknown grader mode: {mode}")
 
 
-def _grader_env() -> dict[str, str]:
-    """The environment a grader runs under, with the sources of run-to-run drift pinned.
+#: What a grader legitimately needs. Verified against the suites this harness runs: `python -m
+#: pytest -q` and `node --test` both exit 0 with only these set.
+_GRADER_ENV_ALLOWLIST = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TZ", "SYSTEMROOT")
 
-    The grader inherited the caller's environment whole. Three of those variables decide
+
+def _grader_env(passthrough: Sequence[str] = ()) -> dict[str, str]:
+    """The environment a grader runs under: an allowlist, plus the drift sources pinned.
+
+    An allowlist because the code being graded is written by the model or shipped by the case
+    set, and the caller's environment holds `OPENAI_API_KEY` and `AIBENCH_DB_URL`. A denylist
+    of credential-shaped names misses `GH_PAT`, `NPM_CONFIG_*` and anything else not spelled
+    with the words it looks for. `grader_env_passthrough` in the run config names the
+    exceptions, and they are recorded in the manifest with the rest of the run.
+
+    `PYTHONWARNINGS` is no longer popped: it is simply not on the list. Three variables decide
     whether the same code produces the same verdict:
 
     * ``PYTHONHASHSEED`` — set randomly per interpreter, so any test that iterates a set or a
@@ -302,17 +346,23 @@ def _grader_env() -> dict[str, str]:
     """
     import os
 
-    env = dict(os.environ)
+    keep = set(_GRADER_ENV_ALLOWLIST) | {str(name) for name in passthrough}
+    env = {k: v for k, v in os.environ.items() if k in keep}
     env["PYTHONHASHSEED"] = "0"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    env.pop("PYTHONWARNINGS", None)
     return env
 
 
-def _grade_script(case: Case, workspace: Path) -> GradeResult:
+def _grade_script(
+    case: Case, workspace: Path, *, env_passthrough: Sequence[str] = ()
+) -> GradeResult:
     cmd = case.grader.command
     if not cmd:
         return GradeResult(passed=False, mode="script", detail="missing grader.command")
+    # `shell=False` below is the boundary: the command is case-supplied, and a shell turns any
+    # string in that field into arbitrary code on the host. `safe_command` already refused shell
+    # syntax when the case was loaded, so this only splits.
+    argv = safe_command(cmd, field="grader.command")
     if case_language_is_javascript(case.language) and (reason := unsupported_node_reason()):
         # An unusable runner is a harness failure, not a verdict about the submission. Left
         # unchecked it is worse than a crash: `node --test` below 22.18 exits 0 having
@@ -325,14 +375,13 @@ def _grade_script(case: Case, workspace: Path) -> GradeResult:
         )
     try:
         proc = subprocess.run(
-            cmd,
-            shell=True,
+            argv,
             cwd=workspace,
             capture_output=True,
             text=True,
             timeout=_GRADER_TIMEOUT_S,
             check=False,
-            env=_grader_env(),
+            env=_grader_env(env_passthrough),
         )
     except subprocess.TimeoutExpired:
         # Kept as `infra_error` — the harness cannot tell an agent-authored hang from a slow
@@ -385,7 +434,7 @@ def _grade_gold(case: Case, workspace: Path) -> GradeResult:
         blobs: list[str] = []
         targets = [gf.path for gf in g.gold_files] if g.gold_files else []
         for rel in targets:
-            p = workspace / rel
+            p = _confined_path(workspace, rel)
             if p.is_file():
                 # `errors="replace"`, like every other read in this module: a non-UTF-8 byte the
                 # agent wrote to a gold path used to raise out of `grade_case` and take the
@@ -418,7 +467,7 @@ def _grade_gold(case: Case, workspace: Path) -> GradeResult:
 
     mismatches: list[str] = []
     for gold in g.gold_files:
-        p = workspace / gold.path
+        p = _confined_path(workspace, gold.path)
         if not p.is_file():
             mismatches.append(f"missing file {gold.path}")
             continue

@@ -49,6 +49,114 @@ class TestRunIdentity:
         rev = git_revision()
         assert rev == "unknown-worktree" or len(rev.split("-")[0]) >= 7
 
+    def test_a_nested_module_reports_the_enclosing_revision(self, tmp_path, monkeypatch):
+        """This harness lives at benchmarks/coding inside another checkout.
+
+        A copy of `src/` inside a random repo is still `unknown-worktree`
+        (`test_untested_surfaces`). A complete module (pyproject + src/aibench)
+        nested in a git repo should stamp that repo's revision.
+        """
+        import aibench.provenance as provenance
+
+        host = tmp_path / "host"
+        module = host / "benchmarks" / "coding"
+        (module / "src" / "aibench").mkdir(parents=True)
+        (module / "pyproject.toml").write_text('[project]\nname = "aibench"\n', encoding="utf-8")
+        (module / "src" / "aibench" / "__init__.py").write_text("", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=host, check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@t.example",
+                "-c",
+                "user.name=t",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            cwd=host,
+            check=True,
+            capture_output=True,
+        )
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=host,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        monkeypatch.setattr(provenance, "repo_root", lambda: module)
+        rev = provenance.git_revision()
+        assert rev.split("-")[0] == sha
+
+    def test_a_src_only_copy_in_another_repo_is_unknown(self, tmp_path, monkeypatch):
+        import aibench.provenance as provenance
+
+        host = tmp_path / "host"
+        copy = host / "vendor" / "aibench"
+        (copy / "src" / "aibench").mkdir(parents=True)
+        (copy / "src" / "aibench" / "__init__.py").write_text("", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=host, check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@t.example",
+                "-c",
+                "user.name=t",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            cwd=host,
+            check=True,
+            capture_output=True,
+        )
+        monkeypatch.setattr(provenance, "repo_root", lambda: copy)
+        assert provenance.git_revision() == "unknown-worktree"
+
+    def test_sibling_dirt_does_not_stamp_the_module(self, tmp_path, monkeypatch):
+        import aibench.provenance as provenance
+
+        host = tmp_path / "host"
+        module = host / "benchmarks" / "coding"
+        (module / "src" / "aibench").mkdir(parents=True)
+        (module / "pyproject.toml").write_text('[project]\nname = "aibench"\n', encoding="utf-8")
+        (module / "src" / "aibench" / "__init__.py").write_text("", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=host, check=True, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=host, check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@t.example",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-m",
+                "init",
+            ],
+            cwd=host,
+            check=True,
+            capture_output=True,
+        )
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=host,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        monkeypatch.setattr(provenance, "repo_root", lambda: module)
+        (host / "plugins").mkdir()
+        (host / "plugins" / "note.txt").write_text("sibling dirt\n", encoding="utf-8")
+        assert provenance.git_revision() == sha
+        (module / "extra.txt").write_text("module dirt\n", encoding="utf-8")
+        assert provenance.git_revision() == f"{sha}-dirty"
+
     def test_environment_names_the_interpreter_and_the_harness(self):
         env = environment()
         for field in ("harness_digest", "venv_digest", "python_version", "platform"):

@@ -47,17 +47,34 @@ HARNESS_SOURCES = (
 )
 
 
+def _is_owned_nested_module(root: Path, toplevel: Path) -> bool:
+    """True when ``root`` is this harness living as a subdirectory of ``toplevel``.
+
+    A stray copy of ``src/`` inside another checkout must not inherit that
+    repository's HEAD. The markers are the same ones ``repo_root()`` is built
+    around: ``src/aibench`` plus the module ``pyproject.toml``.
+    """
+    try:
+        root.relative_to(toplevel)
+    except ValueError:
+        return False
+    return (root / "src/aibench").is_dir() and (root / "pyproject.toml").is_file()
+
+
 def git_revision() -> str:
     """``<short sha>`` or ``<short sha>-dirty``; ``unknown-worktree`` outside a checkout.
 
     Never falls back to a literal version string. A field named ``code_version`` that reports a
     constant is worse than no field, because it reads as an answer.
     """
-    root = repo_root()
+    root = repo_root().resolve()
     try:
         # `git rev-parse` walks upward, so a copy of `src/` inside another checkout would
         # cheerfully report that repository's HEAD. Naming the wrong revision is the same
         # failure as naming a literal: it reads as an answer.
+        # A complete module nested in a monorepo (this package at benchmarks/coding) is
+        # the intended home; stamp the enclosing revision, and dirty-check only this
+        # module so sibling trees do not contaminate the artifact.
         toplevel = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             cwd=root,
@@ -66,7 +83,10 @@ def git_revision() -> str:
             timeout=10,
             check=True,
         ).stdout.strip()
-        if not toplevel or Path(toplevel).resolve() != root.resolve():
+        if not toplevel:
+            return "unknown-worktree"
+        top = Path(toplevel).resolve()
+        if top != root and not _is_owned_nested_module(root, top):
             return "unknown-worktree"
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -80,10 +100,14 @@ def git_revision() -> str:
         return "unknown-worktree"
     if not sha:
         return "unknown-worktree"
+    status_cwd = top
+    status_paths: list[str] = []
+    if top != root:
+        status_paths = ["--", root.relative_to(top).as_posix()]
     try:
         dirty = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=root,
+            ["git", "status", "--porcelain", *status_paths],
+            cwd=status_cwd,
             capture_output=True,
             text=True,
             timeout=20,
@@ -172,7 +196,7 @@ def environment() -> dict[str, str | None]:
     directory in all 148 manifests, and neither is something a reader can act on.
     """
     from aibench.env_config import openai_settings
-    from aibench.preflight import opencode_version
+    from aibench.preflight import opencode_version, pi_version
 
     settings = openai_settings()
     return {
@@ -185,6 +209,7 @@ def environment() -> dict[str, str | None]:
         # The adapter the project recommends for every model comparison, whose version left no
         # trace in any artifact until now.
         "opencode_version": opencode_version(),
+        "pi_version": pi_version(),
         "platform": platform.platform(terse=True),
         "gateway_base_url": settings.get("base_url") or None,
     }

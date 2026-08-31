@@ -13,11 +13,13 @@
 | `agents/openai_compat.yaml` | 单轮 Chat Completions 写文件（**默认**） |
 | `agents/tool_loop.yaml` | 多步 list/read/write/bash/submit |
 | `agents/shell.yaml` | 外部 CLI 包装（须配置 `command_template`） |
+| `agents/pi.yaml` | 真实编码 agent（pi CLI）；与 `opencode.yaml` 同级，用于把模型与脚手架分开 |
 | `models/glm52.yaml` | GLM-5.2（默认；URL/key 来自 `.env`） |
 | `models/glm51.yaml` | 可选对照 |
 | `models/qwen37.yaml` | 可选对照 |
 | `runs/baseline.yaml` | 单次：openai_compat + glm52，`case_workers: 4` |
 | `runs/baseline-tool-loop.yaml` | 单次：tool_loop + glm52 |
+| `runs/baseline-pi.yaml` | 单次：pi + glm52 + `_clean2026`（需本地集合），并钉住集合指纹 |
 | `runs/ablation-matrix.yaml` | 消融：基线 / 模型轴（glm51）/ Agent 轴（tool_loop），每次只变一条轴 |
 | `runs/anchor-panel.yaml` | 校准锚点面板（T1–T3）：弱/中/强单轮与多步混合 |
 | `runs/anchor-panel-retrieval.yaml` | 检索层（T4+）面板：**全部为多步 agent**，单轮无法施展 A2 |
@@ -78,7 +80,7 @@ uv run python -m aibench ablation \
 
 上面的布局表按目录讲结构，这里按文件补齐未逐条展开的部分。
 （**不在这里数文件**：逐个文件的完整清单在 `docs/REFERENCE.md` §7.1，那张表由目录列表生成、有门禁核对。
-本文件此前写「共 23 个 YAML」，实际 40 个。）
+本文件此前写「共 23 个 YAML」，实际 42 个。）
 
 | 文件 | 用途 |
 |---|---|

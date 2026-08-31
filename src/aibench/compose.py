@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from aibench.cases import is_case_json_path
-from aibench.grading import _COLLECTION_CONTROL_FILES
+from aibench.grading import is_collection_control
 from aibench.io_util import load_json
 from aibench.languages import spec_for_path
 from aibench.validity import case_fingerprint
@@ -54,7 +54,7 @@ def donor_files(case: dict[str, Any]) -> list[dict[str, str]]:
         spec = spec_for_path(path)
         if spec is not None and spec.is_test_path(path):
             continue
-        if Path(path).name in _COLLECTION_CONTROL_FILES:
+        if is_collection_control(Path(path).name):
             # A `conftest.py` or `pytest.ini` planted under `vendor/<donor>/` is not noise: it
             # is a file the host's own runner discovers and obeys. `grading.py` treats these as
             # collection controls for exactly that reason, and a retrieval case must not smuggle

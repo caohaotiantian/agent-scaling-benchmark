@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from aibench.cases import case_set_dir
-from aibench.io_util import load_json, write_json
+from aibench.io_util import load_json, safe_case_id, write_json
 
 
 def build_snapshot_for_case(
@@ -16,7 +16,7 @@ def build_snapshot_for_case(
     update_case_json: bool = True,
 ) -> Path:
     """Write context.files into snapshots/<case_id>/ and optionally set workspace.mode=mixed."""
-    cid = case["case_id"]
+    cid = safe_case_id(str(case["case_id"]))
     base = case_set_dir(case_set)
     snap = base / "snapshots" / cid
     snap.mkdir(parents=True, exist_ok=True)

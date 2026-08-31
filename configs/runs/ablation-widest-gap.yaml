@@ -10,7 +10,13 @@
 #
 # Three repeats are mandatory. One pass of a comparison reported p = 0.0312 and three passes of
 # the same comparison returned p = 0.167.
+# `allow_invalid_cases` because the baseline in `docs/BASELINE.md` is an n=45 number. Seven of
+# the 45 fail two validity gates this harness gained on 2026-08-17, after these runs were made,
+# and `ablation` strips `validity_ok: false` by default — which would silently make this an n=38
+# matrix whose numbers cannot be compared with the recorded ones. Measuring the 38-case subset
+# instead is a defensible thing to do; it is a different denominator and needs saying so.
 case_set: _clean2026
+allow_invalid_cases: true
 baseline_experiment: bare-glm52-r1
 parallel: 3
 allow_weak_grader: false

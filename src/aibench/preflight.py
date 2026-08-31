@@ -80,6 +80,37 @@ def opencode_version() -> str | None:
     return match.group(0) if match else (out.strip() or None)
 
 
+@functools.lru_cache(maxsize=1)
+def pi_version(binary: str = "pi") -> str | None:
+    """``pi --version``, or ``None`` when the binary is absent or unreadable.
+
+    Cached for the same reason as `opencode_version`: the adapter checks it once per attempt
+    per case and `provenance.environment()` once per artifact, and each call is a subprocess.
+    """
+    if shutil.which(binary) is None and not Path(binary).is_file():
+        return None
+    try:
+        out = subprocess.run(
+            [binary, "--version"], capture_output=True, text=True, timeout=20, check=True
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"\d+\.\d+\.\d+", out)
+    return match.group(0) if match else (out.strip() or None)
+
+
+def pinned_pi_version() -> str | None:
+    """The version `configs/agents/pi.yaml` pins, if it pins one."""
+    from aibench.io_util import load_yaml
+
+    path = repo_root() / "configs/agents/pi.yaml"
+    if not path.is_file():
+        return None
+    options = load_yaml(path).get("options") or {}
+    pinned = options.get("expected_version")
+    return str(pinned) if pinned else None
+
+
 def pinned_opencode_version() -> str | None:
     """The version `configs/agents/opencode.yaml` pins, if it pins one."""
     from aibench.io_util import load_yaml
@@ -153,6 +184,36 @@ def check_opencode() -> Check:
     )
 
 
+def check_pi() -> Check:
+    found = pi_version()
+    pinned = pinned_pi_version()
+    if found is None:
+        return Check(
+            name="pi",
+            ok=False,
+            found=None,
+            expected=pinned or "installed",
+            detail=(
+                "not on PATH. Needed only by `configs/runs/baseline-pi.yaml` and anything "
+                "else driving the `pi` adapter; nothing in the README quickstart uses it. "
+                "Install with: npm install -g @earendil-works/pi-coding-agent"
+            ),
+            blocking=False,
+        )
+    return Check(
+        name="pi",
+        ok=pinned is None or found == pinned,
+        found=found,
+        expected=pinned or "any (unpinned)",
+        detail=(
+            ""
+            if pinned is None or found == pinned
+            else "a different scaffold version is a different instrument"
+        ),
+        blocking=False,
+    )
+
+
 def check_grading_env() -> Check:
     from aibench.grading_env import unsatisfied_promises
 
@@ -168,9 +229,9 @@ def check_grading_env() -> Check:
 
 def check_sandbox() -> Check:
     """macOS-only. A Linux replay measures a different instrument with no boundary at all."""
-    from aibench.agents.opencode import _SANDBOX_EXEC
+    from aibench.agents.cli_sandbox import SANDBOX_EXEC
 
-    available = Path(_SANDBOX_EXEC).is_file()
+    available = Path(SANDBOX_EXEC).is_file()
     return Check(
         name="opencode-sandbox",
         ok=available,
@@ -180,14 +241,21 @@ def check_sandbox() -> Check:
             ""
             if available
             else "opencode will run unconfined; the run records sandboxed=false and refuses "
-            "unless AIBENCH_ALLOW_UNSANDBOXED=1. Only matters if you run opencode."
+            "unless AIBENCH_ALLOW_UNSANDBOXED=1. Only matters if you run those adapters."
         ),
         blocking=False,
     )
 
 
 def run_checks() -> list[Check]:
-    return [check_python(), check_node(), check_grading_env(), check_opencode(), check_sandbox()]
+    return [
+        check_python(),
+        check_node(),
+        check_grading_env(),
+        check_opencode(),
+        check_pi(),
+        check_sandbox(),
+    ]
 
 
 def render(checks: list[Check]) -> str:

@@ -5,6 +5,7 @@ from aibench.agents.base import AgentAdapter
 from aibench.agents.mock import MockAgent
 from aibench.agents.openai_compat import OpenAICompatAgent
 from aibench.agents.opencode import OpenCodeAgent
+from aibench.agents.pi import PiAgent
 from aibench.agents.shell_agent import ShellAgent
 from aibench.agents.tool_loop import ToolLoopAgent
 from aibench.models import AgentConfig, ModelConfig
@@ -14,6 +15,7 @@ _REGISTRY: dict[str, type[AgentAdapter]] = {
     "bare_model": BareModelAgent,
     "openai_compat": OpenAICompatAgent,
     "opencode": OpenCodeAgent,
+    "pi": PiAgent,
     "tool_loop": ToolLoopAgent,
     "shell": ShellAgent,
 }
