@@ -78,19 +78,19 @@ def test_missing_cli_wiring():
     assert classify_problem_type(_case(stub, gold)).problem_type == "missing_cli_wiring"
 
 
-def test_off_by_one():
+def test_off_by_one_is_wrong_condition():
     stub = "def nsum(n):\n    return sum(range(1, n))\n"
     gold = "def nsum(n):\n    return sum(range(1, n + 1))\n"
-    assert classify_problem_type(_case(stub, gold)).problem_type == "off_by_one"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "wrong_condition"
 
 
-def test_wrong_predicate():
+def test_wrong_predicate_is_wrong_condition():
     stub = "def keep(x):\n    return not x\n"
     gold = "def keep(x):\n    return x\n"
-    assert classify_problem_type(_case(stub, gold)).problem_type == "wrong_predicate"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "wrong_condition"
 
 
-def test_missing_guard():
+def test_missing_guard_is_control_flow():
     stub = "def average(nums):\n    return sum(nums) / len(nums)\n"
     gold = (
         "def average(nums):\n"
@@ -98,10 +98,10 @@ def test_missing_guard():
         "        return 0.0\n"
         "    return sum(nums) / len(nums)\n"
     )
-    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_guard"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "control_flow"
 
 
-def test_missing_branch():
+def test_missing_branch_is_control_flow():
     stub = "def kind(x):\n    if x < 0:\n        return 'neg'\n    return 'pos'\n"
     gold = (
         "def kind(x):\n"
@@ -111,7 +111,7 @@ def test_missing_branch():
         "        return 'zero'\n"
         "    return 'pos'\n"
     )
-    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_branch"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "control_flow"
 
 
 def test_normalize_transform():
@@ -135,7 +135,7 @@ def test_missing_field():
         "    name: str\n"
         "    meet_requirements: bool = False\n"
     )
-    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_field"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "schema_gap"
 
 
 def test_missing_symbol():
@@ -147,7 +147,7 @@ def test_missing_symbol():
 def test_registry_omission():
     stub = "VIEWS = {\n    'list': ListView,\n}\n"
     gold = "VIEWS = {\n    'list': ListView,\n    'data': DataView,\n}\n"
-    assert classify_problem_type(_case(stub, gold)).problem_type == "registry_omission"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "schema_gap"
 
 
 def test_wrong_literal():
@@ -156,12 +156,56 @@ def test_wrong_literal():
     assert classify_problem_type(_case(stub, gold)).problem_type == "wrong_literal"
 
 
+def test_pairwise_is_review_choice_not_wrong_literal():
+    case = _case("CHOICE = '?'\n", 'CHOICE = "B"\n', path="answer.py")
+    case["task_type"] = "pairwise"
+    assert classify_problem_type(case).problem_type == "review_choice"
+
+
+def test_js_object_method_is_missing_symbol():
+    stub = "const api = {\n  get(token) { return 1 }\n}\n"
+    gold = (
+        "const api = {\n"
+        "  get(token) { return 1 },\n"
+        "  uploadImage(token, formData) { return fetch('/x') }\n"
+        "}\n"
+    )
+    assert classify_problem_type(_case(stub, gold, path="api.js")).problem_type == "missing_symbol"
+
+
+def test_ts_union_member_is_schema_gap():
+    stub = "type S = 'ENTERING' | 'COMPLETED'\nconst T = { COMPLETED: [] as const }\n"
+    gold = (
+        "type S = 'ENTERING' | 'COMPLETED' | 'REWORK'\n"
+        "const T = { COMPLETED: ['REWORK'] as const }\n"
+    )
+    assert classify_problem_type(_case(stub, gold, path="life.ts")).problem_type == "schema_gap"
+
+
+def test_i18n_lines_are_copy_change():
+    stub = "log('初始化完成')\nlog('搜索开始')\nlog('类别')\n"
+    gold = "log('Initialization complete')\nlog('Search started')\nlog('Category')\n"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "copy_change"
+
+
+def test_dotdot_path_is_wrong_path_base():
+    stub = "import os\nP = os.path.join(os.path.dirname(__file__), '..')\n"
+    gold = "import os\nP = os.path.join(os.path.dirname(__file__), '..', '..')\n"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "wrong_path_base"
+
+
+def test_wholesale_rewrite_has_its_own_slug():
+    stub = "def a():\n    return 1\n" + ("x = 1\n" * 40)
+    gold = "def b():\n    return 2\n" + ("y = 2\n" * 40)
+    assert classify_problem_type(_case(stub, gold)).problem_type == "rewrite"
+
+
 def test_no_gold_falls_back_to_other_or_prompt():
     case = _case("def a():\n    return 1\n", "def a():\n    return 1\n")
     case["grader"]["gold_files"] = []
     assert classify_problem_type(case).problem_type == "other"
     case["prompt"] = "empty list raises ZeroDivisionError"
-    assert classify_problem_type(case).problem_type == "missing_guard"
+    assert classify_problem_type(case).problem_type == "control_flow"
 
 
 def test_test_files_and_distractors_are_ignored():
@@ -184,9 +228,9 @@ def test_null_metadata_does_not_raise():
     )
     case["metadata"] = None
     result = stamp_problem_type(case)
-    assert result.problem_type == "off_by_one"
+    assert result.problem_type == "wrong_condition"
     assert isinstance(case["metadata"], dict)
-    assert case["metadata"]["problem_type"] == "off_by_one"
+    assert case["metadata"]["problem_type"] == "wrong_condition"
 
 
 def test_malformed_gold_files_do_not_raise():
@@ -239,8 +283,8 @@ def test_stamp_writes_metadata_and_does_not_fail():
         "def nsum(n):\n    return sum(range(1, n + 1))\n",
     )
     result = stamp_problem_type(case)
-    assert result.problem_type == "off_by_one"
-    assert case["metadata"]["problem_type"] == "off_by_one"
+    assert result.problem_type == "wrong_condition"
+    assert case["metadata"]["problem_type"] == "wrong_condition"
     assert case["metadata"]["problem_type_source"] == "heuristic"
     assert case["metadata"]["problem_type_reasons"]
 
@@ -306,7 +350,7 @@ def test_reverse_generation_stamps_problem_type():
             }
         ),
     )
-    assert case["metadata"]["problem_type"] == "off_by_one"
+    assert case["metadata"]["problem_type"] == "wrong_condition"
 
 
 def test_classify_cases_cli_writes_report_and_annotates(tmp_path: Path, capsys, monkeypatch):
@@ -334,11 +378,11 @@ def test_classify_cases_cli_writes_report_and_annotates(tmp_path: Path, capsys, 
     assert rc == 0
     out = capsys.readouterr().out
     assert "problem_type distribution:" in out
-    assert "off_by_one=" in out
+    assert "wrong_condition=" in out
     rep = load_json(report)
-    assert rep["counts"]["off_by_one"] == 1
+    assert rep["counts"]["wrong_condition"] == 1
     stamped = load_json(case_dir / "c.json")
-    assert stamped["metadata"]["problem_type"] == "off_by_one"
+    assert stamped["metadata"]["problem_type"] == "wrong_condition"
 
 
 def test_classify_cases_skips_a_broken_file_and_still_labels_the_rest(
@@ -369,14 +413,14 @@ def test_classify_cases_skips_a_broken_file_and_still_labels_the_rest(
     )
     assert rc == 0
     out = capsys.readouterr().out
-    assert "off_by_one=" in out
+    assert "wrong_condition=" in out
     assert "skip" in out.lower() or "bad.json" in out
     assert "arr.json" in out
-    assert load_json(case_dir / "good.json")["metadata"]["problem_type"] == "off_by_one"
+    assert load_json(case_dir / "good.json")["metadata"]["problem_type"] == "wrong_condition"
     assert (case_dir / "bad.json").read_text(encoding="utf-8") == "{not json"
     assert (case_dir / "arr.json").read_text(encoding="utf-8") == "[1, 2, 3]"
     rep = load_json(report)
-    assert rep["counts"]["off_by_one"] == 1
+    assert rep["counts"]["wrong_condition"] == 1
 
 
 def test_distribution_counts_unknown():
@@ -392,13 +436,13 @@ def test_run_summary_stratifies_by_problem_type():
     rows = [
         {
             "case_id": "a",
-            "problem_type": "off_by_one",
+            "problem_type": "wrong_condition",
             "passed": True,
             "infra_error": False,
         },
         {
             "case_id": "b",
-            "problem_type": "off_by_one",
+            "problem_type": "wrong_condition",
             "passed": False,
             "infra_error": False,
         },
@@ -423,6 +467,6 @@ def test_run_summary_stratifies_by_problem_type():
         elapsed_wall_s=1.0,
     )
     strata = summary["stratified_by_problem_type"]
-    assert strata["off_by_one"]["n"] == 2
-    assert strata["off_by_one"]["successes"] == 1
+    assert strata["wrong_condition"]["n"] == 2
+    assert strata["wrong_condition"]["successes"] == 1
     assert strata["missing_symbol"]["n"] == 1

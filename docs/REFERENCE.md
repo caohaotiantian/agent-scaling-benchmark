@@ -556,7 +556,7 @@ runs:
 按目标层选用不同的生成 brief（`_TIER_BRIEFS`），产物再经 `settle_tier` 消毒定级，
 `metadata` 记录 `tier` / `tier_requested` / `tier_notes` / `capability_axes` / `tier_facts`。
 命令结束会打印实际定级分布，例如 `tier distribution: T2=31, T3=12`，以及缺陷机制分布
-`problem_type distribution: missing_symbol=12, off_by_one=3, other=2`（见 `classify-cases`）。
+`problem_type distribution: missing_symbol=12, wrong_condition=3, other=2`（见 `classify-cases`）。
 
 > **case_id 重名会丢用例。** 文件名就是 `case_id`，所以生成器对不同草稿产出同一个 id 时，
 > 后写的会覆盖先写的。实测一次 600 条的构建报告 `generated 600 cases`、磁盘上只有 575 个文件，
@@ -797,11 +797,12 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 并打印 / 写出分布。生成路径（LLM / heuristic / reverse）已经自动打标；本命令用于回填既有集合、
 或只看分布不改文件。
 
-词表：`missing_cli_wiring` · `off_by_one` · `wrong_predicate` · `missing_guard` ·
-`missing_branch` · `normalize_transform` · `wrong_path_base` · `missing_field` ·
-`missing_symbol` · `registry_omission` · `wrong_literal` · `other`。
-主信号是 stub 与 `grader.gold_files` 的 diff；没有参考解时才回退到 prompt 关键词，否则为 `other`。
-分类失败不会丢掉用例。
+词表：`review_choice` · `missing_cli_wiring` · `wrong_condition` · `control_flow` ·
+`normalize_transform` · `wrong_path_base` · `schema_gap` · `missing_symbol` ·
+`copy_change` · `wrong_literal` · `rewrite` · `other`。
+主信号是 stub 与 `grader.gold_files` 的 diff（**不调用模型**）。`task_type=pairwise` 直接标
+`review_choice`，不看 CHOICE 字面量。没有参考解时才回退到 prompt 关键词，否则为 `other`。
+整文件重写标 `rewrite` 而不是 `other`。分类失败不会丢掉用例。
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
@@ -810,7 +811,7 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | `--annotate` | flag | 关 | 写回 `metadata.problem_type` / `_source` / `_reasons` |
 | `--report` | Path | 无 | JSON：`total` / `counts` / `items` |
 
-结束打印 `problem_type distribution: off_by_one=3, other=1`。无 case 时 exit 1。
+结束打印 `problem_type distribution: wrong_condition=3, other=1`。无 case 时 exit 1。
 
 ---
 
@@ -929,7 +930,7 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | `fingerprint` | case 指纹 |
 | `validity_ok` | 审计是否通过 |
 | `tags` / `split` | 标签与划分 |
-| `problem_type` | 缺陷机制封闭词表（`missing_cli_wiring` … `other`）。**不是** `task_type`。生成时启发式打标，既有集合用 `classify-cases --annotate` 回填 |
+| `problem_type` | 缺陷机制封闭词表（`review_choice` / `missing_cli_wiring` / `wrong_condition` / `control_flow` / `normalize_transform` / `wrong_path_base` / `schema_gap` / `missing_symbol` / `copy_change` / `wrong_literal` / `rewrite` / `other`）。**不是** `task_type`。启发式打标，**不调用模型**；既有集合用 `classify-cases --annotate` 回填 |
 | `problem_type_source` | 目前恒为 `heuristic` |
 | `problem_type_reasons` | 命中的检测器说明，便于抽查 |
 

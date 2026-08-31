@@ -1,11 +1,11 @@
 """Label a case with the defect mechanism its stub→gold diff exhibits.
 
-`task_type` is the action (bugfix / feature). This is the *mechanism*: missing CLI wiring,
-off-by-one, inverted predicate, and so on. The vocabulary is closed so a case-set distribution
-is a real histogram, not a bag of LLM tags.
+`task_type` is the action (bugfix / feature). This is the *mechanism*. The vocabulary is
+closed so a case-set distribution is a real histogram.
 
-The classifier reads the reference solution. Symptom-only prompts are a fallback, because
-reverse construction deliberately strips mechanism names from the prompt.
+No model is called. Detectors read the reference-solution diff; the prompt is a fallback
+only when there is no gold. Pairwise cases are labelled from `task_type`, not the CHOICE
+literal.
 """
 
 from __future__ import annotations
@@ -20,22 +20,20 @@ from typing import Any
 from aibench.languages import spec_for_path
 
 PROBLEM_TYPES: tuple[str, ...] = (
+    "review_choice",
     "missing_cli_wiring",
-    "off_by_one",
-    "wrong_predicate",
-    "missing_guard",
-    "missing_branch",
+    "wrong_condition",
+    "control_flow",
     "normalize_transform",
     "wrong_path_base",
-    "missing_field",
+    "schema_gap",
     "missing_symbol",
-    "registry_omission",
+    "copy_change",
     "wrong_literal",
+    "rewrite",
     "other",
 )
 
-# First match in this order wins when several detectors fire. More specific structural
-# patterns outrank "a new function appeared" and "a string changed".
 _PRIORITY: tuple[str, ...] = PROBLEM_TYPES
 
 _CLI_HINT = re.compile(
@@ -60,13 +58,21 @@ _CMP_FLIP = {
     (">", "<="),
     ("<=", ">"),
 }
-_PRED_FLIP = {("==", "!="), ("!=", "=="), ("and", "or"), ("or", "and"), ("is", "is not")}
+_PRED_FLIP = {
+    ("==", "!="),
+    ("!=", "=="),
+    ("and", "or"),
+    ("or", "and"),
+    ("is", "is not"),
+    ("is not", "is"),
+}
 _NORMALIZE = re.compile(
     r"\.(strip|lower|upper|replace|split|join|encode|decode|lstrip|rstrip)\s*\("
     r"|re\.sub\s*\(|sanitize_|normali[sz]e_"
 )
 _PATH_HINT = re.compile(
-    r"__file__|os\.path|pathlib|path\.join|dirname\s*\(|\.\./|PACKAGE_ROOT|process\.cwd",
+    r"__file__|os\.path|pathlib|path\.join|dirname\s*\(|\.\./|PACKAGE_ROOT|process\.cwd|"
+    r"""['"]\.\.['"]""",
     re.I,
 )
 _GUARD_RAISE = re.compile(r"\braise\s+\w+|if\s+not\s+|if\s+\w+\s+is\s+None\b")
@@ -74,7 +80,19 @@ _JS_DEF = re.compile(
     r"^\s*(?:export\s+)?(?:async\s+)?(?:function|class)\s+([A-Za-z_]\w*)",
     re.M,
 )
+_JS_METHOD = re.compile(
+    r"^\s*(?:async\s+)?([A-Za-z_]\w*)\s*\([^()]*\)\s*\{",
+    re.M,
+)
+_JS_METHOD_SKIP = frozenset({"if", "for", "while", "switch", "catch", "function", "else"})
+_KEY_LINE = re.compile(r"""^\s*['"]([\w./-]+)['"]\s*:""")
+_LIST_ENTRY = re.compile(r"""^\s*['"]([\w./-]+)['"]\s*,?\s*$""")
+_TS_UNION = re.compile(r"""\|\s*['"](\w+)['"]|['"](\w+)['"]\s*\|""")
+_CONST_ASSIGN = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=", re.M)
+_CJK = re.compile(r"[\u4e00-\u9fff]")
+_STRINGY = re.compile(r"""(['"]{1,3}).+\1""")
 _WHOLESALE_RATIO = 0.35
+_REVIEW_GENERATION = frozenset({"review", "review-choice"})
 
 
 @dataclass(frozen=True)
@@ -106,6 +124,12 @@ def classify_problem_type(case: dict[str, Any] | Any) -> ProblemTypeResult:
     raw = case if isinstance(case, dict) else getattr(case, "raw", None)
     if not isinstance(raw, dict):
         return ProblemTypeResult("other", ["malformed_case"])
+    if str(raw.get("task_type") or "") == "pairwise":
+        return ProblemTypeResult("review_choice", ["task_type=pairwise"])
+    meta = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    if str(meta.get("generation") or "") in _REVIEW_GENERATION:
+        return ProblemTypeResult("review_choice", ["generation=review"])
+
     try:
         pairs = _impl_gold_pairs(raw)
     except (TypeError, AttributeError):
@@ -119,26 +143,23 @@ def classify_problem_type(case: dict[str, Any] | Any) -> ProblemTypeResult:
         min_ratio = min(min_ratio, difflib.SequenceMatcher(None, stub, gold).ratio())
         _score_pair(path, stub, gold, hits)
 
-    ranked = [k for k in _PRIORITY if k != "other" and hits[k]]
-    if not ranked:
-        return ProblemTypeResult("other", ["no_detector_matched"])
-    # A near-total rewrite is not a local mechanism, unless a specific structural detector
-    # (CLI flag, comparison flip) still fired on the remnant.
+    ranked = [k for k in _PRIORITY if k not in {"other", "rewrite", "review_choice"} and hits[k]]
+    stub_empty = all(not stub.strip() for _path, stub, _gold in pairs)
     strong = {
         "missing_cli_wiring",
-        "off_by_one",
-        "wrong_predicate",
-        "missing_guard",
+        "wrong_condition",
         "wrong_path_base",
-        "missing_field",
+        "schema_gap",
+        "control_flow",
     }
-    stub_empty = all(not stub.strip() for _path, stub, _gold in pairs)
     if min_ratio < _WHOLESALE_RATIO and not stub_empty and not any(h in strong for h in ranked):
         return ProblemTypeResult(
-            "other",
+            "rewrite",
             [f"wholesale_rewrite ratio={min_ratio:.2f}"]
             + [f"{k}: {'; '.join(hits[k])}" for k in ranked],
         )
+    if not ranked:
+        return ProblemTypeResult("other", ["no_detector_matched"])
     winner = ranked[0]
     return ProblemTypeResult(winner, hits[winner])
 
@@ -199,48 +220,39 @@ def _score_pair(path: str, stub: str, gold: str, hits: dict[str, list[str]]) -> 
     added, removed = _line_delta(stub, gold)
     added_text = "\n".join(added)
     removed_text = "\n".join(removed)
-
     new_defs = _defined_names(gold) - _defined_names(stub)
+
     if _CLI_HINT.search(added_text) and not _CLI_HINT.search(removed_text):
         hits["missing_cli_wiring"].append(f"{path}: new CLI surface")
 
-    if _off_by_one(removed, added):
-        hits["off_by_one"].append(f"{path}: boundary / ±1")
-
-    if _predicate_flip(removed, added):
-        hits["wrong_predicate"].append(f"{path}: condition flipped")
+    if _off_by_one(removed, added) or _predicate_flip(removed, added):
+        hits["wrong_condition"].append(f"{path}: comparison / boolean / ±1")
 
     if (_PATH_HINT.search(added_text) or _PATH_HINT.search(removed_text)) and _path_depth_changed(
         removed_text, added_text
     ):
         hits["wrong_path_base"].append(f"{path}: path resolution base")
 
-    if _is_guard(added, stub, gold):
-        hits["missing_guard"].append(f"{path}: new validation / early exit")
-
-    if _is_branch(added, stub, gold):
-        hits["missing_branch"].append(f"{path}: new branch")
+    if _is_guard(added, stub, gold) or _is_branch(added, stub, gold):
+        hits["control_flow"].append(f"{path}: guard or branch")
 
     if _NORMALIZE.search(added_text) and not _NORMALIZE.search(removed_text):
         hits["normalize_transform"].append(f"{path}: normalize / sanitize")
 
-    new_fields = _ann_fields(gold) - _ann_fields(stub)
-    if new_fields:
-        hits["missing_field"].append(f"{path}: fields {sorted(new_fields)[:4]}")
+    gap = _schema_keys(gold) - _schema_keys(stub)
+    if not gap:
+        gap = _schema_keys("\n".join(added)) - _schema_keys("\n".join(removed))
+    if gap:
+        hits["schema_gap"].append(f"{path}: +{sorted(gap)[:6]}")
 
     if new_defs and "add_argument" not in added_text:
         hits["missing_symbol"].append(f"{path}: +{sorted(new_defs)[:4]}")
 
-    if (
-        not new_defs
-        and not new_fields
-        and _registry_entries(removed, added)
-        and not hits["missing_cli_wiring"]
-    ):
-        hits["registry_omission"].append(f"{path}: list/map entry")
+    if _is_copy_change(removed, added):
+        hits["copy_change"].append(f"{path}: user-facing / i18n text")
 
     if _literal_only(removed, added) and not any(
-        hits[k] for k in hits if k not in {"wrong_literal", "other"}
+        hits[k] for k in hits if k not in {"wrong_literal", "other", "rewrite", "review_choice"}
     ):
         hits["wrong_literal"].append(f"{path}: string/number change")
 
@@ -258,30 +270,51 @@ def _line_delta(stub: str, gold: str) -> tuple[list[str], list[str]]:
 
 
 def _defined_names(src: str) -> set[str]:
+    names: set[str] = set()
     try:
         tree = ast.parse(src)
     except SyntaxError:
-        return set(_JS_DEF.findall(src))
-    names: set[str] = set()
+        names.update(_JS_DEF.findall(src))
+        for name in _JS_METHOD.findall(src):
+            if name not in _JS_METHOD_SKIP:
+                names.add(name)
+        names.update(_CONST_ASSIGN.findall(src))
+        return names
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             names.add(node.name)
+    names.update(_CONST_ASSIGN.findall(src))
     return names
 
 
-def _ann_fields(src: str) -> set[str]:
+def _schema_keys(src: str) -> set[str]:
+    keys: set[str] = set()
     try:
         tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for stmt in node.body:
+                    if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                        keys.add(stmt.target.id)
+            if isinstance(node, ast.Dict):
+                for k in node.keys:
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                        keys.add(k.value)
+            if isinstance(node, ast.List):
+                for elt in node.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        keys.add(elt.value)
     except SyntaxError:
-        return set()
-    fields: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        for stmt in node.body:
-            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                fields.add(stmt.target.id)
-    return fields
+        pass
+    for ln in src.splitlines():
+        if m := _KEY_LINE.match(ln):
+            keys.add(m.group(1))
+        if m := _LIST_ENTRY.match(ln):
+            keys.add(m.group(1))
+        for m in _TS_UNION.finditer(ln):
+            keys.add(next(g for g in m.groups() if g))
+    keys.update(_CONST_ASSIGN.findall(src))
+    return keys
 
 
 def _off_by_one(removed: list[str], added: list[str]) -> bool:
@@ -293,7 +326,6 @@ def _off_by_one(removed: list[str], added: list[str]) -> bool:
 def _predicate_flip(removed: list[str], added: list[str]) -> bool:
     if _token_pair_flip(removed, added, _PRED_FLIP):
         return True
-    # `return not x` ↔ `return x`, or a leading `not ` added/removed on the same skeleton.
     for r, a in _paired_changed_lines(removed, added):
         rs, al = r.strip(), a.strip()
         if rs.startswith("not ") and rs[4:] == al:
@@ -343,7 +375,12 @@ def _paired_changed_lines(removed: list[str], added: list[str]) -> list[tuple[st
 
 def _path_depth_changed(removed: str, added: str) -> bool:
     def depth(s: str) -> int:
-        return s.count("../") + s.count("..\\") + len(re.findall(r"dirname\s*\(", s))
+        return (
+            s.count("../")
+            + s.count("..\\")
+            + len(re.findall(r"""['"]\.\.['"]""", s))
+            + len(re.findall(r"dirname\s*\(", s))
+        )
 
     return depth(removed) != depth(added) or (
         ("__file__" in added) != ("__file__" in removed)
@@ -358,7 +395,6 @@ def _is_guard(added: list[str], stub: str, gold: str) -> bool:
         return False
     if not any(_GUARD_RAISE.search(ln) for ln in added):
         return False
-    # A guard is an early exit added to a function that already existed.
     return not (_defined_names(gold) - _defined_names(stub))
 
 
@@ -367,7 +403,6 @@ def _is_branch(added: list[str], stub: str, gold: str) -> bool:
         return False
     keywords = ("elif ", "else:", "case ", "default:", "else if")
     if not any(any(k in ln for k in keywords) for ln in added):
-        # A new `if` that is not a guard (already handled) and not a new function body.
         new_ifs = [ln for ln in added if re.search(r"^\s*if\s+", ln)]
         if not new_ifs:
             return False
@@ -375,9 +410,22 @@ def _is_branch(added: list[str], stub: str, gold: str) -> bool:
     return True
 
 
-def _registry_entries(removed: list[str], added: list[str]) -> bool:
-    entry = re.compile(r"""^\s*["'][\w./-]+["']\s*:|^\s*["'][\w./-]+["']\s*,?\s*$""")
-    return any(entry.search(ln) for ln in added) and not any(entry.search(ln) for ln in removed)
+def _is_copy_change(removed: list[str], added: list[str]) -> bool:
+    lines = [
+        ln
+        for ln in removed + added
+        if ln.strip() and not ln.strip().startswith(("#", "//", "*", "/*"))
+    ]
+    if not lines:
+        return False
+    cjk = any(_CJK.search(ln) for ln in lines)
+    stringy = sum(
+        1 for ln in lines if _STRINGY.search(ln) or _CJK.search(ln) or '"""' in ln or "'''" in ln
+    )
+    # A one-line constant swap is `wrong_literal`. Copy/i18n rewrites many user-facing strings.
+    if cjk:
+        return stringy / len(lines) >= 0.5
+    return len(lines) >= 4 and stringy / len(lines) >= 0.7
 
 
 def _literal_only(removed: list[str], added: list[str]) -> bool:
@@ -398,11 +446,11 @@ def _strip_literals(line: str) -> str:
 
 
 _PROMPT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("off_by_one", ("off-by-one", "off by one", "少算", "多算", "边界")),
-    ("missing_guard", ("空列表", "empty list", "zerodivision", "none check", "校验")),
-    ("wrong_predicate", ("inverted", "写反", "条件反了", "or vs and")),
+    ("wrong_condition", ("off-by-one", "off by one", "少算", "多算", "边界", "inverted", "写反")),
+    ("control_flow", ("空列表", "empty list", "zerodivision", "none check", "校验")),
     ("normalize_transform", ("sanitize", "normalize", "规范化", "清洗")),
-    ("missing_cli_wiring", ("命令行", "cli", "flag", "参数没接")),
+    ("missing_cli_wiring", ("命令行", "--flag", "参数没接")),
+    ("copy_change", ("中文", "i18n", "文案", "prompt")),
 )
 
 

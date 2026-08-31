@@ -174,17 +174,17 @@
         "problem_type": {
           "type": "string",
           "enum": [
+            "review_choice",
             "missing_cli_wiring",
-            "off_by_one",
-            "wrong_predicate",
-            "missing_guard",
-            "missing_branch",
+            "wrong_condition",
+            "control_flow",
             "normalize_transform",
             "wrong_path_base",
-            "missing_field",
+            "schema_gap",
             "missing_symbol",
-            "registry_omission",
+            "copy_change",
             "wrong_literal",
+            "rewrite",
             "other"
           ],
           "description": "Primary defect mechanism (not task_type). Stamped at generate; backfill with classify-cases."

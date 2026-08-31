@@ -429,8 +429,9 @@ def render_report_md(summary: dict[str, Any], case_results: list[dict[str, Any]]
             lines.append("")
         if title == "problem_type":
             lines.append(
-                "> 口径：`metadata.problem_type` 的缺陷机制（missing_cli_wiring / off_by_one / …），"
-                "不是 `task_type` 的动作类型（bugfix / feature）。未标注的落在 `unknown`。"
+                "> 口径：`metadata.problem_type` 的缺陷机制（missing_cli_wiring / wrong_condition / …），"
+                "不是 `task_type` 的动作类型（bugfix / feature）。pairwise 为 `review_choice`。"
+                "未标注的落在 `unknown`。启发式打标，不调用模型。"
             )
             lines.append("")
         lines.append("| 分层 | n | 成功 | 成功率 | 95% CI |")
