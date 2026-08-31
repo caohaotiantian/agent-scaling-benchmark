@@ -388,6 +388,7 @@ def test_classify_cases_cli_writes_report_and_annotates(tmp_path: Path, capsys, 
             "classify-cases",
             "--case-set",
             "ptset",
+            "--no-llm-review",
             "--annotate",
             "--report",
             str(report),
@@ -424,6 +425,7 @@ def test_classify_cases_skips_a_broken_file_and_still_labels_the_rest(
             "classify-cases",
             "--case-set",
             "ptmix",
+            "--no-llm-review",
             "--annotate",
             "--report",
             str(report),
@@ -598,7 +600,6 @@ def test_classify_cases_llm_review_without_credentials_keeps_heuristic(
             "classify-cases",
             "--case-set",
             "ptllm",
-            "--llm-review",
             "--annotate",
         ]
     )

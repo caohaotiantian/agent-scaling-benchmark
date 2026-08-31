@@ -432,9 +432,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_pt.add_argument(
         "--llm-review",
-        action="store_true",
-        help="Second-pass LLM on heuristic `other` (needs OPENAI_*; keep heuristic if the "
-        "model is down or returns an unknown slug)",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Second-pass LLM on heuristic `other` (default: on). Needs OPENAI_*. "
+        "Keep heuristic if the model is down or returns an unknown slug. "
+        "--no-llm-review skips the model.",
     )
     p_pt.add_argument(
         "--llm-review-all",

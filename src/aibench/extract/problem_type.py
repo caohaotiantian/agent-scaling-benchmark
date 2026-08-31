@@ -5,7 +5,7 @@ closed so a case-set distribution is a real histogram.
 
 The default path is heuristic: detectors read the stub vs gold diff; the prompt is a
 fallback only when there is no gold. Pairwise cases are labelled from `task_type`.
-`classify-cases --llm-review` is an optional second pass on heuristic `other`.
+`classify-cases` runs a second-pass LLM on heuristic `other` by default (`--no-llm-review` skips).
 """
 
 from __future__ import annotations

@@ -97,10 +97,11 @@ uv run python -m aibench generate-cases \
   --reverse --resume --max-cases 8 --audit --secrets-scan
 
 uv run python -m aibench validate-cases --case-set auto-v0
+uv run python -m aibench classify-cases --case-set auto-v0 --annotate
 ```
 
-产物：`benchmarks/ai_coding/cases/auto-v0/`。每条 case 带 `metadata.tier`（T1–T5），
-层级由源 trace 的过程信号推导、再由结构不变量核验。
+产物：`benchmarks/ai_coding/cases/auto-v0/`。每条 case 带 `metadata.tier`（T1–T5）和
+`metadata.problem_type`（`classify-cases` 默认对启发式 `other` 做一次 LLM 二审）。
 
 ### 校准与选题（让区分度可验证）
 

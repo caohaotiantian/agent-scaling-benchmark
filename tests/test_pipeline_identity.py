@@ -83,6 +83,18 @@ class TestTheOneClickPipelineRunsTheMainLine:
     def test_extraction_asks_for_the_pairs_reverse_construction_needs(self):
         assert "--require-edits" in self._script()
 
+    def test_the_production_path_classifies_problem_types(self):
+        body = self._script()
+        prod = body.split("# Production path", 1)[1]
+        assert "classify-cases" in prod
+        assert "--no-llm-review" not in prod
+
+    def test_the_dry_run_skips_the_llm_classify_pass(self):
+        body = self._script()
+        dry = body.split('if [[ "$DRY_RUN" -eq 1 ]]; then', 1)[1].split("# Production path", 1)[0]
+        assert "classify-cases" in dry
+        assert "--no-llm-review" in dry
+
 
 class TestAReverseCaseCarriesATier:
     """B4. With `metadata.tier` falsy, `validity.py` skips `check_tier_invariants` **and** the
