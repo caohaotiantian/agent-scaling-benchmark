@@ -178,6 +178,7 @@ uv run python -m aibench generate-cases \
 
 uv run python -m aibench validate-cases --case-set auto-v0
 uv run python -m aibench audit-cases --case-set auto-v0 --annotate
+uv run python -m aibench classify-cases --case-set auto-v0 --annotate --report /tmp/pt.json
 ```
 
 **停在 `auto-v0/`。** 不要跑 `e2e_pipeline.sh` 全流程（其末尾会执行 ablation）。
@@ -555,7 +556,8 @@ runs:
 
 按目标层选用不同的生成 brief（`_TIER_BRIEFS`），产物再经 `settle_tier` 消毒定级，
 `metadata` 记录 `tier` / `tier_requested` / `tier_notes` / `capability_axes` / `tier_facts`。
-命令结束会打印实际定级分布，例如 `tier distribution: T2=31, T3=12`。
+命令结束会打印实际定级分布，例如 `tier distribution: T2=31, T3=12`，以及缺陷机制分布
+`problem_type distribution: missing_symbol=12, wrong_condition=3, other=2`（见 `classify-cases`）。
 
 > **case_id 重名会丢用例。** 文件名就是 `case_id`，所以生成器对不同草稿产出同一个 id 时，
 > 后写的会覆盖先写的。实测一次 600 条的构建报告 `generated 600 cases`、磁盘上只有 575 个文件，
@@ -790,6 +792,35 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 |------|------|------|----------|
 | `--json` | flag | 关 | 机器可读输出 |
 
+### 8.20 `classify-cases` — 缺陷机制归类与分布
+
+**作用**：按封闭词表给 case 打 `metadata.problem_type`（缺陷机制，不是 `task_type` 的动作类型），
+并打印 / 写出分布。生成路径（LLM / heuristic / reverse）已经自动打标；本命令用于回填既有集合、
+或只看分布不改文件。
+
+词表：`review_choice` · `missing_cli_wiring` · `wrong_condition` · `control_flow` ·
+`normalize_transform` · `wrong_path_base` · `schema_gap` · `missing_symbol` ·
+`copy_change` · `wrong_literal` · `rewrite` · `other`。
+主信号是 stub 与 `grader.gold_files` 的 diff。`task_type=pairwise` 直接标
+`review_choice`，不看 CHOICE 字面量。没有参考解时才回退到 prompt 关键词，否则为 `other`。
+整文件重写标 `rewrite` 而不是 `other`。分类失败不会丢掉用例。
+默认对启发式 `other` 做一次 LLM 二审（可用 `--no-llm-review` 关掉）。
+模型不可用、解析失败、或返回词表外的 slug 时保留启发式。`--llm-review-all` 对除
+`review_choice` 外每条都问一次。覆盖时 `problem_type_source=llm`，并记下
+`problem_type_heuristic`。`scripts/e2e_pipeline.sh` 生产路径会跑这一步；`--dry-run` 传
+`--no-llm-review`。
+
+| 参数 | 类型 | 默认 | 作用说明 |
+|------|------|------|----------|
+| `--case-set` | str | 与 `--input-dir` 二选一 | 解析规则同 §8.0 |
+| `--input-dir` | Path | 与 `--case-set` 二选一 | 直接扫一个 case 目录（`generate-cases --output-dir` 的产物） |
+| `--annotate` | flag | 关 | 写回 `metadata.problem_type` / `_source` / `_reasons` |
+| `--llm-review` / `--no-llm-review` | flag | **开** | 对启发式 `other` 做一次 LLM 二审（需 `OPENAI_*`）。不可用则保留启发式 |
+| `--llm-review-all` | flag | 关 | 每条（`review_choice` 除外）都花一次调用 |
+| `--report` | Path | 无 | JSON：`total` / `counts` / `items` |
+
+结束打印 `problem_type distribution: wrong_condition=3, other=1`。无 case 时 exit 1。
+
 ---
 
 ## 9. 一键脚本参考
@@ -907,6 +938,10 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | `fingerprint` | case 指纹 |
 | `validity_ok` | 审计是否通过 |
 | `tags` / `split` | 标签与划分 |
+| `problem_type` | 缺陷机制封闭词表（`review_choice` / `missing_cli_wiring` / `wrong_condition` / `control_flow` / `normalize_transform` / `wrong_path_base` / `schema_gap` / `missing_symbol` / `copy_change` / `wrong_literal` / `rewrite` / `other`）。**不是** `task_type`。启发式打标后，`classify-cases` **默认**对 `other` 做 LLM 二审（`--no-llm-review` 关掉） |
+| `problem_type_source` | `heuristic` 或 `llm`（默认会对 `other` 二审；覆盖成功为 `llm`） |
+| `problem_type_heuristic` | LLM 覆盖前的启发式标签 |
+| `problem_type_reasons` | 命中的检测器说明，便于抽查 |
 
 `metadata` 允许 `additionalProperties`，便于流水线注解。
 
@@ -1656,7 +1691,7 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 |----|------|------|
 | Wilson 95% CI | summary / 分层 | 小样本成功率区间 |
 | 有效 case | success_rate 分母 | 排除 `infra_error` |
-| 分层成功率 | task_type / difficulty | 结构解读 |
+| 分层成功率 | task_type / difficulty / tier / problem_type | 结构解读 |
 | failure_diagnostics | summary | 失败类型聚合 |
 
 这些不改变单 case `ok`，但提高对汇总指标的解读可信度。
@@ -1973,6 +2008,8 @@ uv run python -m aibench generate-cases \
   --output-dir benchmarks/ai_coding/cases/auto-v0 \
   --reverse --resume --max-cases 8 --audit --secrets-scan
 uv run python -m aibench validate-cases --case-set auto-v0
+uv run python -m aibench classify-cases --case-set auto-v0 --annotate --report /tmp/pt.json
+  # LLM 二审默认开；离线加 --no-llm-review
 
 # 单次跑测
 ./scripts/run_benchmark.sh

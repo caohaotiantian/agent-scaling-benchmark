@@ -171,6 +171,26 @@
         "source_session_id": { "type": ["string", "null"] },
         "difficulty": { "type": "string" },
         "tags": { "type": "array", "items": { "type": "string" } },
+        "problem_type": {
+          "type": "string",
+          "enum": [
+            "review_choice",
+            "missing_cli_wiring",
+            "wrong_condition",
+            "control_flow",
+            "normalize_transform",
+            "wrong_path_base",
+            "schema_gap",
+            "missing_symbol",
+            "copy_change",
+            "wrong_literal",
+            "rewrite",
+            "other"
+          ],
+          "description": "Primary defect mechanism (not task_type). Stamped at generate; backfill with classify-cases."
+        },
+        "problem_type_source": { "type": "string" },
+        "problem_type_reasons": { "type": "array", "items": { "type": "string" } },
         "split": { "type": "string" },
         "tier": {
           "type": "string",

@@ -194,6 +194,7 @@ def run_ablation(
             # is identity or provenance, and copying it whole would double the summary's size.
             "manifest": {k: run_manifest.get(k) for k in _AXIS_KEYS},
             "stratified_by_tier": summary.get("stratified_by_tier"),
+            "stratified_by_problem_type": summary.get("stratified_by_problem_type"),
             "experiment_name": exp,
             "run_id": summary.get("run_id"),
             "run_dir": relative_to_repo(run_dir),

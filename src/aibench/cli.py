@@ -29,6 +29,10 @@ from aibench.extract.llm_chat_records import (
     resolve_db_url,
 )
 from aibench.extract.llm_soft_filter import llm_soft_filter_draft
+from aibench.extract.problem_type import (
+    distribution as problem_type_distribution,
+    stamp_problem_type,
+)
 from aibench.extract.reverse_case import (
     chat_json,
     iter_file_versions,
@@ -412,6 +416,32 @@ def main(argv: list[str] | None = None) -> int:
         "--fail-on-error",
         action="store_true",
         help="Exit 2 if any case fails error-level gates",
+    )
+
+    p_pt = sub.add_parser(
+        "classify-cases",
+        help="Label cases with a closed defect-mechanism vocabulary and report the distribution",
+    )
+    p_pt.add_argument("--case-set", type=str, default=None)
+    p_pt.add_argument("--input-dir", type=Path, default=None)
+    p_pt.add_argument("--report", type=Path, default=None)
+    p_pt.add_argument(
+        "--annotate",
+        action="store_true",
+        help="Write problem_type into each case's metadata",
+    )
+    p_pt.add_argument(
+        "--llm-review",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Second-pass LLM on heuristic `other` (default: on). Needs OPENAI_*. "
+        "Keep heuristic if the model is down or returns an unknown slug. "
+        "--no-llm-review skips the model.",
+    )
+    p_pt.add_argument(
+        "--llm-review-all",
+        action="store_true",
+        help="Like --llm-review but for every case except review_choice (costs one call each)",
     )
 
     p_doc = sub.add_parser(
@@ -814,6 +844,7 @@ def main(argv: list[str] | None = None) -> int:
             reverse_chat = chat_json(settings)
 
         tier_counts_seen: dict[str, int] = {}
+        problem_type_counts_seen: dict[str, int] = {}
         # The query window a draft came from, carried forward so a case says which slice of the
         # table produced it. `extract-from-db` reads `ORDER BY start_time DESC LIMIT n` with
         # `--since`/`--until` defaulting to None, so "the last 100 rows" means a different 100
@@ -824,6 +855,7 @@ def main(argv: list[str] | None = None) -> int:
             path: Path, case: dict[str, Any], label: str, *, model_called: bool = True
         ) -> dict[str, Any] | None:
             """Write the case now. A run killed later keeps everything it already paid for."""
+            stamp_problem_type(case)
             _stamp_generation_provenance(case, draft_query=draft_query, model_called=model_called)
             status = sink.emit(path.name, case)
             if status == "full":
@@ -840,6 +872,8 @@ def main(argv: list[str] | None = None) -> int:
                 return None
             settled = (case.get("metadata") or {}).get("tier") or "unset"
             tier_counts_seen[settled] = tier_counts_seen.get(settled, 0) + 1
+            pt = (case.get("metadata") or {}).get("problem_type") or "unknown"
+            problem_type_counts_seen[pt] = problem_type_counts_seen.get(pt, 0) + 1
             print(f"  {label} {case['case_id']} <- {path.name}", flush=True)
             return case
 
@@ -943,6 +977,11 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "tier distribution: "
                 + ", ".join(f"{k}={v}" for k, v in sorted(tier_counts.items()))
+            )
+        if problem_type_counts_seen:
+            print(
+                "problem_type distribution: "
+                + ", ".join(f"{k}={v}" for k, v in sorted(problem_type_counts_seen.items()))
             )
         if n_ok == 0 and args.min_tier:
             print(
@@ -1054,6 +1093,87 @@ def main(argv: list[str] | None = None) -> int:
         if args.fail_on_error and rep["failed"] > 0:
             return 2
         return 0
+
+    if args.cmd == "classify-cases":
+        from aibench.cases import case_set_dir, is_case_json_path
+
+        if args.input_dir:
+            directory = args.input_dir
+        elif args.case_set:
+            directory = case_set_dir(args.case_set)
+        else:
+            print("provide --case-set or --input-dir")
+            return 1
+        if not directory.is_dir():
+            print(f"not a directory: {directory}")
+            return 1
+        use_llm = bool(args.llm_review or args.llm_review_all)
+        review_all = bool(args.llm_review_all)
+        if use_llm:
+            settings = openai_settings()
+            if not all((settings["api_key"], settings["base_url"], settings["model"])):
+                print(
+                    "WARNING: --llm-review needs OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL; "
+                    "keeping heuristic labels"
+                )
+        paths = sorted(p for p in directory.glob("*.json") if is_case_json_path(p))
+        classified: list[tuple[Path, dict[str, Any], Any]] = []
+        items: list[dict[str, Any]] = []
+        skipped = 0
+        for path in paths:
+            try:
+                case = load_json(path)
+                if not isinstance(case, dict):
+                    raise TypeError(f"JSON root is {type(case).__name__}, not object")
+                result = stamp_problem_type(
+                    case,
+                    llm_review=use_llm,
+                    llm_review_all=review_all,
+                )
+            except Exception as e:
+                skipped += 1
+                print(f"skip {path.name}: {e}", flush=True)
+                continue
+            if use_llm and any(
+                str(r).startswith("llm_review_unavailable:") for r in result.reasons
+            ):
+                print(
+                    "WARNING: LLM review failed; keeping heuristic labels for remaining cases",
+                    flush=True,
+                )
+                use_llm = False
+                review_all = False
+            classified.append((path, case, result))
+            items.append(
+                {
+                    "case_id": case.get("case_id"),
+                    "problem_type": result.problem_type,
+                    "source": result.source,
+                    "heuristic": (case.get("metadata") or {}).get("problem_type_heuristic"),
+                    "reasons": result.reasons,
+                    "path": path.name,
+                }
+            )
+        if args.annotate:
+            for path, case, _result in classified:
+                write_json(path, case)
+        counts = problem_type_distribution(
+            [{"metadata": {"problem_type": i["problem_type"]}} for i in items]
+        )
+        report = {
+            "total": len(items),
+            "skipped": skipped,
+            "counts": counts,
+            "items": items,
+        }
+        if args.report:
+            write_json(args.report, report)
+        print(f"classified {len(items)} cases" + (f" -> {directory}" if args.annotate else ""))
+        if skipped:
+            print(f"skipped {skipped} unreadable file(s)")
+        if counts:
+            print("problem_type distribution: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+        return 0 if items else 1
 
     if args.cmd == "export-bundle":
         try:

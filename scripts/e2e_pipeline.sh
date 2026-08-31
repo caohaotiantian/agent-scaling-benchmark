@@ -155,6 +155,10 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
     --max-cases "$MAX_CASES"
 
   "${UV[@]}" python -m aibench validate-cases --case-set e2e-demo
+  # CI has no gateway: skip the default LLM second pass on `other`.
+  "${UV[@]}" python -m aibench classify-cases \
+    --case-set e2e-demo --annotate --no-llm-review \
+    --report "$ROOT/.e2e-artifacts/problem_type.json"
 
   "${UV[@]}" python -m aibench ablation \
     --matrix "$ROOT/tests/fixtures/configs/runs/ablation-matrix.mock.yaml" \
@@ -231,6 +235,12 @@ if [[ "$STRICT_AUDIT" -eq 1 ]]; then
   AUDIT_FLAGS+=(--fail-on-error)
 fi
 "${UV[@]}" python -m aibench audit-cases "${AUDIT_FLAGS[@]}"
+
+echo "==> classify-cases (heuristic + LLM review of other)"
+mkdir -p "$ROOT/.e2e-artifacts"
+"${UV[@]}" python -m aibench classify-cases \
+  --case-set auto-v0 --annotate \
+  --report "$ROOT/.e2e-artifacts/problem_type.json"
 
 if [[ "$CALIBRATE" -eq 1 ]]; then
   echo "==> calibrate-cases (anchors x $REPEATS runs; this is the expensive step)"

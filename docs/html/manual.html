@@ -108,7 +108,9 @@ uv run pytest tests/ -q     # 应全部通过
   --output-dir benchmarks/ai_coding/cases/_cases \
   --reverse --max-cases 120 --oversample 30 \
   --workers 5 --resume --audit --secrets-scan</code></pre>
-<p><strong>消耗模型额度。</strong> 每条可用草稿一次调用。</p>
+<p><strong>消耗模型额度。</strong> 每条可用草稿一次调用。生成后请再跑
+<code>uv run python -m aibench classify-cases --case-set _cases --annotate</code>：
+默认对启发式 <code>other</code> 做一次 LLM 二审；离线加 <code>--no-llm-review</code>。</p>
 <dl class="kv">
 <dt>--reverse</dt><dd>启用反向构造：stub 取编辑前版本，参考解取编辑后版本，模型只写测试与题面。不加则退回「让模型编题」的旧路径。</dd>
 <dt>--oversample</dt><dd>为写出 N 条用例而尝试的草稿倍数。<strong>直接决定费用</strong>：<code>--max-cases 120 --oversample 30</code> 意味着最多扫描 3,600 条草稿。反向模式下无可用编辑对的草稿在调用模型<em>之前</em>即被剔除，不计费。</dd>

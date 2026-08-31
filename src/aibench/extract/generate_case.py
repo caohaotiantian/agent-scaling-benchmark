@@ -11,6 +11,7 @@ import httpx
 
 from aibench.env_config import openai_settings
 from aibench.extract.history_parse import guess_language, guess_task_type
+from aibench.extract.problem_type import stamp_problem_type
 from aibench.extract.sessions import redact_secrets, redact_source, task_fingerprint
 from aibench.extract.tier_shaping import settle_tier
 from aibench.tiers import find_disclosures, prompt_names_changed_function, tier_spec
@@ -109,6 +110,7 @@ def heuristic_case_from_draft(draft: dict[str, Any], *, tier: str | None = None)
     settled_meta["tier_notes"] = notes
     if not settled:
         settled_meta.pop("capability_axes", None)
+    stamp_problem_type(case)
     return case
 
 
@@ -549,4 +551,5 @@ def generate_case_with_llm(
     data["metadata"]["weak_grader"] = data.get("grader", {}).get("mode") != "script"
     if not settled:
         raise ValueError(f"case satisfies no tier: {notes}")
+    stamp_problem_type(data)
     return data

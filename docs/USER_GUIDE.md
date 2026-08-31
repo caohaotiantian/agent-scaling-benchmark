@@ -175,6 +175,7 @@ uv run python -m aibench ablation \
 | `extract-from-db` | 从 MySQL 建草稿 |
 | `filter-drafts` | 去掉运维/闲聊/非编程会话 |
 | `generate-cases` | 草稿变成可 pytest 的 case |
+| `classify-cases` | 缺陷机制归类；默认对 `other` 做 LLM 二审 |
 | `validate-cases` | Schema 校验 |
 | `audit-cases` | stub 必须 fail、污染检测 |
 | `run` | 一组 Agent/模型跑一遍 |
