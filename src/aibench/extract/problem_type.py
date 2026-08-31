@@ -144,10 +144,13 @@ def classify_problem_type(case: dict[str, Any] | Any) -> ProblemTypeResult:
 
 
 def distribution(cases: list[dict[str, Any]]) -> dict[str, int]:
-    """Counts per slug, including `unset` for cases never stamped."""
+    """Counts per slug, including `unknown` for cases never stamped."""
     counts: Counter[str] = Counter()
     for case in cases:
-        meta = case.get("metadata") or {}
+        meta = case.get("metadata") if isinstance(case, dict) else None
+        if not isinstance(meta, dict):
+            counts["unknown"] += 1
+            continue
         counts[str(meta.get("problem_type") or "unknown")] += 1
     return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 

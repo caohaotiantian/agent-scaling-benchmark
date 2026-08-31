@@ -1101,6 +1101,8 @@ def main(argv: list[str] | None = None) -> int:
         for path in paths:
             try:
                 case = load_json(path)
+                if not isinstance(case, dict):
+                    raise TypeError(f"JSON root is {type(case).__name__}, not object")
                 result = stamp_problem_type(case)
             except Exception as e:
                 skipped += 1

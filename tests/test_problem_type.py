@@ -355,6 +355,7 @@ def test_classify_cases_skips_a_broken_file_and_still_labels_the_rest(
         ),
     )
     (case_dir / "bad.json").write_text("{not json", encoding="utf-8")
+    (case_dir / "arr.json").write_text("[1, 2, 3]", encoding="utf-8")
     report = tmp_path / "pt.json"
     rc = main(
         [
@@ -370,16 +371,20 @@ def test_classify_cases_skips_a_broken_file_and_still_labels_the_rest(
     out = capsys.readouterr().out
     assert "off_by_one=" in out
     assert "skip" in out.lower() or "bad.json" in out
+    assert "arr.json" in out
     assert load_json(case_dir / "good.json")["metadata"]["problem_type"] == "off_by_one"
     assert (case_dir / "bad.json").read_text(encoding="utf-8") == "{not json"
+    assert (case_dir / "arr.json").read_text(encoding="utf-8") == "[1, 2, 3]"
     rep = load_json(report)
     assert rep["counts"]["off_by_one"] == 1
 
 
-def test_distribution_counts_unset():
-    assert distribution([{"metadata": {}}, {"metadata": {"problem_type": "other"}}]) == {
+def test_distribution_counts_unknown():
+    assert distribution(
+        [{"metadata": {}}, {"metadata": {"problem_type": "other"}}, {"metadata": "x"}]
+    ) == {
         "other": 1,
-        "unknown": 1,
+        "unknown": 2,
     }
 
 
