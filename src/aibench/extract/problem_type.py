@@ -3,15 +3,16 @@
 `task_type` is the action (bugfix / feature). This is the *mechanism*. The vocabulary is
 closed so a case-set distribution is a real histogram.
 
-No model is called. Detectors read the reference-solution diff; the prompt is a fallback
-only when there is no gold. Pairwise cases are labelled from `task_type`, not the CHOICE
-literal.
+The default path is heuristic: detectors read the stub vs gold diff; the prompt is a
+fallback only when there is no gold. Pairwise cases are labelled from `task_type`.
+`classify-cases --llm-review` is an optional second pass on heuristic `other`.
 """
 
 from __future__ import annotations
 
 import ast
 import difflib
+import json
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -101,12 +102,26 @@ class ProblemTypeResult:
     source: str = "heuristic"
 
 
-def stamp_problem_type(case: dict[str, Any]) -> ProblemTypeResult:
+def stamp_problem_type(
+    case: dict[str, Any],
+    *,
+    llm_review: bool = False,
+    llm_review_all: bool = False,
+    chat: Any | None = None,
+) -> ProblemTypeResult:
     """Write `metadata.problem_type` (and source/reasons). Always succeeds."""
     try:
-        result = classify_problem_type(case)
+        heuristic = classify_problem_type(case)
     except Exception as e:
-        result = ProblemTypeResult("other", [f"classify_error:{type(e).__name__}"])
+        heuristic = ProblemTypeResult("other", [f"classify_error:{type(e).__name__}"])
+    result = heuristic
+    if llm_review or llm_review_all:
+        result = llm_review_problem_type(
+            case,
+            heuristic,
+            chat=chat,
+            force=llm_review_all,
+        )
     if not isinstance(case, dict):
         return result
     meta = case.get("metadata")
@@ -116,6 +131,8 @@ def stamp_problem_type(case: dict[str, Any]) -> ProblemTypeResult:
     meta["problem_type"] = result.problem_type
     meta["problem_type_source"] = result.source
     meta["problem_type_reasons"] = list(result.reasons)
+    if result.source == "llm" and heuristic.problem_type != result.problem_type:
+        meta["problem_type_heuristic"] = heuristic.problem_type
     return result
 
 
@@ -158,6 +175,171 @@ def classify_problem_type(case: dict[str, Any] | Any) -> ProblemTypeResult:
         return ProblemTypeResult("other", ["no_detector_matched"])
     winner = ranked[0]
     return ProblemTypeResult(winner, hits[winner])
+
+
+_LLM_ALIASES: dict[str, str] = {
+    "off_by_one": "wrong_condition",
+    "wrong_predicate": "wrong_condition",
+    "missing_guard": "control_flow",
+    "missing_branch": "control_flow",
+    "missing_field": "schema_gap",
+    "registry_omission": "schema_gap",
+    "i18n": "copy_change",
+    "wholesale": "rewrite",
+    "wholesale_rewrite": "rewrite",
+}
+
+_LLM_SYSTEM = (
+    "You assign one closed-vocab defect mechanism to a coding-benchmark case.\n"
+    'Reply ONLY JSON: {"problem_type": "<slug>", "reason": "..."}\n'
+    "slug MUST be one of: " + ", ".join(PROBLEM_TYPES) + ".\n"
+    "review_choice is only for A/B patch-choice tasks. rewrite is a near-total file replace. "
+    "other if nothing else fits. Prefer a specific slug over other."
+)
+
+
+def llm_review_problem_type(
+    case: dict[str, Any] | Any,
+    heuristic: ProblemTypeResult,
+    *,
+    chat: Any | None = None,
+    force: bool = False,
+    timeout_s: float = 60.0,
+) -> ProblemTypeResult:
+    """Optional model second pass. Never raises; keeps ``heuristic`` on any failure.
+
+    Default: only heuristic ``other``. ``force=True`` reviews every slug except
+    ``review_choice``, which is determined by ``task_type``.
+    """
+    if heuristic.problem_type == "review_choice":
+        return heuristic
+    if heuristic.problem_type != "other" and not force:
+        return heuristic
+
+    raw = case if isinstance(case, dict) else {}
+    ask = chat or _default_chat(timeout_s)
+    if ask is None:
+        return heuristic
+
+    try:
+        text = ask(
+            [
+                {"role": "system", "content": _LLM_SYSTEM},
+                {"role": "user", "content": _llm_user_payload(raw, heuristic)},
+            ]
+        )
+    except Exception as e:
+        return ProblemTypeResult(
+            heuristic.problem_type,
+            [*heuristic.reasons, f"llm_review_unavailable:{type(e).__name__}"],
+            source=heuristic.source,
+        )
+
+    data = _parse_json_object(text)
+    slug = _normalize_llm_slug((data or {}).get("problem_type"))
+    if not slug:
+        return ProblemTypeResult(
+            heuristic.problem_type,
+            [*heuristic.reasons, f"llm_review_parse_fail:{(text or '')[:80]}"],
+            source=heuristic.source,
+        )
+    reason = str((data or {}).get("reason") or "llm_review")
+    return ProblemTypeResult(slug, [reason], source="llm")
+
+
+def _normalize_llm_slug(value: Any) -> str | None:
+    s = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    s = _LLM_ALIASES.get(s, s)
+    return s if s in PROBLEM_TYPES else None
+
+
+def _default_chat(timeout_s: float):
+    from aibench.env_config import openai_settings
+
+    settings = openai_settings()
+    if not settings["api_key"] or not settings["base_url"] or not settings["model"]:
+        return None
+    base = settings["base_url"].rstrip("/")
+
+    def _chat(messages: list[dict[str, str]]) -> str:
+        import httpx
+
+        from aibench.retry import retry_call
+
+        def _once() -> str:
+            with httpx.Client(timeout=timeout_s) as client:
+                resp = client.post(
+                    f"{base}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings['api_key']}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": settings["model"],
+                        "temperature": 0,
+                        "max_tokens": 256,
+                        "messages": messages,
+                    },
+                )
+                resp.raise_for_status()
+                msg = resp.json()["choices"][0]["message"]
+                text = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+                if not text:
+                    raise ValueError("empty LLM content")
+                return text
+
+        return retry_call(_once, label="llm_problem_type_review")
+
+    return _chat
+
+
+def _llm_user_payload(case: dict[str, Any], heuristic: ProblemTypeResult) -> str:
+    prompt = str(case.get("prompt") or "")[:800]
+    lines = [
+        f"heuristic_label: {heuristic.problem_type}",
+        f"heuristic_reasons: {'; '.join(heuristic.reasons[:6])}",
+        f"task_type: {case.get('task_type')}",
+        f"language: {case.get('language')}",
+        "prompt:",
+        prompt or "(empty)",
+        "stub vs gold (truncated):",
+        _diff_excerpt(case),
+    ]
+    return "\n".join(lines)
+
+
+def _diff_excerpt(case: dict[str, Any], *, max_lines: int = 60) -> str:
+    try:
+        pairs = _impl_gold_pairs(case)
+    except (TypeError, AttributeError):
+        return "(no diff)"
+    if not pairs:
+        return "(no gold diff)"
+    chunks: list[str] = []
+    budget = max_lines
+    for path, stub, gold in pairs[:3]:
+        added, removed = _line_delta(stub, gold)
+        chunks.append(f"### {path}")
+        for ln in removed[: budget // 2]:
+            chunks.append(f"- {ln[:160]}")
+        for ln in added[: budget // 2]:
+            chunks.append(f"+ {ln[:160]}")
+        budget -= 2 + min(len(removed), budget // 2) + min(len(added), budget // 2)
+        if budget <= 0:
+            break
+    return "\n".join(chunks) or "(empty diff)"
+
+
+def _parse_json_object(text: str) -> dict[str, Any] | None:
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", (text or "").strip())
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def distribution(cases: list[dict[str, Any]]) -> dict[str, int]:

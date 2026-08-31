@@ -430,6 +430,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Write problem_type into each case's metadata",
     )
+    p_pt.add_argument(
+        "--llm-review",
+        action="store_true",
+        help="Second-pass LLM on heuristic `other` (needs OPENAI_*; keep heuristic if the "
+        "model is down or returns an unknown slug)",
+    )
+    p_pt.add_argument(
+        "--llm-review-all",
+        action="store_true",
+        help="Like --llm-review but for every case except review_choice (costs one call each)",
+    )
 
     p_doc = sub.add_parser(
         "doctor",
@@ -1094,6 +1105,13 @@ def main(argv: list[str] | None = None) -> int:
         if not directory.is_dir():
             print(f"not a directory: {directory}")
             return 1
+        if args.llm_review or args.llm_review_all:
+            settings = openai_settings()
+            if not all((settings["api_key"], settings["base_url"], settings["model"])):
+                print(
+                    "WARNING: --llm-review needs OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL; "
+                    "keeping heuristic labels"
+                )
         paths = sorted(p for p in directory.glob("*.json") if is_case_json_path(p))
         classified: list[tuple[Path, dict[str, Any], Any]] = []
         items: list[dict[str, Any]] = []
@@ -1103,7 +1121,11 @@ def main(argv: list[str] | None = None) -> int:
                 case = load_json(path)
                 if not isinstance(case, dict):
                     raise TypeError(f"JSON root is {type(case).__name__}, not object")
-                result = stamp_problem_type(case)
+                result = stamp_problem_type(
+                    case,
+                    llm_review=args.llm_review or args.llm_review_all,
+                    llm_review_all=args.llm_review_all,
+                )
             except Exception as e:
                 skipped += 1
                 print(f"skip {path.name}: {e}", flush=True)
@@ -1113,6 +1135,8 @@ def main(argv: list[str] | None = None) -> int:
                 {
                     "case_id": case.get("case_id"),
                     "problem_type": result.problem_type,
+                    "source": result.source,
+                    "heuristic": (case.get("metadata") or {}).get("problem_type_heuristic"),
                     "reasons": result.reasons,
                     "path": path.name,
                 }

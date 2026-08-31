@@ -488,3 +488,107 @@ def test_run_summary_stratifies_by_problem_type():
     assert strata["wrong_condition"]["n"] == 2
     assert strata["wrong_condition"]["successes"] == 1
     assert strata["missing_symbol"]["n"] == 1
+
+
+def _other_case() -> dict:
+    case = _case("def a():\n    return 1\n", "def a():\n    return 1\n")
+    case["grader"]["gold_files"] = []
+    return case
+
+
+def test_llm_review_overrides_other_with_a_vocab_slug():
+    case = _other_case()
+    result = stamp_problem_type(
+        case,
+        llm_review=True,
+        chat=lambda _m: '{"problem_type": "schema_gap", "reason": "new config"}',
+    )
+    assert result.problem_type == "schema_gap"
+    assert result.source == "llm"
+    assert case["metadata"]["problem_type_heuristic"] == "other"
+
+
+def test_llm_review_maps_old_slugs():
+    case = _other_case()
+    result = stamp_problem_type(
+        case,
+        llm_review=True,
+        chat=lambda _m: '{"problem_type": "off_by_one"}',
+    )
+    assert result.problem_type == "wrong_condition"
+    assert result.source == "llm"
+
+
+def test_llm_review_keeps_heuristic_on_unknown_slug_or_raise():
+    case = _other_case()
+    bad = stamp_problem_type(
+        case, llm_review=True, chat=lambda _m: '{"problem_type": "not_a_type"}'
+    )
+    assert bad.problem_type == "other"
+    assert bad.source == "heuristic"
+
+    def boom(_m):
+        raise RuntimeError("down")
+
+    crashed = stamp_problem_type(_other_case(), llm_review=True, chat=boom)
+    assert crashed.problem_type == "other"
+    assert crashed.source == "heuristic"
+
+
+def test_llm_review_skips_non_other_unless_forced():
+    case = _case(
+        "def nsum(n):\n    return sum(range(1, n))\n",
+        "def nsum(n):\n    return sum(range(1, n + 1))\n",
+    )
+    calls: list = []
+
+    def chat(messages):
+        calls.append(messages)
+        return '{"problem_type": "schema_gap"}'
+
+    skipped = stamp_problem_type(case, llm_review=True, chat=chat)
+    assert skipped.problem_type == "wrong_condition"
+    assert calls == []
+    forced = stamp_problem_type(case, llm_review=True, llm_review_all=True, chat=chat)
+    assert forced.problem_type == "schema_gap"
+    assert forced.source == "llm"
+    assert calls
+
+
+def test_llm_review_never_overrides_review_choice():
+    case = _case("CHOICE = '?'\n", 'CHOICE = "B"\n', path="answer.py")
+    case["task_type"] = "pairwise"
+    calls: list = []
+    stamp_problem_type(
+        case,
+        llm_review=True,
+        llm_review_all=True,
+        chat=lambda m: calls.append(m) or '{"problem_type": "other"}',
+    )
+    assert case["metadata"]["problem_type"] == "review_choice"
+    assert calls == []
+
+
+def test_classify_cases_llm_review_without_credentials_keeps_heuristic(
+    tmp_path: Path, capsys, monkeypatch
+):
+    monkeypatch.setenv("AIBENCH_CASE_ROOT", str(tmp_path))
+    empty = {"api_key": "", "base_url": "", "model": ""}
+    monkeypatch.setattr("aibench.cli.openai_settings", lambda: empty)
+    monkeypatch.setattr("aibench.env_config.openai_settings", lambda: empty)
+    case_dir = tmp_path / "ptllm"
+    case_dir.mkdir()
+    write_json(case_dir / "c.json", _other_case())
+    rc = main(
+        [
+            "classify-cases",
+            "--case-set",
+            "ptllm",
+            "--llm-review",
+            "--annotate",
+        ]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert load_json(case_dir / "c.json")["metadata"]["problem_type_source"] == "heuristic"

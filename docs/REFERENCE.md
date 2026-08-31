@@ -800,15 +800,20 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 词表：`review_choice` · `missing_cli_wiring` · `wrong_condition` · `control_flow` ·
 `normalize_transform` · `wrong_path_base` · `schema_gap` · `missing_symbol` ·
 `copy_change` · `wrong_literal` · `rewrite` · `other`。
-主信号是 stub 与 `grader.gold_files` 的 diff（**不调用模型**）。`task_type=pairwise` 直接标
+主信号是 stub 与 `grader.gold_files` 的 diff（默认**不调用模型**）。`task_type=pairwise` 直接标
 `review_choice`，不看 CHOICE 字面量。没有参考解时才回退到 prompt 关键词，否则为 `other`。
 整文件重写标 `rewrite` 而不是 `other`。分类失败不会丢掉用例。
+`--llm-review` 是可选二审：只对启发式 `other` 再问一次配置的 OpenAI 兼容模型；模型不可用、
+解析失败、或返回词表外的 slug 时保留启发式。`--llm-review-all` 对除 `review_choice` 外每条
+都问一次。覆盖时 `problem_type_source=llm`，并记下 `problem_type_heuristic`。
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
 | `--case-set` | str | 与 `--input-dir` 二选一 | 解析规则同 §8.0 |
 | `--input-dir` | Path | 与 `--case-set` 二选一 | 直接扫一个 case 目录（`generate-cases --output-dir` 的产物） |
 | `--annotate` | flag | 关 | 写回 `metadata.problem_type` / `_source` / `_reasons` |
+| `--llm-review` | flag | 关 | 对启发式 `other` 做一次 LLM 二审（需 `OPENAI_*`）。不可用则保留启发式 |
+| `--llm-review-all` | flag | 关 | 同上，但每条（`review_choice` 除外）都花一次调用 |
 | `--report` | Path | 无 | JSON：`total` / `counts` / `items` |
 
 结束打印 `problem_type distribution: wrong_condition=3, other=1`。无 case 时 exit 1。
@@ -931,7 +936,8 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | `validity_ok` | 审计是否通过 |
 | `tags` / `split` | 标签与划分 |
 | `problem_type` | 缺陷机制封闭词表（`review_choice` / `missing_cli_wiring` / `wrong_condition` / `control_flow` / `normalize_transform` / `wrong_path_base` / `schema_gap` / `missing_symbol` / `copy_change` / `wrong_literal` / `rewrite` / `other`）。**不是** `task_type`。启发式打标，**不调用模型**；既有集合用 `classify-cases --annotate` 回填 |
-| `problem_type_source` | 目前恒为 `heuristic` |
+| `problem_type_source` | `heuristic`（默认）或 `llm`（`--llm-review` 覆盖时） |
+| `problem_type_heuristic` | LLM 覆盖前的启发式标签 |
 | `problem_type_reasons` | 命中的检测器说明，便于抽查 |
 
 `metadata` 允许 `additionalProperties`，便于流水线注解。
