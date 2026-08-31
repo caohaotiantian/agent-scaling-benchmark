@@ -133,6 +133,8 @@ def stamp_problem_type(
     meta["problem_type_reasons"] = list(result.reasons)
     if result.source == "llm" and heuristic.problem_type != result.problem_type:
         meta["problem_type_heuristic"] = heuristic.problem_type
+    else:
+        meta.pop("problem_type_heuristic", None)
     return result
 
 
@@ -222,11 +224,14 @@ def llm_review_problem_type(
         return heuristic
 
     try:
-        text = ask(
-            [
-                {"role": "system", "content": _LLM_SYSTEM},
-                {"role": "user", "content": _llm_user_payload(raw, heuristic)},
-            ]
+        text = str(
+            ask(
+                [
+                    {"role": "system", "content": _LLM_SYSTEM},
+                    {"role": "user", "content": _llm_user_payload(raw, heuristic)},
+                ]
+            )
+            or ""
         )
     except Exception as e:
         return ProblemTypeResult(
@@ -237,10 +242,15 @@ def llm_review_problem_type(
 
     data = _parse_json_object(text)
     slug = _normalize_llm_slug((data or {}).get("problem_type"))
-    if not slug:
+    if not slug or slug == "review_choice":
+        why = (
+            "llm_review_rejected_review_choice"
+            if slug == "review_choice"
+            else f"llm_review_parse_fail:{str(text or '')[:80]}"
+        )
         return ProblemTypeResult(
             heuristic.problem_type,
-            [*heuristic.reasons, f"llm_review_parse_fail:{(text or '')[:80]}"],
+            [*heuristic.reasons, why],
             source=heuristic.source,
         )
     reason = str((data or {}).get("reason") or "llm_review")

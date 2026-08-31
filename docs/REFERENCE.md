@@ -935,7 +935,7 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | `fingerprint` | case 指纹 |
 | `validity_ok` | 审计是否通过 |
 | `tags` / `split` | 标签与划分 |
-| `problem_type` | 缺陷机制封闭词表（`review_choice` / `missing_cli_wiring` / `wrong_condition` / `control_flow` / `normalize_transform` / `wrong_path_base` / `schema_gap` / `missing_symbol` / `copy_change` / `wrong_literal` / `rewrite` / `other`）。**不是** `task_type`。启发式打标，**不调用模型**；既有集合用 `classify-cases --annotate` 回填 |
+| `problem_type` | 缺陷机制封闭词表（`review_choice` / `missing_cli_wiring` / `wrong_condition` / `control_flow` / `normalize_transform` / `wrong_path_base` / `schema_gap` / `missing_symbol` / `copy_change` / `wrong_literal` / `rewrite` / `other`）。**不是** `task_type`。默认启发式；`classify-cases --llm-review` 可对 `other` 二审 |
 | `problem_type_source` | `heuristic`（默认）或 `llm`（`--llm-review` 覆盖时） |
 | `problem_type_heuristic` | LLM 覆盖前的启发式标签 |
 | `problem_type_reasons` | 命中的检测器说明，便于抽查 |

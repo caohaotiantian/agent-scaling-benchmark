@@ -506,6 +506,9 @@ def test_llm_review_overrides_other_with_a_vocab_slug():
     assert result.problem_type == "schema_gap"
     assert result.source == "llm"
     assert case["metadata"]["problem_type_heuristic"] == "other"
+    heuristic_again = stamp_problem_type(case)
+    assert heuristic_again.source == "heuristic"
+    assert "problem_type_heuristic" not in case["metadata"]
 
 
 def test_llm_review_maps_old_slugs():
@@ -553,6 +556,17 @@ def test_llm_review_skips_non_other_unless_forced():
     assert forced.problem_type == "schema_gap"
     assert forced.source == "llm"
     assert calls
+
+
+def test_llm_review_cannot_invent_review_choice_on_a_bugfix():
+    case = _other_case()
+    result = stamp_problem_type(
+        case,
+        llm_review=True,
+        chat=lambda _m: '{"problem_type": "review_choice"}',
+    )
+    assert result.problem_type == "other"
+    assert result.source == "heuristic"
 
 
 def test_llm_review_never_overrides_review_choice():
