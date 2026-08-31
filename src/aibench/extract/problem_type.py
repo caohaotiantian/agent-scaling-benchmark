@@ -191,13 +191,16 @@ _LLM_ALIASES: dict[str, str] = {
     "wholesale_rewrite": "rewrite",
 }
 
+_LLM_SLUGS = tuple(s for s in PROBLEM_TYPES if s != "review_choice")
 _LLM_SYSTEM = (
     "You assign one closed-vocab defect mechanism to a coding-benchmark case.\n"
-    'Reply ONLY JSON: {"problem_type": "<slug>", "reason": "..."}\n'
-    "slug MUST be one of: " + ", ".join(PROBLEM_TYPES) + ".\n"
-    "review_choice is only for A/B patch-choice tasks. rewrite is a near-total file replace. "
-    "other if nothing else fits. Prefer a specific slug over other."
+    "Do not narrate. Do not repeat the task. The first character of your reply must be `{`.\n"
+    'Reply with one JSON object: {"problem_type": "<slug>", "reason": "..."}\n'
+    "slug MUST be one of: " + ", ".join(_LLM_SLUGS) + ".\n"
+    "rewrite is a near-total file replace. other if nothing else fits. "
+    "Prefer a specific slug over other."
 )
+_SLUG_IN_TEXT = re.compile(r"problem_type['\"]?\s*[:=]\s*['\"]?([a-z_]+)")
 
 
 def llm_review_problem_type(
@@ -206,7 +209,7 @@ def llm_review_problem_type(
     *,
     chat: Any | None = None,
     force: bool = False,
-    timeout_s: float = 60.0,
+    timeout_s: float = 120.0,
 ) -> ProblemTypeResult:
     """Optional model second pass. Never raises; keeps ``heuristic`` on any failure.
 
@@ -241,7 +244,7 @@ def llm_review_problem_type(
         )
 
     data = _parse_json_object(text)
-    slug = _normalize_llm_slug((data or {}).get("problem_type"))
+    slug = _normalize_llm_slug((data or {}).get("problem_type")) or _slug_from_text(text)
     if not slug or slug == "review_choice":
         why = (
             "llm_review_rejected_review_choice"
@@ -260,7 +263,15 @@ def llm_review_problem_type(
 def _normalize_llm_slug(value: Any) -> str | None:
     s = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
     s = _LLM_ALIASES.get(s, s)
-    return s if s in PROBLEM_TYPES else None
+    return s if s in PROBLEM_TYPES and s != "review_choice" else None
+
+
+def _slug_from_text(text: str) -> str | None:
+    for match in _SLUG_IN_TEXT.finditer(text or ""):
+        slug = _normalize_llm_slug(match.group(1))
+        if slug:
+            return slug
+    return None
 
 
 def _default_chat(timeout_s: float):
@@ -287,13 +298,19 @@ def _default_chat(timeout_s: float):
                     json={
                         "model": settings["model"],
                         "temperature": 0,
-                        "max_tokens": 256,
+                        "max_tokens": 2048,
                         "messages": messages,
                     },
                 )
                 resp.raise_for_status()
                 msg = resp.json()["choices"][0]["message"]
-                text = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+                content = str(msg.get("content") or "").strip()
+                reasoning = str(msg.get("reasoning_content") or "").strip()
+                text = (
+                    content
+                    if "{" in content
+                    else (reasoning if "{" in reasoning else content or reasoning)
+                )
                 if not text:
                     raise ValueError("empty LLM content")
                 return text

@@ -513,6 +513,20 @@ def test_llm_review_overrides_other_with_a_vocab_slug():
     assert "problem_type_heuristic" not in case["metadata"]
 
 
+def test_llm_review_recovers_slug_from_narration():
+    case = _other_case()
+    result = stamp_problem_type(
+        case,
+        llm_review=True,
+        chat=lambda _m: (
+            "The user wants me to classify a coding-benchmark case into "
+            "one of the closed-vocab types. problem_type: schema_gap"
+        ),
+    )
+    assert result.problem_type == "schema_gap"
+    assert result.source == "llm"
+
+
 def test_llm_review_maps_old_slugs():
     case = _other_case()
     result = stamp_problem_type(

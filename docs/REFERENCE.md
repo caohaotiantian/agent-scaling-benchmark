@@ -939,7 +939,7 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | `validity_ok` | 审计是否通过 |
 | `tags` / `split` | 标签与划分 |
 | `problem_type` | 缺陷机制封闭词表（`review_choice` / `missing_cli_wiring` / `wrong_condition` / `control_flow` / `normalize_transform` / `wrong_path_base` / `schema_gap` / `missing_symbol` / `copy_change` / `wrong_literal` / `rewrite` / `other`）。**不是** `task_type`。启发式打标后，`classify-cases` **默认**对 `other` 做 LLM 二审（`--no-llm-review` 关掉） |
-| `problem_type_source` | `heuristic`（默认）或 `llm`（`--llm-review` 覆盖时） |
+| `problem_type_source` | `heuristic` 或 `llm`（默认会对 `other` 二审；覆盖成功为 `llm`） |
 | `problem_type_heuristic` | LLM 覆盖前的启发式标签 |
 | `problem_type_reasons` | 命中的检测器说明，便于抽查 |
 
