@@ -5,9 +5,9 @@
 # enforced differently on each side (see configs/agents/pi.yaml) — the numbers are comparable,
 # the mechanism is not identical, and a report comparing them has to say so.
 #
-# The case-set fingerprint is pinned, which no other run config does. `_clean2026` is the one
-# production set that ships with the repository and it is what docs/BASELINE.md measures; a run
-# that silently measured a drifted copy of it would be published against the wrong baseline.
+# The case-set fingerprint is pinned, which no other run config does. `_clean2026` is a local
+# production set (not committed here); a run that silently measured a drifted copy of it would
+# be published against the wrong baseline.
 experiment_name: prod-pi
 algorithm_name: Baseline
 algorithm_version: v1.0

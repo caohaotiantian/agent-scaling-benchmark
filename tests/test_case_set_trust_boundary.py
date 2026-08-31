@@ -1,9 +1,9 @@
 """A case set is data the harness received, not code the harness wrote.
 
-`export-bundle` exists to hand a case set to another person, and `_clean2026` ships with the
-repository, so the JSON reaching `run` and `audit-cases` comes from outside. These tests hold
-the boundary that follows from that: nothing in a case JSON reaches a shell, and the code being
-graded does not get the caller's credentials.
+`export-bundle` exists to hand a case set to another person, so the JSON reaching `run` and
+`audit-cases` comes from outside. These tests hold the boundary that follows from that:
+nothing in a case JSON reaches a shell, and the code being graded does not get the caller's
+credentials.
 """
 
 from __future__ import annotations
@@ -377,6 +377,46 @@ class TestTheGitSubdirIsConfinedToTheClone:
         ws = tmp_path / "ws2"
         materialize_workspace(Case.from_dict(raw), ws, allow_network=True)
         assert (ws / "mod.py").is_file()
+
+    def test_a_symlink_in_the_clone_is_not_followed_onto_the_host(self, tmp_path):
+        """`copytree`/`copy2` default to following links, so a git tree with
+        `stolen -> /Users/…/.env` would copy the host file into the workspace."""
+        import subprocess
+
+        from aibench.workspace import materialize_workspace
+
+        secret = tmp_path / "HOSTDIR" / "id_rsa"
+        secret.parent.mkdir()
+        secret.write_text("PRIVATE-KEY-CANARY\n", encoding="utf-8")
+        repo = self._local_repo(tmp_path)
+        (repo / "stolen").symlink_to(secret)
+        subprocess.run(
+            ["git", "-c", "user.email=t@e", "-c", "user.name=t", "add", "."],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-qm", "link"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        raw = _seed()
+        raw["context"]["files"] = []
+        raw["context"]["workspace"] = {
+            "mode": "git",
+            "git": {"url": f"file://{repo}", "ref": "main"},
+        }
+        ws = tmp_path / "ws-git-link"
+        materialize_workspace(Case.from_dict(raw), ws, allow_network=True)
+        assert (ws / "app.py").is_file()
+        leaked = [
+            p
+            for p in ws.rglob("*")
+            if p.is_file() and not p.is_symlink() and "PRIVATE-KEY-CANARY" in p.read_text()
+        ]
+        assert leaked == []
 
 
 class TestTheGuardsThatHadNoTest:

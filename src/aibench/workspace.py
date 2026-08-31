@@ -403,15 +403,21 @@ def _apply_git(
         if not src.exists():
             raise FileNotFoundError(f"git subdir not found: {subdir}")
 
-        # copy into workspace (exclude .git)
+        # copy into workspace (exclude .git). Same rule as snapshots: drop links,
+        # do not follow them onto the host.
+        def drop_symlinks(directory: str, names: list[str]) -> set[str]:
+            return {n for n in names if Path(directory, n).is_symlink()}
+
         for item in src.iterdir():
             if item.name == ".git":
                 continue
             dest = workspace / item.name
+            if item.is_symlink():
+                continue
             if item.is_dir():
-                shutil.copytree(item, dest, dirs_exist_ok=True)
+                shutil.copytree(item, dest, dirs_exist_ok=True, ignore=drop_symlinks)
             else:
-                shutil.copy2(item, dest)
+                shutil.copy2(item, dest, follow_symlinks=False)
 
         # record pin for audit
         head = subprocess.run(
