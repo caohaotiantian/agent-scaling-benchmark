@@ -87,7 +87,10 @@ class ProblemTypeResult:
 def stamp_problem_type(case: dict[str, Any]) -> ProblemTypeResult:
     """Write `metadata.problem_type` (and source/reasons). Always succeeds."""
     result = classify_problem_type(case)
-    meta = case.setdefault("metadata", {})
+    meta = case.get("metadata")
+    if not isinstance(meta, dict):
+        meta = {}
+        case["metadata"] = meta
     meta["problem_type"] = result.problem_type
     meta["problem_type_source"] = result.source
     meta["problem_type_reasons"] = list(result.reasons)
@@ -119,7 +122,8 @@ def classify_problem_type(case: dict[str, Any] | Any) -> ProblemTypeResult:
         "wrong_path_base",
         "missing_field",
     }
-    if min_ratio < _WHOLESALE_RATIO and not any(h in strong for h in ranked):
+    stub_empty = all(not stub.strip() for _path, stub, _gold in pairs)
+    if min_ratio < _WHOLESALE_RATIO and not stub_empty and not any(h in strong for h in ranked):
         return ProblemTypeResult(
             "other",
             [f"wholesale_rewrite ratio={min_ratio:.2f}"]
@@ -138,19 +142,26 @@ def distribution(cases: list[dict[str, Any]]) -> dict[str, int]:
     return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
+def _file_dicts(value: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for item in value or []:
+        if isinstance(item, dict) and str(item.get("path") or "").strip():
+            out.append(item)
+    return out
+
+
 def _impl_gold_pairs(case: dict[str, Any]) -> list[tuple[str, str, str]]:
-    gold_files = ((case.get("grader") or {}).get("gold_files")) or []
+    gold_files = _file_dicts((case.get("grader") or {}).get("gold_files"))
     if not gold_files:
         return []
-    files = ((case.get("context") or {}).get("files")) or []
-    by_path = {str(f.get("path") or ""): f for f in files if f.get("path")}
+    files = _file_dicts((case.get("context") or {}).get("files"))
+    by_path = {str(f.get("path") or ""): f for f in files}
     out: list[tuple[str, str, str]] = []
     for g in gold_files:
         path = str(g.get("path") or "")
-        if not path:
-            continue
         stub_entry = by_path.get(path)
-        if stub_entry and _skip_file(path, stub_entry.get("role")):
+        role = stub_entry.get("role") if stub_entry else None
+        if _skip_file(path, role):
             continue
         stub = str((stub_entry or {}).get("content") or "")
         gold = str(g.get("content") or "")
@@ -335,13 +346,13 @@ def _is_guard(added: list[str], stub: str, gold: str) -> bool:
 
 
 def _is_branch(added: list[str], stub: str, gold: str) -> bool:
+    if _defined_names(gold) - _defined_names(stub):
+        return False
     keywords = ("elif ", "else:", "case ", "default:", "else if")
     if not any(any(k in ln for k in keywords) for ln in added):
         # A new `if` that is not a guard (already handled) and not a new function body.
         new_ifs = [ln for ln in added if re.search(r"^\s*if\s+", ln)]
         if not new_ifs:
-            return False
-        if _defined_names(gold) - _defined_names(stub):
             return False
         return not _is_guard(added, stub, gold)
     return True
@@ -381,6 +392,6 @@ _PROMPT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
 def _from_prompt(prompt: str, why: str) -> ProblemTypeResult:
     p = prompt.lower()
     for slug, keys in _PROMPT_HINTS:
-        if any(k.lower() in p for k in keys):
+        if any(re.search(rf"(?<![a-z0-9_]){re.escape(k.lower())}(?![a-z0-9_])", p) for k in keys):
             return ProblemTypeResult(slug, [why, f"prompt:{slug}"])
     return ProblemTypeResult("other", [why])

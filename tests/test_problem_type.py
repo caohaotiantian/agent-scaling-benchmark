@@ -177,6 +177,58 @@ def test_test_files_and_distractors_are_ignored():
     assert classify_problem_type(case).problem_type == "other"
 
 
+def test_null_metadata_does_not_raise():
+    case = _case(
+        "def nsum(n):\n    return sum(range(1, n))\n",
+        "def nsum(n):\n    return sum(range(1, n + 1))\n",
+    )
+    case["metadata"] = None
+    result = stamp_problem_type(case)
+    assert result.problem_type == "off_by_one"
+    assert isinstance(case["metadata"], dict)
+    assert case["metadata"]["problem_type"] == "off_by_one"
+
+
+def test_malformed_gold_files_do_not_raise():
+    case = _case("def a():\n    return 1\n", "def a():\n    return 1\n")
+    case["grader"]["gold_files"] = ["oops", {"path": "mod.py"}]
+    assert classify_problem_type(case).problem_type in PROBLEM_TYPES
+
+
+def test_empty_stub_new_symbol_is_missing_symbol_not_wholesale():
+    stub = ""
+    gold = "def calculate_tensor_memory(shape):\n    return 0\n"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_symbol"
+
+
+def test_new_function_with_else_is_missing_symbol_not_missing_branch():
+    stub = "def a():\n    return 1\n"
+    gold = (
+        "def a():\n    return 1\n\n"
+        "def pick(x):\n"
+        "    if x:\n"
+        "        return 1\n"
+        "    else:\n"
+        "        return 0\n"
+    )
+    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_symbol"
+
+
+def test_prompt_cli_is_not_a_substring_of_client():
+    case = _case("def a():\n    return 1\n", "def a():\n    return 1\n")
+    case["grader"]["gold_files"] = []
+    case["prompt"] = "The client failed to reconnect."
+    assert classify_problem_type(case).problem_type == "other"
+
+
+def test_gold_only_test_path_is_ignored():
+    case = _case("def a():\n    return 1\n", "def a():\n    return 1\n")
+    case["grader"]["gold_files"] = [
+        {"path": "test_other.py", "content": "def test_ok():\n    assert False\n"}
+    ]
+    assert classify_problem_type(case).problem_type == "other"
+
+
 def test_stamp_writes_metadata_and_does_not_fail():
     case = _case(
         "def nsum(n):\n    return sum(range(1, n))\n",
@@ -283,6 +335,41 @@ def test_classify_cases_cli_writes_report_and_annotates(tmp_path: Path, capsys, 
     assert rep["counts"]["off_by_one"] == 1
     stamped = load_json(case_dir / "c.json")
     assert stamped["metadata"]["problem_type"] == "off_by_one"
+
+
+def test_classify_cases_skips_a_broken_file_and_still_labels_the_rest(
+    tmp_path: Path, capsys, monkeypatch
+):
+    monkeypatch.setenv("AIBENCH_CASE_ROOT", str(tmp_path))
+    case_dir = tmp_path / "ptmix"
+    case_dir.mkdir()
+    write_json(
+        case_dir / "good.json",
+        _case(
+            "def nsum(n):\n    return sum(range(1, n))\n",
+            "def nsum(n):\n    return sum(range(1, n + 1))\n",
+        ),
+    )
+    (case_dir / "bad.json").write_text("{not json", encoding="utf-8")
+    report = tmp_path / "pt.json"
+    rc = main(
+        [
+            "classify-cases",
+            "--case-set",
+            "ptmix",
+            "--annotate",
+            "--report",
+            str(report),
+        ]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "off_by_one=" in out
+    assert "skip" in out.lower() or "bad.json" in out
+    assert load_json(case_dir / "good.json")["metadata"]["problem_type"] == "off_by_one"
+    assert (case_dir / "bad.json").read_text(encoding="utf-8") == "{not json"
+    rep = load_json(report)
+    assert rep["counts"]["off_by_one"] == 1
 
 
 def test_distribution_counts_unset():

@@ -138,7 +138,7 @@ def _run_one_attempt(
             "language": case.language,
             "difficulty": difficulty,
             "tier": case.tier,
-            "problem_type": case.metadata.get("problem_type"),
+            "problem_type": case.problem_type,
             "fingerprint": case_fingerprint(case),
             # Carried into the calibration export so a published band can be recomputed from
             # the file. `auto-v0`'s row requires "只取有参考解的 105 条" and nothing identified

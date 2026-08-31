@@ -831,6 +831,7 @@ def main(argv: list[str] | None = None) -> int:
             reverse_chat = chat_json(settings)
 
         tier_counts_seen: dict[str, int] = {}
+        problem_type_counts_seen: dict[str, int] = {}
         # The query window a draft came from, carried forward so a case says which slice of the
         # table produced it. `extract-from-db` reads `ORDER BY start_time DESC LIMIT n` with
         # `--since`/`--until` defaulting to None, so "the last 100 rows" means a different 100
@@ -858,6 +859,8 @@ def main(argv: list[str] | None = None) -> int:
                 return None
             settled = (case.get("metadata") or {}).get("tier") or "unset"
             tier_counts_seen[settled] = tier_counts_seen.get(settled, 0) + 1
+            pt = (case.get("metadata") or {}).get("problem_type") or "unset"
+            problem_type_counts_seen[pt] = problem_type_counts_seen.get(pt, 0) + 1
             print(f"  {label} {case['case_id']} <- {path.name}", flush=True)
             return case
 
@@ -962,13 +965,10 @@ def main(argv: list[str] | None = None) -> int:
                 "tier distribution: "
                 + ", ".join(f"{k}={v}" for k, v in sorted(tier_counts.items()))
             )
-        written_cases = [
-            load_json(p) for p in sorted(out.glob("*.json")) if not p.name.startswith("_")
-        ]
-        pt_counts = problem_type_distribution(written_cases)
-        if pt_counts:
+        if problem_type_counts_seen:
             print(
-                "problem_type distribution: " + ", ".join(f"{k}={v}" for k, v in pt_counts.items())
+                "problem_type distribution: "
+                + ", ".join(f"{k}={v}" for k, v in sorted(problem_type_counts_seen.items()))
             )
         if n_ok == 0 and args.min_tier:
             print(
@@ -1095,12 +1095,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"not a directory: {directory}")
             return 1
         paths = sorted(p for p in directory.glob("*.json") if is_case_json_path(p))
+        classified: list[tuple[Path, dict[str, Any], Any]] = []
         items: list[dict[str, Any]] = []
+        skipped = 0
         for path in paths:
-            case = load_json(path)
-            result = stamp_problem_type(case)
-            if args.annotate:
-                write_json(path, case)
+            try:
+                case = load_json(path)
+                result = stamp_problem_type(case)
+            except Exception as e:
+                skipped += 1
+                print(f"skip {path.name}: {e}", flush=True)
+                continue
+            classified.append((path, case, result))
             items.append(
                 {
                     "case_id": case.get("case_id"),
@@ -1109,13 +1115,23 @@ def main(argv: list[str] | None = None) -> int:
                     "path": path.name,
                 }
             )
+        if args.annotate:
+            for path, case, _result in classified:
+                write_json(path, case)
         counts = problem_type_distribution(
             [{"metadata": {"problem_type": i["problem_type"]}} for i in items]
         )
-        report = {"total": len(items), "counts": counts, "items": items}
+        report = {
+            "total": len(items),
+            "skipped": skipped,
+            "counts": counts,
+            "items": items,
+        }
         if args.report:
             write_json(args.report, report)
         print(f"classified {len(items)} cases" + (f" -> {directory}" if args.annotate else ""))
+        if skipped:
+            print(f"skipped {skipped} unreadable file(s)")
         if counts:
             print("problem_type distribution: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
         return 0 if items else 1
