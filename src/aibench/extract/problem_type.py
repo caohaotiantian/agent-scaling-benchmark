@@ -238,7 +238,9 @@ def _score_pair(path: str, stub: str, gold: str, hits: dict[str, list[str]]) -> 
     gap = _schema_keys(gold) - _schema_keys(stub)
     if not gap:
         gap = _schema_keys("\n".join(added)) - _schema_keys("\n".join(removed))
-    if gap:
+    # Keys that only appear because a new class/function was added are the new API,
+    # not a hole in an existing schema. Same guard the old registry_omission used.
+    if gap and not new_defs:
         hits["schema_gap"].append(f"{path}: +{sorted(gap)[:6]}")
 
     if new_defs and "add_argument" not in added_text:

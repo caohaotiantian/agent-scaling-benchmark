@@ -144,6 +144,18 @@ def test_missing_symbol():
     assert classify_problem_type(_case(stub, gold)).problem_type == "missing_symbol"
 
 
+def test_new_class_with_dict_literals_is_missing_symbol_not_schema_gap():
+    stub = "def a():\n    return 1\n"
+    gold = (
+        "def a():\n"
+        "    return 1\n\n"
+        "class Graph:\n"
+        "    def add_edge(self, a, b):\n"
+        "        return {'from': a, 'to': b}\n"
+    )
+    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_symbol"
+
+
 def test_registry_omission():
     stub = "VIEWS = {\n    'list': ListView,\n}\n"
     gold = "VIEWS = {\n    'list': ListView,\n    'data': DataView,\n}\n"
