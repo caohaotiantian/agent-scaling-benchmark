@@ -280,6 +280,24 @@ def test_new_function_with_else_is_missing_symbol_not_missing_branch():
     assert classify_problem_type(_case(stub, gold)).problem_type == "missing_symbol"
 
 
+def test_new_function_with_range_is_missing_symbol_not_wrong_condition():
+    stub = "def a():\n    return 1\n"
+    gold = "def a():\n    return 1\n\ndef nsum(n):\n    return sum(range(1, n + 1))\n"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_symbol"
+
+
+def test_new_function_with_strip_is_missing_symbol_not_normalize():
+    stub = "def a():\n    return 1\n"
+    gold = "def a():\n    return 1\n\ndef key(s):\n    return s.strip().lower()\n"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_symbol"
+
+
+def test_new_function_with_encoding_is_missing_symbol_not_control_flow():
+    stub = "def a():\n    return 1\n"
+    gold = "def a():\n    return 1\n\ndef load(p):\n    return open(p, encoding='utf-8').read()\n"
+    assert classify_problem_type(_case(stub, gold)).problem_type == "missing_symbol"
+
+
 def test_prompt_cli_is_not_a_substring_of_client():
     case = _case("def a():\n    return 1\n", "def a():\n    return 1\n")
     case["grader"]["gold_files"] = []
@@ -527,6 +545,17 @@ def test_llm_review_recovers_slug_from_narration():
     assert result.source == "llm"
 
 
+def test_llm_review_ignores_restated_heuristic_other_in_narration():
+    case = _other_case()
+    result = stamp_problem_type(
+        case,
+        llm_review=True,
+        chat=lambda _m: "The heuristic problem_type: other does not fit.\nproblem_type: schema_gap",
+    )
+    assert result.problem_type == "schema_gap"
+    assert result.source == "llm"
+
+
 def test_llm_review_maps_old_slugs():
     case = _other_case()
     result = stamp_problem_type(
@@ -621,3 +650,28 @@ def test_classify_cases_llm_review_without_credentials_keeps_heuristic(
     out = capsys.readouterr().out
     assert "WARNING" in out
     assert load_json(case_dir / "c.json")["metadata"]["problem_type_source"] == "heuristic"
+
+
+def test_classify_cases_stops_llm_after_first_unavailable(tmp_path: Path, capsys, monkeypatch):
+    monkeypatch.setenv("AIBENCH_CASE_ROOT", str(tmp_path))
+    keys = {"api_key": "k", "base_url": "http://x", "model": "m"}
+    monkeypatch.setattr("aibench.cli.openai_settings", lambda: keys)
+    calls: list[int] = []
+
+    def boom(_messages):
+        calls.append(1)
+        raise RuntimeError("down")
+
+    monkeypatch.setattr("aibench.extract.problem_type._default_chat", lambda _timeout_s: boom)
+    case_dir = tmp_path / "ptbreak"
+    case_dir.mkdir()
+    write_json(case_dir / "a.json", _other_case())
+    write_json(case_dir / "b.json", _other_case())
+    rc = main(["classify-cases", "--case-set", "ptbreak", "--annotate"])
+    assert rc == 0
+    assert calls == [1]
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "remaining cases" in out
+    assert load_json(case_dir / "a.json")["metadata"]["problem_type_source"] == "heuristic"
+    assert load_json(case_dir / "b.json")["metadata"]["problem_type_source"] == "heuristic"

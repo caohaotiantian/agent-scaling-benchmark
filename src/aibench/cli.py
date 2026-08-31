@@ -1107,7 +1107,9 @@ def main(argv: list[str] | None = None) -> int:
         if not directory.is_dir():
             print(f"not a directory: {directory}")
             return 1
-        if args.llm_review or args.llm_review_all:
+        use_llm = bool(args.llm_review or args.llm_review_all)
+        review_all = bool(args.llm_review_all)
+        if use_llm:
             settings = openai_settings()
             if not all((settings["api_key"], settings["base_url"], settings["model"])):
                 print(
@@ -1125,13 +1127,22 @@ def main(argv: list[str] | None = None) -> int:
                     raise TypeError(f"JSON root is {type(case).__name__}, not object")
                 result = stamp_problem_type(
                     case,
-                    llm_review=args.llm_review or args.llm_review_all,
-                    llm_review_all=args.llm_review_all,
+                    llm_review=use_llm,
+                    llm_review_all=review_all,
                 )
             except Exception as e:
                 skipped += 1
                 print(f"skip {path.name}: {e}", flush=True)
                 continue
+            if use_llm and any(
+                str(r).startswith("llm_review_unavailable:") for r in result.reasons
+            ):
+                print(
+                    "WARNING: LLM review failed; keeping heuristic labels for remaining cases",
+                    flush=True,
+                )
+                use_llm = False
+                review_all = False
             classified.append((path, case, result))
             items.append(
                 {

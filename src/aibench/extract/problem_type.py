@@ -267,11 +267,16 @@ def _normalize_llm_slug(value: Any) -> str | None:
 
 
 def _slug_from_text(text: str) -> str | None:
+    found: list[str] = []
     for match in _SLUG_IN_TEXT.finditer(text or ""):
         slug = _normalize_llm_slug(match.group(1))
         if slug:
-            return slug
-    return None
+            found.append(slug)
+    # Reasoning dumps often restate heuristic_label `other` before the chosen slug.
+    specific = [s for s in found if s != "other"]
+    if specific:
+        return specific[-1]
+    return found[-1] if found else None
 
 
 def _default_chat(timeout_s: float):
@@ -430,25 +435,27 @@ def _score_pair(path: str, stub: str, gold: str, hits: dict[str, list[str]]) -> 
     if _CLI_HINT.search(added_text) and not _CLI_HINT.search(removed_text):
         hits["missing_cli_wiring"].append(f"{path}: new CLI surface")
 
-    if _off_by_one(removed, added) or _predicate_flip(removed, added):
-        hits["wrong_condition"].append(f"{path}: comparison / boolean / ±1")
+    # Incidental patterns inside a newly added function/class are the new API,
+    # not a tweak of an existing condition / path / normalize call.
+    if not new_defs:
+        if _off_by_one(removed, added) or _predicate_flip(removed, added):
+            hits["wrong_condition"].append(f"{path}: comparison / boolean / ±1")
 
-    if (_PATH_HINT.search(added_text) or _PATH_HINT.search(removed_text)) and _path_depth_changed(
-        removed_text, added_text
-    ):
-        hits["wrong_path_base"].append(f"{path}: path resolution base")
+        if (
+            _PATH_HINT.search(added_text) or _PATH_HINT.search(removed_text)
+        ) and _path_depth_changed(removed_text, added_text):
+            hits["wrong_path_base"].append(f"{path}: path resolution base")
+
+        if _NORMALIZE.search(added_text) and not _NORMALIZE.search(removed_text):
+            hits["normalize_transform"].append(f"{path}: normalize / sanitize")
 
     if _is_guard(added, stub, gold) or _is_branch(added, stub, gold):
         hits["control_flow"].append(f"{path}: guard or branch")
 
-    if _NORMALIZE.search(added_text) and not _NORMALIZE.search(removed_text):
-        hits["normalize_transform"].append(f"{path}: normalize / sanitize")
-
     gap = _schema_keys(gold) - _schema_keys(stub)
     if not gap:
         gap = _schema_keys("\n".join(added)) - _schema_keys("\n".join(removed))
-    # Keys that only appear because a new class/function was added are the new API,
-    # not a hole in an existing schema. Same guard the old registry_omission used.
+    # New class/function keys are the new API, not a hole in an existing schema.
     if gap and not new_defs:
         hits["schema_gap"].append(f"{path}: +{sorted(gap)[:6]}")
 
@@ -613,13 +620,13 @@ def _path_depth_changed(removed: str, added: str) -> bool:
 
 
 def _is_guard(added: list[str], stub: str, gold: str) -> bool:
+    if _defined_names(gold) - _defined_names(stub):
+        return False
     if any("encoding=" in ln and "encoding=" not in stub for ln in added):
         return True
     if any(any(k in ln for k in ("elif ", "else:", "else if", "case ")) for ln in added):
         return False
-    if not any(_GUARD_RAISE.search(ln) for ln in added):
-        return False
-    return not (_defined_names(gold) - _defined_names(stub))
+    return any(_GUARD_RAISE.search(ln) for ln in added)
 
 
 def _is_branch(added: list[str], stub: str, gold: str) -> bool:
