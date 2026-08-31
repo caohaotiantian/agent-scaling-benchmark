@@ -6,6 +6,7 @@ import csv
 from pathlib import Path
 
 from aibench.io_util import atomic_write, load_json
+from aibench.report import format_pct
 
 
 def export_ablation_csv(ablation_dir: Path, out_csv: Path | None = None) -> Path:
@@ -74,7 +75,6 @@ def export_ablation_xlsx(ablation_dir: Path, out_xlsx: Path | None = None) -> Pa
     ws.append(headers)
     for r in rows:
         o = r.get("overview_row") or {}
-        sr = float(r.get("success_rate") or 0) * 100
         lift = o.get("相对基线收益")
         if lift is None and r.get("relative_success_lift") is not None:
             lift = f"{float(r['relative_success_lift']) * 100:+.1f}pp"
@@ -86,7 +86,7 @@ def export_ablation_xlsx(ablation_dir: Path, out_xlsx: Path | None = None) -> Pa
                 o.get("Benchmark"),
                 o.get("Case数") or r.get("case_count"),
                 o.get("主指标名称") or "task_success_rate",
-                f"{sr:.1f}%",
+                format_pct(r.get("success_rate")),
                 o.get("总体耗时(h)") or r.get("total_wall_time_h"),
                 o.get("总体Token消耗") or r.get("total_tokens"),
                 lift,

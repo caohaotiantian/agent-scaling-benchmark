@@ -300,7 +300,7 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 
 ### 7.1 布局
 
-`configs/` 下**全部 40 个 YAML**，由目录列表生成（此前这张表只列了 9 个）。写过 39 两次：第一次漏 `grading-env.yaml`，第二次改了数字没补行。
+`configs/` 下**全部 42 个 YAML**，由目录列表生成（此前这张表只列了 9 个）。写过 39 两次：第一次漏 `grading-env.yaml`，第二次改了数字没补行。
 说明取自每个文件的第一行注释。
 
 | 路径 | 用途 |
@@ -315,6 +315,7 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 | `agents/opencode-s3.yaml` | Anchor panel rung: opencode with a step budget of 3. |
 | `agents/opencode-s40.yaml` | Anchor panel rung: opencode with a step budget of 40. |
 | `agents/opencode.yaml` | Production: a real coding agent (opencode), driven as a subprocess. |
+| `agents/pi.yaml` | Production: a second real coding agent (pi), driven as a subprocess. |
 | `agents/shell.yaml` | Production template: wrap an external coding CLI (e.g. mini-swe-agent / opencode) |
 | `agents/tool_loop.yaml` | Production: multi-step tool-loop agent |
 | `agents/tool_loop_frugal.yaml` | Deliberately weakened multi-step agent: the floor anchor for retrieval tiers. |
@@ -341,6 +342,7 @@ CLI 启动时会尝试加载项目根目录 `.env`。
 | `runs/anchor-panel.yaml` | Calibration anchor panel: the reference points a case's difficulty is measured against. |
 | `runs/baseline-bare.yaml` | Production single-run defaults for the bare-model adapter. |
 | `runs/baseline-opencode.yaml` | Production single-run defaults for the opencode adapter. |
+| `runs/baseline-pi.yaml` | Production single-run defaults for the pi adapter. |
 | `runs/baseline-tool-loop-frugal.yaml` | Floor anchor for retrieval calibration: multi-step, but a tight step budget and no shell. |
 | `runs/baseline-tool-loop.yaml` | Production run: multi-step tool_loop agent + GLM-5.2 |
 | `runs/baseline.yaml` | Production single-run defaults (no mock) |
@@ -786,7 +788,7 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 ### 8.19 `doctor` — 环境自检
 
 把此前只写在注释里的外部版本要求变成退出码：python、node、`configs/grading-env.yaml` 的承诺、
-`opencode` 版本、沙箱可用性。任一不满足退出 1。
+`opencode` 版本、`pi` 版本、沙箱可用性。任一不满足退出 1。
 
 | 参数 | 类型 | 默认 | 作用说明 |
 |------|------|------|----------|
@@ -971,6 +973,7 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | `bare_model` | `configs/agents/bare_model.yaml` | 单次调用，返回整份修好的文件；测「模型本身有多强」 |
 | `openai_compat` | `configs/agents/openai_compat.yaml` | 单轮 Chat；要求返回 `{"files":[...],"message":"..."}` 并写入 workspace |
 | `opencode` | `configs/agents/opencode.yaml`、`opencode-s{1,3,10,40}.yaml` | 真实编码 agent（opencode CLI）作为子进程驱动；见 §12.4 |
+| `pi` | `configs/agents/pi.yaml` | 真实编码 agent（pi CLI）作为子进程驱动；见 §12.5 |
 | `tool_loop` | `configs/agents/tool_loop.yaml` | 自研多步工具：`list` / `read` / `write` / `bash` / `submit`。**已知会主导测量**，见 §12.4 开头 |
 | `shell` | `configs/agents/shell.yaml` | 外部 CLI；占位符 `{workspace}` `{prompt_file}` `{case_id}` `{max_steps}`。不记 token，`empty_patch` 恒 false |
 | `mock` | **仅** `tests/fixtures/configs/agents/mock.yaml` | 单测 / dry-run |
@@ -1079,6 +1082,83 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 
 ---
 
+### 12.5 `pi` options
+
+把 pi CLI（`@earendil-works/pi-coding-agent`，MIT）作为子进程驱动。存在的理由是
+**一个真实 agent 适配器不够**：只有 `opencode` 时，每一个「模型在真实编码 agent 里如何」的
+结论同时也是一句关于 opencode 的话。pi 是同一套线协议上的另一个脚手架，同一批用例两边各跑
+一次，才说得清结果里哪一部分属于 CLI。
+
+| 选项 | 默认 | 说明 |
+|------|------|------|
+| `binary` | `pi` | 可执行文件路径 |
+| `expected_version` | 见 `configs/agents/pi.yaml`（`0.84.3`） | 不符即拒；不同版本是不同的仪器 |
+| `max_steps` | 取 run-config 的 `max_steps` | 钉死步数上限 |
+| `system_prompt` | 见 `DEFAULT_SYSTEM` | 经 `--system-prompt` 传入 |
+| `tools` | `read,bash,edit,write,grep,find,ls` | 经 `--tools` 传入的严格白名单 |
+| `context_window` | `128000` | 写进生成的 `models.json` |
+| `sandbox` | `true` | 关掉是一次被记录的选择，不是默认 |
+
+**pi 自己没有沙箱，而且它自己这么写。** 其 `docs/security.md`：「Pi does not include a
+built-in sandbox…… Real isolation needs to come from the operating system or a
+virtualization/container boundary.」所以与 §12.4 不同，这里**没有可留作第二层的权限规则**，
+`sandbox-exec` 是唯一的边界，适配器在拿不到它时直接拒绝测量。seatbelt 配置与镜像逻辑与
+opencode 共用 `src/aibench/agents/cli_sandbox.py`——安全边界有两份拷贝，就是两份拷贝开始
+漂移、而只有一份拿到修复的开始。
+
+**工作区同样镜像到仓库外**，理由与 opencode 不同：pi 不向上找 git 根，但它发现
+`AGENTS.md` / `CLAUDE.md` 时会**一路向上走到 `/`**，工作区留在仓库里就会把本仓库的说明
+读成被测题面的上下文。`--no-context-files` 之外，staging 目录本身是第二道。
+
+**pi 没有步数预算。** `pi --help` 与其 settings 手册里都没有 turn / step 上限。放着不管，
+`budget_axis: steps` 对这个适配器就是一句空话，所以预算由适配器执行：边流边读 JSON 事件、
+数 `turn_end`、到预算就按进程组 kill。**这与 opencode 的停法不同**——opencode 告诉模型步数
+用尽、模型在预算内收尾，而 pi 是在第 N+1 轮进行中被杀：那一轮的 token 已经付了且不会被报，
+模型也没有收尾的机会。混用两种执行方式的阶梯面板变动的不只是预算，所以本次不发 pi 的阶梯
+锚点。
+
+**运行身份可复算**：provider、网关、模型、采样、工具集、信任策略全部每次运行生成到临时
+`PI_CODING_AGENT_DIR`，不读操作者的 `~/.pi/agent`（连 `trust.json` 也一并隔离——否则一条
+存在父目录上的信任决定会绕过 `defaultProjectTrust: never`）。`samplingParams` 必须写：
+**pi 对 OpenAI 兼容端点默认不发 temperature**，而 `runner.py` 无论适配器发了什么都会把模型
+配置里的 `temperature` / `max_tokens` 盖进 manifest——漏了就会发布一份「记作 temperature=0、
+实际按网关默认采样」的运行。`maxTokens` 同理：pi 自己的默认是 16384 而不是 8192。
+API key 以 `$AIBENCH_PI_API_KEY` 写进 `models.json` 并从子进程环境解析，不落盘：staging
+目录在硬崩溃后是留得下来的。
+
+**token 口径**：同一份用量 pi 会报四次——`message_update` 上是**累计值**，`turn_end` 重发
+消息，`agent_end` 重发整场所有消息。只认 `role: assistant` 的 `message_end`，否则总量虚高
+三到四倍，而「token 非零」这类检查照样通过。字段映射按 pi 自己的账：
+`input = promptTokens - cacheRead - cacheWrite`，`output` 直接取 `completion_tokens`
+（**已含 reasoning**，再加一次会让推理模型的补全数近乎翻倍），
+`prompt = input + cacheRead + cacheWrite`、`completion = output`、`total = totalTokens`，
+于是每一行都满足 `prompt + completion == total`。
+
+**状态映射**：超时且零模型调用 → `infra_error`。实测把 pi 指向不可达端点，它**一个字节都不
+输出且五分钟不退出**，从外面看与预算耗尽完全同形；判成 timeout 会把一次故障写成模型的失败、
+留在分母里、且不重试。其次才是墙钟超时、步数 kill（先于退出码判断——那个非零码正是适配器
+自己的 SIGKILL）、会话错误、退出码。
+
+**流式驱动的代价**：单次 `communicate()` 顺带保证的三件事要手写回来——stderr 必须并发抽干
+（边读 stdout 边让 stderr 管道满会把子进程锁死，然后这一行以墙钟超时结案，是一条全绿代码
+路径上的错数字）、独立进程组并按组 kill（pi 的 bash 会派生 pytest / node）、
+`stdin=DEVNULL`（pi 会把非 TTY 的 stdin 读到 EOF 并并入首条消息）。
+
+**已知的仪器差异**：pi 的工具控制只有整工具粒度（`--tools` / `--exclude-tools`），没有
+opencode 那样的 bash 命令名白名单。所以 pi 的行是在被保护的 checkout 之外拥有不受限 shell 的
+条件下测得的（含网络出口，而网关凭据在子进程环境里），报告须写明这一点。
+
+**已知未修：staging 目录不在保护范围内。** 被拒的是整个 checkout，而适配器生成的
+`models.json` / `settings.json` 与 seatbelt 配置本身都在 staging 里、与工作区同级，agent 走上
+一级就能读到——`_clean2026` 的基线轮里真有一条用例这么做了（`rev-9fbb2b58ef14ed55`，
+`cat sandbox.sb` 与 `cat pi-agent/models.json`，均成功）。这不泄漏用例答案（gold 解与隐藏测试
+在 checkout 里，被拒），也不泄漏 API key（`models.json` 里是 `$AIBENCH_PI_API_KEY` 这个变量名，
+不是值），但它泄漏网关地址与本次运行的工具配置。修法是把生成的配置移出工作区可达范围，
+或把 staging 的兄弟目录一并拒掉。
+
+---
+
+
 ## 13. 判分（Grading）
 
 | mode | 成功条件 |
@@ -1088,7 +1168,17 @@ uv run python -m aibench plan-sample-size --delta 10 --from-ablation runs/ablati
 | `llm_judge` | 模型评分 ≥ `judge_threshold` |
 | `composite` | 优先 script，再回退 gold 等组合逻辑 |
 
-**没有** grader 命令白名单：`grading.py` 用 `subprocess.run(shell=True)` 在宿主机执行 `grader.command`，无沙箱、无网络限制。（`generate-cases` 侧对**生成出来的**命令有白名单 `_SAFE_GRADER_CMD`，那是另一回事。）Docker/gVisor 隔离未做，是目前最大的安全缺口。  
+**case JSON 是不可信输入。** `grader.command` 与 `context.workspace.setup_commands` 由 case 集提供，
+而 case 集是跨信任边界的东西 —— `export-bundle` 存在的意义就是把它交给别人。两者都经 `safe_command`：
+拒绝 shell 语法、`shlex.split` 后以 `shell=False` 执行，所以 `;` `&&` `|` `>` `$()` 不再有语法含义。
+判分子进程的环境是白名单（`_GRADER_ENV_ALLOWLIST`），被判分的代码读不到 `OPENAI_API_KEY` 与
+`AIBENCH_DB_URL`；需要额外变量用 run config 的 `grader_env_passthrough` 显式声明。
+
+**但判分仍在宿主机上跑，没有容器、没有资源限制、没有网络限制。** 被判分的代码是模型写的或 case 自带的，
+它能做本机用户能做的任何事。Docker/gVisor 隔离未做，是目前最大的安全缺口。
+**拿到来路不明的 case 集，先跑 `validate-cases`** —— 它只读不执行，且会拒绝上面那些形态；
+`audit-cases`、`run`、`ablation`、`calibrate-cases` 都会执行 case 提供的内容。
+
 主指标仅统计 **非 infra_error** 的 case。
 
 ### 13.1 隐藏测试与保护路径
@@ -1766,7 +1856,7 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 
 - 实验标识：`run_id`、`experiment_name`、`experiment_time`
 - **执行身份**（2026-08-11 新增，见下）：`code_version`、`harness_digest`、`dependency_digest`、
-  `venv_digest`、`python_version`、`node_version`、`opencode_version`、`platform`、`gateway_base_url`
+  `venv_digest`、`python_version`、`node_version`、`opencode_version`、`pi_version`、`platform`、`gateway_base_url`
 - Benchmark 口径：`benchmark_name`、`case_set`、`case_count`、`effective_case_count`、`grouping`
 - 算法配置：预算轴/值、分支、attempts、steps、选择策略
 - Agent 与模型：名称版本、主模型、组合摘要、采样参数
@@ -1785,7 +1875,7 @@ uv run python -m aibench promote --from-set auto-v0 --to-set prod-v0 \
 | `code_version` | 运行时 `git rev-parse --short HEAD`，工作树脏时加 `-dirty`。仓库根与 `repo_root()` 不一致、或 git 不可用时为 `unknown-worktree`；无法判定干净与否时为 `<sha>-unknown-cleanliness` |
 | `harness_digest` | 决定「一次跑测意味着什么」的源码摘要：`agents/` + `grading.py` + `workspace.py` + `runner.py` + `languages.py` + `retry.py` + `models.py` + `env_config.py` + `calibrate.py` + `stats.py`（**十项**；后两项 2026-08-17 补入 —— 它们决定一次校准意味着什么，漏掉会让 `--reuse-from` 把旧的点二列相关系数带过一次估计器变更）。也并入 `anchor_fingerprint` |
 | `dependency_digest` | `uv.lock` 的哈希，依赖变动可见 |
-| `python_version` / `node_version` / `opencode_version` | 实际运行时版本。`opencode_version` 记录脚手架本身——不同版本是不同的仪器 |
+| `python_version` / `node_version` / `opencode_version` / `pi_version` | 实际运行时版本。脚手架版本是仪器身份——不同版本是不同的仪器 |
 | `venv_digest` | 解释器所在虚拟环境的内容哈希，取代了原来的 `python_executable`：回答「是不是同一套依赖」而不写出本机路径 |
 | `platform` | 操作系统与架构。macOS 有 `sandbox-exec`，Linux 没有，两边量的不是同一个边界 |
 | `gateway_base_url` | 环境里解析到的网关地址。**API key 从不进入产物**，有测试锁住 |

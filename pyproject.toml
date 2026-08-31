@@ -3,7 +3,9 @@ name = "aibench"
 version = "0.1.0"
 description = "AI-assisted programming benchmark harness for Agentic Scaling"
 readme = "README.md"
-requires-python = ">=3.11"
+# 3.11.4, not 3.11: `tarfile.extractall(filter=...)` — which `_safe_extract_tar` relies on to
+# reject device nodes and strip setuid bits — was backported no earlier than that.
+requires-python = ">=3.11.4"
 # Not an open-source grant. `LICENSE` reserves all rights; this restates it in the metadata so a
 # packaging tool or a mirror cannot present the project as unlicensed-therefore-free.
 license = { text = "LicenseRef-Proprietary" }

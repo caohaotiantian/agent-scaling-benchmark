@@ -613,12 +613,11 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         summary = load_json(run_dir / "summary.json")
         print(f"run_dir={run_dir}")
-        print(
-            f"success_rate={summary['success_rate']:.3f} "
-            f"({summary['success_count']}/{summary['effective_case_count']}) "
-            f"tokens={summary['total_tokens']} cost={summary.get('total_cost')}"
-        )
         if not summary["effective_case_count"]:
+            # Before the rate is formatted, not after: `build_summary` reports `success_rate:
+            # None` here rather than 0.0, so formatting first raised `TypeError` and this
+            # diagnosis was unreachable — the reader got a traceback in its place.
+            #
             # A run where every case died on the harness exited 0 and wrote a complete report
             # reading `success_rate: 0.0` — which a script, or a reader in a hurry, takes as a
             # capability result. The artifacts are still written: the failure is worth keeping.
@@ -628,6 +627,12 @@ def main(argv: list[str] | None = None) -> int:
                 f"Check credentials, the gateway and `aibench doctor`; see {run_dir}/report.md."
             )
             return 1
+        # Stays below the guard above: `success_rate` is None when nothing was effective.
+        print(
+            f"success_rate={summary['success_rate']:.3f} "
+            f"({summary['success_count']}/{summary['effective_case_count']}) "
+            f"tokens={summary['total_tokens']} cost={summary.get('total_cost')}"
+        )
         return 0
 
     if args.cmd == "validate-cases":

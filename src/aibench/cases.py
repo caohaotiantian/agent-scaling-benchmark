@@ -160,7 +160,14 @@ def load_cases(case_set: str, validate: bool = True) -> list[Case]:
 
 
 def validate_case_set(case_set: str) -> list[str]:
-    """Return list of error strings; empty means OK."""
+    """Return list of error strings; empty means OK.
+
+    This is the one command that reads a case set without executing any of it, which makes it
+    the safe first thing to run on a set someone handed you — so it has to see everything the
+    executing commands would refuse. JSON Schema alone does not: the shell-syntax check on
+    `grader.command` and `setup_commands` lives in `Case.from_dict`, which schema validation
+    never reaches.
+    """
     errors: list[str] = []
     try:
         paths = iter_case_paths(case_set)
@@ -178,9 +185,17 @@ def validate_case_set(case_set: str) -> list[str]:
             continue
         for err in sorted(validator.iter_errors(raw), key=lambda e: list(e.path)):
             errors.append(f"{path.name}: {err.message}")
+        try:
+            Case.from_dict(raw)
+        except (ValueError, KeyError, TypeError) as e:
+            errors.append(f"{path.name}: {e}")
         cid = raw.get("case_id")
         if isinstance(cid, str):
-            if cid in seen_ids:
-                errors.append(f"{path.name}: duplicate case_id {cid}")
-            seen_ids.add(cid)
+            # Case-folded: the id is a directory name, and on APFS or NTFS `Foo` and `foo` are
+            # the same directory — two cases would share one `case_dir`, and materialization
+            # starts by deleting it.
+            folded = cid.casefold()
+            if folded in seen_ids:
+                errors.append(f"{path.name}: duplicate case_id {cid} (ignoring case)")
+            seen_ids.add(folded)
     return errors

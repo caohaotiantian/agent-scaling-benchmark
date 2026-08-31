@@ -12,7 +12,13 @@ from aibench.ablation import (
     compare_runs_pairwise,
     diff_axes_against_baseline,
 )
-from aibench.report import build_summary, render_report_md, resolved_usd_rate
+from aibench.report import (
+    build_summary,
+    format_pct,
+    render_report_md,
+    render_summary_tables_json,
+    resolved_usd_rate,
+)
 from aibench.runner import _aggregate_attempts, selection_is_oracle
 
 
@@ -239,3 +245,95 @@ class TestTheCostEstimateNamesItsRate:
         )
         assert summary["total_cost"] == 2.0
         assert summary["cost_rate"]["source"] == "AIBENCH_USD_PER_MTOK"
+
+
+class TestARunThatMeasuredNothingRendersAsUnmeasured:
+    """`success_rate` is None when every case died on infrastructure. Rendering it as 0.0% is
+    the claim the None was introduced to avoid, and the headline was the one number in the
+    report that did not go through `format_pct`."""
+
+    def _rendered(self, infra: bool):
+        rows = [
+            _attempt(
+                not infra,
+                case_id=f"c{i}",
+                infra_error=infra,
+                agent_status="error" if infra else "completed",
+                task_type="bugfix",
+            )
+            for i in range(3)
+        ]
+        summary = build_summary(
+            run_id="r",
+            run_manifest={
+                "run_id": "r",
+                "case_set": "s",
+                "case_count": 3,
+                "primary_metric_name": "task_success_rate",
+            },
+            case_results=rows,
+            elapsed_wall_s=1.0,
+        )
+        return summary, render_report_md(summary, rows), render_summary_tables_json(summary)
+
+    def _overview_row(self, md: str) -> list[str]:
+        """The single-row table at the top of the report — the first number anyone quotes."""
+        body = md.split("## 项目效果综述表（单行）", 1)[1].split("\n## ", 1)[0]
+        rows = [ln for ln in body.splitlines() if ln.startswith("|")]
+        return [c.strip() for c in rows[2].strip().strip("|").split("|")]  # header, ---, data
+
+    def test_the_headline_says_unmeasured(self):
+        summary, md, tables = self._rendered(infra=True)
+        assert summary["success_rate"] is None
+        assert "| 主指标值 | - |" in md
+        assert "| 成功率 | - |" in md
+        # The single-row table renders the same metric from the same variable, and had no test.
+        assert self._overview_row(md)[6] == "-"
+        assert tables["overview_row"]["主指标值"] == "-"
+        # `general_row` already reported the raw rate under 成功率; 主指标值 now agrees with it.
+        assert tables["general_row"]["主指标值"] is None
+        assert tables["general_row"]["成功率"] is None
+        # `完成率` sat in the same dict claiming "0% of the cases reached grading". None did.
+        assert summary["completion_rate"] is None
+        assert tables["general_row"]["完成率"] is None
+
+    def test_the_wilson_interval_is_a_dash_not_the_word_none(self):
+        _, md, _ = self._rendered(infra=True)
+        # `format_wilson_ci(0, 0)` is None, and the row printed it verbatim.
+        assert "| 成功率 95% CI | - |" in md
+        assert "| 成功率 95% CI | None |" not in md
+
+    def test_a_run_that_measured_something_still_reports_it(self):
+        summary, md, tables = self._rendered(infra=False)
+        assert summary["success_rate"] == 1.0
+        assert "| 主指标值 | 100.0% |" in md
+        assert "| 成功率 | 100.0% |" in md
+        assert tables["overview_row"]["主指标值"] == "100.0%"
+        assert tables["general_row"]["主指标值"] == 1.0
+        assert self._overview_row(md)[6] == "100.0%"
+
+    def test_a_real_zero_is_still_reported_as_zero(self):
+        """Every rendering point now routes through one predicate. `if not value` would read a
+        genuine 0% — a run that attempted every case and solved none — as unmeasured, in the
+        report, the tables, the ablation and the XLSX at once, with nothing to catch it."""
+        rows = [
+            _attempt(False, case_id=f"c{i}", infra_error=False, agent_status="completed")
+            for i in range(3)
+        ]
+        summary = build_summary(
+            run_id="r",
+            run_manifest={"run_id": "r", "case_set": "s", "case_count": 3},
+            case_results=rows,
+            elapsed_wall_s=1.0,
+        )
+        assert summary["success_rate"] == 0.0
+        assert summary["effective_case_count"] == 3
+        md = render_report_md(summary, rows)
+        assert "| 主指标值 | 0.0% |" in md
+        assert "| 成功率 | 0.0% |" in md
+        assert "-" not in self._overview_row(md)[6]
+        tables = render_summary_tables_json(summary)
+        assert tables["overview_row"]["主指标值"] == "0.0%"
+        assert tables["general_row"]["主指标值"] == 0.0
+        assert summary["completion_rate"] == 1.0  # they all reached grading; none of them passed
+        assert format_pct(0.0) == "0.0%"

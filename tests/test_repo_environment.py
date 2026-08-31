@@ -190,7 +190,7 @@ class TestTheDoctorAnswersInsteadOfAComment:
         from aibench.preflight import run_checks
 
         names = {c.name for c in run_checks()}
-        assert names == {"python", "node", "grading-env", "opencode", "opencode-sandbox"}
+        assert names == {"python", "node", "grading-env", "opencode", "pi", "opencode-sandbox"}
 
     def test_the_node_check_agrees_with_the_grader(self):
         from aibench.languages import unsupported_node_reason

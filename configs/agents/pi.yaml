@@ -1,0 +1,44 @@
+# Production: a second real coding agent (pi), driven as a subprocess.
+#
+# One production-agent adapter is not enough to separate a model from a scaffold: with only
+# `opencode`, every "how does this model do inside a coding agent" number is also a statement
+# about opencode. pi is a different harness over the same wire protocol, so the same cases run
+# through both say which part of the result belonged to the CLI.
+#
+# Everything pi is told is generated per run from configs/models/*.yaml and .env into a
+# throwaway PI_CODING_AGENT_DIR, so the measurement does not depend on the operator's
+# ~/.pi/agent — not its models.json, not its settings.json, and not its trust.json.
+#
+# pi ships no sandbox of its own and says so in its own security documentation, so the
+# filesystem boundary here is entirely `sandbox-exec` and the adapter refuses to measure
+# without one. The run records `artifacts.sandboxed`.
+#
+# pi also has no step budget of its own. `max_steps` is enforced by this adapter: it counts
+# `turn_end` events in pi's JSON stream and kills the process group at the budget. That is a
+# harder stop than opencode's, which tells the model it is out of steps and lets it close
+# inside the budget — so a calibration ladder mixing the two adapters' rungs would be varying
+# the enforcement mechanism as well as the budget. No pi ladder rungs ship for that reason;
+# decide after there is a measurement.
+#
+# Requires the `pi` binary on PATH and OPENAI_API_KEY + OPENAI_BASE_URL, or the equivalents
+# named by the model config. Install with:
+#   npm install -g @earendil-works/pi-coding-agent
+# The version is pinned below rather than named in a comment: a different scaffold version is
+# a different instrument, and the adapter refuses a mismatch instead of quietly measuring one.
+# Check with `uv run python -m aibench doctor`.
+name: pi
+version: "1.0.0"
+adapter: pi
+description: >
+  pi driven headlessly in a mirrored workspace: reads, edits, and runs the tests on its own,
+  with a pinned tool set and filesystem access confined by sandbox-exec.
+# Multi-step with read/edit/bash and no files pasted into the prompt: it has to find the code
+# (A2) and can react to test output (A3), so it can exercise every axis.
+capability_axes: [A1, A2, A3, A4, A5, A6]
+options:
+  # Refused at run start when `pi --version` disagrees, and stamped into the manifest.
+  expected_version: "0.84.3"
+  # Step budget comes from the run config's max_steps unless set here.
+  system_prompt: |
+    You are a coding agent working in the given directory. Fix the defect so the project's
+    tests pass. Edit files directly. Do not modify the tests.

@@ -24,7 +24,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from aibench.io_util import write_json
+from aibench.io_util import safe_case_id, write_json
 
 #: Sits beside the cases it describes, so moving the directory keeps the resume information.
 JOURNAL_NAME = "_progress.jsonl"
@@ -163,7 +163,7 @@ class CaseSink:
         with self._lock:
             if self.written >= self._max:
                 return "full"
-            cid = str(case.get("case_id") or "")
+            cid = safe_case_id(str(case.get("case_id") or ""))
             if cid in self.written_ids:
                 # The filename is the case_id, so a repeat would silently overwrite its
                 # predecessor: a 600-case run once reported 600 and left 575 files.
