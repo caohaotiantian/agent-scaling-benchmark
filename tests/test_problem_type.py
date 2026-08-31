@@ -193,6 +193,10 @@ def test_malformed_gold_files_do_not_raise():
     case = _case("def a():\n    return 1\n", "def a():\n    return 1\n")
     case["grader"]["gold_files"] = ["oops", {"path": "mod.py"}]
     assert classify_problem_type(case).problem_type in PROBLEM_TYPES
+    case["grader"] = "not-an-object"
+    assert stamp_problem_type(case).problem_type == "other"
+    case["grader"] = {"mode": "script", "gold_files": 1}
+    assert stamp_problem_type(case).problem_type == "other"
 
 
 def test_empty_stub_new_symbol_is_missing_symbol_not_wholesale():
@@ -375,7 +379,7 @@ def test_classify_cases_skips_a_broken_file_and_still_labels_the_rest(
 def test_distribution_counts_unset():
     assert distribution([{"metadata": {}}, {"metadata": {"problem_type": "other"}}]) == {
         "other": 1,
-        "unset": 1,
+        "unknown": 1,
     }
 
 

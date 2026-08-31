@@ -859,7 +859,7 @@ def main(argv: list[str] | None = None) -> int:
                 return None
             settled = (case.get("metadata") or {}).get("tier") or "unset"
             tier_counts_seen[settled] = tier_counts_seen.get(settled, 0) + 1
-            pt = (case.get("metadata") or {}).get("problem_type") or "unset"
+            pt = (case.get("metadata") or {}).get("problem_type") or "unknown"
             problem_type_counts_seen[pt] = problem_type_counts_seen.get(pt, 0) + 1
             print(f"  {label} {case['case_id']} <- {path.name}", flush=True)
             return case

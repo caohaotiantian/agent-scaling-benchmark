@@ -86,7 +86,12 @@ class ProblemTypeResult:
 
 def stamp_problem_type(case: dict[str, Any]) -> ProblemTypeResult:
     """Write `metadata.problem_type` (and source/reasons). Always succeeds."""
-    result = classify_problem_type(case)
+    try:
+        result = classify_problem_type(case)
+    except Exception as e:
+        result = ProblemTypeResult("other", [f"classify_error:{type(e).__name__}"])
+    if not isinstance(case, dict):
+        return result
     meta = case.get("metadata")
     if not isinstance(meta, dict):
         meta = {}
@@ -98,8 +103,13 @@ def stamp_problem_type(case: dict[str, Any]) -> ProblemTypeResult:
 
 
 def classify_problem_type(case: dict[str, Any] | Any) -> ProblemTypeResult:
-    raw = case if isinstance(case, dict) else getattr(case, "raw", None) or {}
-    pairs = _impl_gold_pairs(raw)
+    raw = case if isinstance(case, dict) else getattr(case, "raw", None)
+    if not isinstance(raw, dict):
+        return ProblemTypeResult("other", ["malformed_case"])
+    try:
+        pairs = _impl_gold_pairs(raw)
+    except (TypeError, AttributeError):
+        return ProblemTypeResult("other", ["malformed_workspace"])
     if not pairs:
         return _from_prompt(str(raw.get("prompt") or ""), "no_reference_solution")
 
@@ -138,23 +148,27 @@ def distribution(cases: list[dict[str, Any]]) -> dict[str, int]:
     counts: Counter[str] = Counter()
     for case in cases:
         meta = case.get("metadata") or {}
-        counts[str(meta.get("problem_type") or "unset")] += 1
+        counts[str(meta.get("problem_type") or "unknown")] += 1
     return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 def _file_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
     out: list[dict[str, Any]] = []
-    for item in value or []:
+    for item in value:
         if isinstance(item, dict) and str(item.get("path") or "").strip():
             out.append(item)
     return out
 
 
 def _impl_gold_pairs(case: dict[str, Any]) -> list[tuple[str, str, str]]:
-    gold_files = _file_dicts((case.get("grader") or {}).get("gold_files"))
+    grader = case.get("grader")
+    ctx = case.get("context")
+    gold_files = _file_dicts(grader.get("gold_files") if isinstance(grader, dict) else None)
     if not gold_files:
         return []
-    files = _file_dicts((case.get("context") or {}).get("files"))
+    files = _file_dicts(ctx.get("files") if isinstance(ctx, dict) else None)
     by_path = {str(f.get("path") or ""): f for f in files}
     out: list[tuple[str, str, str]] = []
     for g in gold_files:
